@@ -1,3 +1,5 @@
 # GITIGNORE
 
 .idea/
+tests/test_data/
+__pycache__/

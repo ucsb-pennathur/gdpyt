@@ -1,4 +1,9 @@
 import cv2
+import numpy as np
+from .preprocessing import apply_filter
+from .particle_identification import apply_threshold, identify_contours
+from .GdptParticle import GdpytParticle
+from os.path import isfile
 
 class GdptImage(object):
     """
@@ -7,7 +12,7 @@ class GdptImage(object):
     the z coordinate is passed when creating an instance
     """
 
-    def __init__(self, path, z=None):
+    def __init__(self, path):
         super(GdptImage, self).__init__()
         # Attributes with an underscore as the first character are "internal use". That means that they are only meant
         # to be modified by methods of this class.
@@ -16,6 +21,10 @@ class GdptImage(object):
         # We don't really want any other part of the program to change this attribute, since the particles in an image
         # are always going to be those that were identified with identify_particles. If this attribute isn't marked as
         # "internal use", other parts of the program could by accident add or delete particles.
+
+        if not isfile(path):
+            raise ValueError("{} is not a valid file".format(path))
+
         self._filepath = path
         self._filename = path.split('\\')[-1]
 
@@ -23,24 +32,14 @@ class GdptImage(object):
         self.load(path)
 
         # Filtered image. This attribute is assigned by using the filter_image method
-        self._processed = None
+        self._filtered = None
         self._processing_stats = None
+        self._masked = None
 
         # Particles: dictionary {particle_id: Particle object}
         # This dictionary is filled up with the identify_particles method
         self._particles = {}
-
-        if z is not None:
-            self.set_z(z)
-        else:
-            self._z = None
-
-    # The property decorator enables the decorated function to be called by GdptImage.raw instead of GdptImage.raw().
-    # They make the "internal use" attributes available to the user.
-    # e.g. image = GdptImage.raw -> image is a reference to whatever is saved in the ._raw attribute.
-    # However, trying to assign something will raise an error, for example: GdptImage.raw = cv2.imread('image.png')
-    # We want to make it impossible to change ._raw from outside of this class and that's a way to do it. You can look
-    # at what's inside but you can't change it
+        self._z = None
 
     @property
     def raw(self):
@@ -48,7 +47,7 @@ class GdptImage(object):
 
     @property
     def processed(self):
-        return self._processed
+        return self._filtered
 
     @property
     def filename(self):
@@ -58,8 +57,11 @@ class GdptImage(object):
     def filepath(self):
         return self._filepath
 
-    def load(self, path):
-        self._raw = cv2.imread(self._filepath)
+    def load(self, path, brightness_factor=100):
+        img = cv2.imread(self._filepath, cv2.IMREAD_UNCHANGED)
+        self._raw = img * brightness_factor
+        # Calculate histogram
+        self._histogram = cv2.calcHist([self._raw], [0], None, [256], [0, 256])
 
     def set_z(self, z):
         assert isinstance(z, float)
@@ -68,7 +70,7 @@ class GdptImage(object):
         for particle in self.particles.values():
             particle.set_z(z)
 
-    def filter_image(self, filterdict):
+    def filter_image(self, filterspecs):
         """
         This is basically you image_smoothing function. The argument filterdict are similar to the arguments of the
         image_smoothing function.
@@ -78,14 +80,59 @@ class GdptImage(object):
 
         This method should assign self._processed and self._processing_stats
         """
-        pass
+        img = (self._raw / 256).astype(np.uint8)
+        for process_func in filterspecs.keys():
+            func = eval(process_func)
+            args = filterspecs[process_func]['args']
+            if 'kwargs' in filterspecs[process_func].keys():
+                kwargs = filterspecs[process_func]['kwargs']
+            else:
+                kwargs = {}
 
-    def identify_particles(self):
-        """
-        PSEUDO CODE
-        particle_templates, centers = find_circles(self.processed)
+            img = apply_filter(img, func, *args, **kwargs)
 
-        for id, (template, center) in enumerate(zip(particle_templates, centers)):
-            self._particle.update({id, GdptParticle(id, template, center...)
-        """
-        pass
+        self._filtered = img.astype(np.uint8)
+        self._histogram_preprocessed = cv2.calcHist([img], [0], None, [256], [0, 256])
+
+    def identify_particles(self, min_size=None, max_size=None):
+        particles = {}
+
+        _, particle_mask = apply_threshold(self.filtered)
+        masked_img = cv2.bitwise_and(self.filtered, self.filtered, mask=particle_mask)
+        contours, bboxes = identify_contours(particle_mask)
+
+        # Sort contours and bboxes by x-coordinate:
+        for id, cont_bbox in enumerate(sorted(zip(contours, bboxes), key=lambda b: b[1][0], reverse=True)):
+            contour = cont_bbox[0]
+            contour_area = abs(cv2.contourArea(contour))
+
+            # If specified, check if contour is too small or too large. If true, skip the creation of the particle
+            if min_size is not None:
+                if contour_area < min_size:
+                    continue
+            if max_size is not None:
+                if contour_area > max_size:
+                    continue
+
+            bbox = cont_bbox[1]
+            x, y, w, h = bbox
+            template = self._filtered[y: y + h, x: x + w]
+            particles.update({id: GdpytParticle(id, template, contour, bbox)})
+
+        self._particles = particles
+
+    def draw_particles(self, contour_color=(0, 255, 0), thickness=2):
+        canvas = self._raw.copy()
+        for id, particle in self.particles.items():
+            cv2.drawContours(canvas, [particle.contour], -1, contour_color, thickness)
+
+        return canvas
+
+
+    @property
+    def particles(self):
+        return self._particles
+
+    @property
+    def filtered(self):
+        return self._filtered
