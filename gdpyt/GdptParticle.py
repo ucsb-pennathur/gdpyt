@@ -2,21 +2,25 @@ import cv2
 
 class GdpytParticle(object):
 
-    def __init__(self, id, template, contour, bbox):
+    def __init__(self, image, id, template, contour, bbox):
         self._id = id
+        self._image = image
         self._template = template
         self._contour = contour
         self._bbox = bbox
-
+        self._compute_center()
+        self._compute_convex_hull()
         #location are the x,y coordinates of the particle. eg [45,65] or (45, 67)
         # The assert statement will raise an error if this is not a length two iterable
-
 
     # This sets the height
     #
     def set_z(self, z):
         assert isinstance(z, float)
         self._z = z
+
+    def set_id(self, id):
+        self._id = id
 
     def _compute_convex_hull(self):
         hull = cv2.convexHull(self.contour)
@@ -58,3 +62,7 @@ class GdpytParticle(object):
     @property
     def solidity(self):
         return self._solidity
+
+    @property
+    def location(self):
+        return self._location

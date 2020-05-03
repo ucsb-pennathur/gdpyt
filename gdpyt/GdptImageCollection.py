@@ -1,6 +1,9 @@
 from .GdptImage import GdptImage#, GdptCalibrationStack
 from os.path import join, isdir
 from os import listdir
+from sklearn.neighbors import NearestNeighbors
+import pandas as pd
+import numpy as np
 import logging
 
 logger = logging.getLogger()
@@ -26,6 +29,7 @@ class GdptImageCollection(object):
 
         self.filter_images()
         self.identify_particles()
+        #self.uniformize_particle_ids()
 
     def _find_files(self):
         """
@@ -49,6 +53,66 @@ class GdptImageCollection(object):
             images.update({img.filename: img})
             logger.warning('Loaded image {}'.format(img.filename))
         self._images = images
+
+    def uniformize_particle_ids(self, baseline=None, threshold=10):
+        baseline_img = self._files[0]
+        baseline_img = self.images[baseline_img]
+
+        baseline_locations = []
+        for particle in baseline_img.particles.values():
+            baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'z': particle.location[1]}, index=[particle.id]))
+        baseline_locations = pd.concat(baseline_locations).sort_index()
+
+        # The next particle that can't be matched to a particle in the baseline gets this id
+        next_id = len(baseline_locations)
+
+        for file in self._files[1:]:
+            image = self.images[file]
+            # Convert to list because ordering is important
+            particles = [particle for particle in image.particles.values()]
+            locations = [list(p.location) for p in particles]
+
+            if len(locations) == 0:
+                continue
+
+            nneigh = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(baseline_locations.values)
+            distances, indices = nneigh.kneighbors(np.array(locations))
+
+            for distance, idx, particle in zip(distances, indices, particles):
+                # If the particle is close enough to a particle of the baseline, give that particle the same ID as the
+                # particle in the baseline
+                if distance < threshold:
+                    particle.set_id(baseline_locations.index[idx])
+                else:
+                    # If the particle is not in the baseline, assign it a new, non-existent id and add it to the baseline
+                    # for the subsequent images
+                    particle.set_id(next_id)
+                    assert (next_id not in baseline_locations.index)
+                    baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'y': particle.location[1]},
+                                                           index=[particle.id]))
+                    next_id += 1
+
+
+
+
+    def _check_particle_consistency(self, tolerance):
+        all_ids = set()
+        for image in self.images.values():
+            all_ids.union(set(image.particles.keys()))
+
+        particle_locs = pd.DataFrame()
+        for image in self.images.values():
+            locs_this_img = []
+            id_this_img = all_ids.intersection(list(image.particles.keys()))
+            for id in sorted(id_this_img):
+                location = image.particles[id].location
+                locs_this_img.append(pd.DataFrame({'image': image.filename, 'id': id, 'x': location[0], 'y': location[1]}))
+            particle_locs.append(pd.concat(locs_this_img))
+        particle_locs = pd.concat(particle_locs)
+        median_loc = particle_locs[['id', 'x', 'y']].groupby(['id']).median().rename(columns={'x': 'x_med', 'y': 'y_med'})
+        particle_locs = particle_locs.join(median_loc.set_index('id'), on='id')
+
+
 
     def update_processing(self, processing_specs, erase_old=False):
         if not isinstance(processing_specs, dict):
@@ -80,6 +144,10 @@ class GdptImageCollection(object):
     @property
     def images(self):
         return self._images
+
+    @property
+    def files(self):
+        return self._files
 
     def identify_particles(self):
         for image in self.images.values():

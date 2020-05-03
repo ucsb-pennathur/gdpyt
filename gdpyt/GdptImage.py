@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 from .preprocessing import apply_filter
-from .particle_identification import apply_threshold, identify_contours
+from .particle_identification import apply_threshold, identify_contours, identify_circles
 from .GdptParticle import GdpytParticle
 from os.path import isfile
 
@@ -94,18 +94,20 @@ class GdptImage(object):
         self._filtered = img.astype(np.uint8)
         self._histogram_preprocessed = cv2.calcHist([img], [0], None, [256], [0, 256])
 
-    def identify_particles(self, min_size=None, max_size=None):
+    def identify_particles(self, min_size=None, max_size=None, find_circles=False):
         particles = {}
 
-        _, particle_mask = apply_threshold(self.filtered)
-        masked_img = cv2.bitwise_and(self.filtered, self.filtered, mask=particle_mask)
-        contours, bboxes = identify_contours(particle_mask)
-
+        if not find_circles:
+            _, particle_mask = apply_threshold(self.filtered)
+            masked_img = cv2.bitwise_and(self.filtered, self.filtered, mask=particle_mask)
+            contours, bboxes = identify_contours(particle_mask)
+        else:
+            contours, bboxes = identify_circles(self.filtered)
+        id = 0
         # Sort contours and bboxes by x-coordinate:
-        for id, cont_bbox in enumerate(sorted(zip(contours, bboxes), key=lambda b: b[1][0], reverse=True)):
+        for cont_bbox in sorted(zip(contours, bboxes), key=lambda b: b[1][0], reverse=True):
             contour = cont_bbox[0]
             contour_area = abs(cv2.contourArea(contour))
-
             # If specified, check if contour is too small or too large. If true, skip the creation of the particle
             if min_size is not None:
                 if contour_area < min_size:
@@ -117,7 +119,8 @@ class GdptImage(object):
             bbox = cont_bbox[1]
             x, y, w, h = bbox
             template = self._filtered[y: y + h, x: x + w]
-            particles.update({id: GdpytParticle(id, template, contour, bbox)})
+            particles.update({id: GdpytParticle(self, id, template, contour, bbox)})
+            id += 1
 
         self._particles = particles
 
@@ -128,6 +131,8 @@ class GdptImage(object):
 
         return canvas
 
+    def shape(self):
+        return self.raw.shape
 
     @property
     def particles(self):
