@@ -1,11 +1,9 @@
-from .GdptImageCollection import GdptImageCollection
-from .GdptCalibrationStack import GdptCalibratioStack
+from .GdpytCalibrationStack import GdpytCalibratioStack
 
-class GdptCalibrationSet(object)
+class GdpytCalibrationSet(object):
 
     def __init__(self, collection, image_to_z):
-        super(GdptCalibrationSet, self).__init__()
-        assert isinstance(collection, GdptImageCollection)
+        super(GdpytCalibrationSet, self).__init__()
         self._collection = collection
 
         if not isinstance(image_to_z, dict):
@@ -17,23 +15,29 @@ class GdptCalibrationSet(object)
                 raise ValueError("No z coordinate specified for image {}")
             else:
                 image.set_z(image_to_z[image.filename])
+        self._create_stacks()
+
+    def __len__(self):
+        return len(self.calibration_stacks)
 
     def _create_stacks(self):
         stacks = {}
         for image in self.collection.images.values():
-            for particle_id, particle in image.particles.items():
-                assert particle_id == particle.id
-                if particle_id not in stacks.keys():
-                    new_stack = GdptCalibratioStack(particle_id, particle.location)
-                    new_stack.add_layer(particle.z, particle.template)
-                    stacks.update({particle_id: new_stack})
+            for particle in image.particles:
+                if particle.id not in stacks.keys():
+                    new_stack = GdpytCalibratioStack(particle.id, particle.location)
+                    new_stack.add_particle(particle)
+                    stacks.update({particle.id: new_stack})
                 else:
-                    stacks[particle_id].add_layer(particle.z, particle.template)
+                    stacks[particle.id].add_particle(particle)
+
+        for stack in stacks.values():
+            stack.build_layers()
 
         self._calibration_stacks = stacks
 
     def infer_z(self, image):
-        for particle in image.particles.values()
+        for particle in image.particles:
             stack = self.calibration_stacks[particle.id]
             stack.infer_height(particle)
 
@@ -41,5 +45,6 @@ class GdptCalibrationSet(object)
     def collection(self):
         return self._collection
 
+    @property
     def calibration_stacks(self):
         return self._calibration_stacks

@@ -1,3 +1,3 @@
-from .GdptImageCollection import GdptImageCollection
-from .GdptImage import GdptImage
-from .GdptParticle import GdpytParticle
+from .GdpytImageCollection import GdpytImageCollection
+from .GdpytImage import GdpytImage
+from .GdpytParticle import GdpytParticle

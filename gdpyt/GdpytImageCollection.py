@@ -1,6 +1,8 @@
-from .GdptImage import GdptImage#, GdptCalibrationStack
+from .GdpytImage import GdpytImage#, GdptCalibrationStack
+from .GdpytCalibrationSet import GdpytCalibrationSet
 from os.path import join, isdir
 from os import listdir
+from collections import OrderedDict
 from sklearn.neighbors import NearestNeighbors
 import pandas as pd
 import numpy as np
@@ -8,10 +10,10 @@ import logging
 
 logger = logging.getLogger()
 
-class GdptImageCollection(object):
+class GdpytImageCollection(object):
 
     def __init__(self, folder, filetype, processing_specs=None, min_particle_size=None, max_particle_size=None):
-        super(GdptImageCollection, self).__init__()
+        super(GdpytImageCollection, self).__init__()
         if not isdir(folder):
             raise ValueError("Specified folder {} does not exist".format(folder))
         
@@ -31,6 +33,13 @@ class GdptImageCollection(object):
         self.identify_particles()
         #self.uniformize_particle_ids()
 
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, item):
+        key = list(self.images.keys())[item]
+        return self.images[key]
+
     def _find_files(self):
         """
         Identifies all files of filetype filetype in folder
@@ -47,20 +56,21 @@ class GdptImageCollection(object):
         self._files = save_files
 
     def _add_images(self):
-        images = {}
+        images = OrderedDict()
         for file in self._files:
-            img = GdptImage(join(self.folder, file))
+            img = GdpytImage(join(self.folder, file))
             images.update({img.filename: img})
             logger.warning('Loaded image {}'.format(img.filename))
         self._images = images
 
-    def uniformize_particle_ids(self, baseline=None, threshold=10):
+    def uniformize_particle_ids(self, baseline=None, threshold=50):
         baseline_img = self._files[0]
         baseline_img = self.images[baseline_img]
 
         baseline_locations = []
-        for particle in baseline_img.particles.values():
-            baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'z': particle.location[1]}, index=[particle.id]))
+        for particle in baseline_img.particles:
+            baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'y': particle.location[1]},
+                                                   index=[particle.id]))
         baseline_locations = pd.concat(baseline_locations).sort_index()
 
         # The next particle that can't be matched to a particle in the baseline gets this id
@@ -69,7 +79,7 @@ class GdptImageCollection(object):
         for file in self._files[1:]:
             image = self.images[file]
             # Convert to list because ordering is important
-            particles = [particle for particle in image.particles.values()]
+            particles = [particle for particle in image.particles]
             locations = [list(p.location) for p in particles]
 
             if len(locations) == 0:
@@ -82,35 +92,33 @@ class GdptImageCollection(object):
                 # If the particle is close enough to a particle of the baseline, give that particle the same ID as the
                 # particle in the baseline
                 if distance < threshold:
-                    particle.set_id(baseline_locations.index[idx])
+                    particle.set_id(baseline_locations.index.values[idx.squeeze()])
                 else:
                     # If the particle is not in the baseline, assign it a new, non-existent id and add it to the baseline
                     # for the subsequent images
+                    logger.warning("File {}: New IDs: {}".format(file, next_id))
                     particle.set_id(next_id)
                     assert (next_id not in baseline_locations.index)
-                    baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'y': particle.location[1]},
+                    baseline_locations = baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'y': particle.location[1]},
                                                            index=[particle.id]))
                     next_id += 1
 
-
-
-
-    def _check_particle_consistency(self, tolerance):
-        all_ids = set()
-        for image in self.images.values():
-            all_ids.union(set(image.particles.keys()))
-
-        particle_locs = pd.DataFrame()
-        for image in self.images.values():
-            locs_this_img = []
-            id_this_img = all_ids.intersection(list(image.particles.keys()))
-            for id in sorted(id_this_img):
-                location = image.particles[id].location
-                locs_this_img.append(pd.DataFrame({'image': image.filename, 'id': id, 'x': location[0], 'y': location[1]}))
-            particle_locs.append(pd.concat(locs_this_img))
-        particle_locs = pd.concat(particle_locs)
-        median_loc = particle_locs[['id', 'x', 'y']].groupby(['id']).median().rename(columns={'x': 'x_med', 'y': 'y_med'})
-        particle_locs = particle_locs.join(median_loc.set_index('id'), on='id')
+    # def _check_particle_consistency(self, tolerance):
+    #     all_ids = set()
+    #     for image in self.images.values():
+    #         all_ids.union(set(image.particles.keys()))
+    #
+    #     particle_locs = pd.DataFrame()
+    #     for image in self.images.values():
+    #         locs_this_img = []
+    #         id_this_img = all_ids.intersection(list(image.particles.keys()))
+    #         for id in sorted(id_this_img):
+    #             location = image.particles[id].location
+    #             locs_this_img.append(pd.DataFrame({'image': image.filename, 'id': id, 'x': location[0], 'y': location[1]}))
+    #         particle_locs.append(pd.concat(locs_this_img))
+    #     particle_locs = pd.concat(particle_locs)
+    #     median_loc = particle_locs[['id', 'x', 'y']].groupby(['id']).median().rename(columns={'x': 'x_med', 'y': 'y_med'})
+    #     particle_locs = particle_locs.join(median_loc.set_index('id'), on='id')
 
 
 
@@ -164,24 +172,4 @@ class GdptImageCollection(object):
                         This could also be done differently
         :return: A list of GdptCalibrationStacks. One for each particle in the images
         """
-
-        # Assign height to each image
-        for img_name, z in name_to_z.items():
-            self._images[img_name].set_z(z)
-
-        # Get all particle id's
-        all_ids = set()
-        for image in self._images.values():
-            all_ids.add(image.particles.keys())
-
-        calibration_stacks = []
-        for id in all_ids:
-            # For each id, get the Particle object from each image that corresponds to this id
-            this_particle_id = []
-            for image in self._images.values():
-                this_particle_id = image.particles[id]
-
-            calibration_stack = GdptCalibrationStack(this_particle_id)
-            calibration_stacks.append(calibration_stack)
-
-        return calibration_stacks
+        return GdpytCalibrationSet(self, name_to_z)

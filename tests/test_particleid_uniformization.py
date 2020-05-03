@@ -11,12 +11,17 @@ processing = {
 
 collection = GdpytImageCollection(folder, filetype, processing_specs=processing,
                                   min_particle_size=500)
-img = collection.images['calib_53.tif']
-n_particles = len(img.particles.keys())
-fig, ax = plt.subplots(nrows=n_particles)
+collection.uniformize_particle_ids()
 
-for id, a in zip(img.particles.keys(), ax):
-    a.imshow(img.particles[id].template)
-    a.set_title('Particle ID: {}'.format(id))
+n_images = len(collection)
+n_cols = 5
+n_rows = n_images % n_cols + 1
+
+fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(n_rows*6, 2 * n_cols))
+for i in range(n_rows):
+    for j in range(n_cols):
+        n = i * n_rows + j * n_cols
+        axes[i, j].imshow(collection[n].draw_particles(), cmap='gray')
+        axes[i, j].set_title(collection[n].filename)
 
 plt.show()

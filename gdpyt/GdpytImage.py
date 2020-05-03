@@ -2,10 +2,13 @@ import cv2
 import numpy as np
 from .preprocessing import apply_filter
 from .particle_identification import apply_threshold, identify_contours, identify_circles
-from .GdptParticle import GdpytParticle
+from .GdpytParticle import GdpytParticle
 from os.path import isfile
+import logging
 
-class GdptImage(object):
+logger = logging.getLogger()
+
+class GdpytImage(object):
     """
     This class holds an image along with it's properties such as the
     raw image, filtered image, path, filename, particles present in the image. If the image is part of a calibration,
@@ -13,7 +16,7 @@ class GdptImage(object):
     """
 
     def __init__(self, path):
-        super(GdptImage, self).__init__()
+        super(GdpytImage, self).__init__()
         # Attributes with an underscore as the first character are "internal use". That means that they are only meant
         # to be modified by methods of this class.
         # The reasoning behind this is the following: Imagine an image with a number of particles. The particles are saved
@@ -38,7 +41,7 @@ class GdptImage(object):
 
         # Particles: dictionary {particle_id: Particle object}
         # This dictionary is filled up with the identify_particles method
-        self._particles = {}
+        self._particles = []
         self._z = None
 
     @property
@@ -67,7 +70,7 @@ class GdptImage(object):
         assert isinstance(z, float)
         self._z = z
         # If the image is set to be at a certain height, all the particles in it are assigned that height
-        for particle in self.particles.values():
+        for particle in self.particles:
             particle.set_z(z)
 
     def filter_image(self, filterspecs):
@@ -95,15 +98,17 @@ class GdptImage(object):
         self._histogram_preprocessed = cv2.calcHist([img], [0], None, [256], [0, 256])
 
     def identify_particles(self, min_size=None, max_size=None, find_circles=False):
-        particles = {}
+        particles = []
 
         if not find_circles:
             _, particle_mask = apply_threshold(self.filtered)
             masked_img = cv2.bitwise_and(self.filtered, self.filtered, mask=particle_mask)
             contours, bboxes = identify_contours(particle_mask)
         else:
+            #_, particle_mask = apply_threshold(self.filtered)
+            #masked_img = cv2.bitwise_and(self.filtered, self.filtered, mask=particle_mask)
             contours, bboxes = identify_circles(self.filtered)
-        id = 0
+        id_ = 0
         # Sort contours and bboxes by x-coordinate:
         for cont_bbox in sorted(zip(contours, bboxes), key=lambda b: b[1][0], reverse=True):
             contour = cont_bbox[0]
@@ -117,19 +122,30 @@ class GdptImage(object):
                     continue
 
             bbox = cont_bbox[1]
-            x, y, w, h = bbox
-            template = self._filtered[y: y + h, x: x + w]
-            particles.update({id: GdpytParticle(self, id, template, contour, bbox)})
-            id += 1
+            particles.append(GdpytParticle(self._filtered, id_, contour, bbox))
+            id_ += 1
 
         self._particles = particles
 
-    def draw_particles(self, contour_color=(0, 255, 0), thickness=2):
+    def draw_particles(self, contour_color=(0, 255, 0), thickness=2, draw_id=True, draw_bbox=True):
         canvas = self._raw.copy()
-        for id, particle in self.particles.items():
+        for particle in self.particles:
             cv2.drawContours(canvas, [particle.contour], -1, contour_color, thickness)
-
+            if draw_id:
+                bbox = particle.bbox
+                coords = (int(bbox[0] - 0.2 * bbox[2]), int(bbox[1] - 0.2 * bbox[3]))
+                cv2.putText(canvas, "ID: {} ({}, {})".format(particle.id, particle.location[0], particle.location[1]), coords, cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5, (255, 255, 255), 2)
+            if draw_bbox:
+                x, y, w, h = particle.bbox
+                cv2.rectangle(canvas, (x, y), (x + w, y + h), (0, 255, 0), 2)
         return canvas
+
+    def get_particle(self, id):
+        for particle in self.particles:
+            if particle.id == id:
+                return particle
+        logger.error("No particle with ID {} found in this image".format(id))
 
     def shape(self):
         return self.raw.shape
