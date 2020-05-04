@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import pandas as pd
 
 class GdpytParticle(object):
 
@@ -12,6 +13,7 @@ class GdpytParticle(object):
         self._set_bbox(bbox)
         self._compute_center()
         self._compute_convex_hull()
+        self._similarity_curve = None
         #location are the x,y coordinates of the particle. eg [45,65] or (45, 67)
         # The assert statement will raise an error if this is not a length two iterable
 
@@ -34,6 +36,11 @@ class GdpytParticle(object):
         wl, ht = int(w / 2), int(h / 2)
         top_corner = np.array(self.location) - np.array([wl, ht])
         self._set_bbox((top_corner[0], top_corner[1], w, h))
+
+    def set_similarity_curve(self, z, sim, label_suffix=None):
+        assert len(z) == len(sim)
+        columns = ['z', 'S_{}'.format(label_suffix.upper())]
+        self._similarity_curve = pd.DataFrame(np.array([z, sim]), columns=columns)
 
     def _set_bbox(self, bbox):
         self._bbox = bbox
@@ -95,3 +102,7 @@ class GdpytParticle(object):
     @property
     def z(self):
         return self._z
+
+    @property
+    def similarity_curve(self):
+        return self._similarity_curve

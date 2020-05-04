@@ -141,6 +141,13 @@ class GdpytImageCollection(object):
 
         self.identify_particles()
 
+    def infer_z(self, calib_set, function='ccorr'):
+        assert isinstance(calib_set, GdpytCalibrationSet)
+
+        for image in self.images.values():
+            calib_set.infer_z(image, function='function')
+
+
     @property
     def folder(self):
         return self._folder

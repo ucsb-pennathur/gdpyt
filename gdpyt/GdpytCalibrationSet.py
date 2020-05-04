@@ -36,10 +36,10 @@ class GdpytCalibrationSet(object):
 
         self._calibration_stacks = stacks
 
-    def infer_z(self, image):
+    def infer_z(self, image, function='ccorr'):
         for particle in image.particles:
             stack = self.calibration_stacks[particle.id]
-            stack.infer_height(particle)
+            stack.infer_z(particle, function=function)
 
     @property
     def collection(self):

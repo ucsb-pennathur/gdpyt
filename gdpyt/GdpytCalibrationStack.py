@@ -1,6 +1,8 @@
 from .GdpytParticle import GdpytParticle
-import cv2
 from collections import OrderedDict
+from .plotting import plot_calib_stack
+from .similarity import *
+import numpy as np
 
 class GdpytCalibratioStack(object):
 
@@ -10,13 +12,17 @@ class GdpytCalibratioStack(object):
         self._location = location
         self._layers = OrderedDict()
         self._particles = []
+        self._shape = None
 
     def __len__(self):
         return len(self._layers)
 
     def __getitem__(self, item):
-        key = list(self.layers.keys())[item]
-        return (key, self.layers[key])
+        if isinstance(item, int):
+            key = list(self.layers.keys())[item]
+            return key, self.layers[key]
+        else:
+            return item, self.layers[item]
 
     def add_particle(self, particle):
         assert isinstance(particle, GdpytParticle)
@@ -53,6 +59,12 @@ class GdpytCalibratioStack(object):
         for particle in self._particles:
             particle.resize_bbox(w_max, h_max)
 
+        self._shape = (w_max, h_max)
+
+    def plot(self, z=None, draw_contours=True):
+        fig = plot_calib_stack(self, z=z, draw_contours=draw_contours)
+        return fig
+
     @property
     def location(self):
         return self._location
@@ -64,3 +76,41 @@ class GdpytCalibratioStack(object):
     @property
     def layers(self):
         return self._layers
+
+    @property
+    def shape(self):
+        return self._shape
+
+    def get_layers(self, range_z=None):
+        if range_z is None:
+            return self._layers
+        else:
+            if not (isinstance(range_z, list) or isinstance(range_z, tuple)):
+                raise TypeError("range_z must be a list or tuple with two elements, specifying the lower and upper"
+                                "boundary of the interval. Received type {}".format(type(range_z)))
+            else:
+                return_layers = OrderedDict()
+                for key, item in self.layers.items():
+                    if range_z[0] < key < range_z[1]:
+                        return_layers.update({key, item})
+                return return_layers
+
+    def infer_z(self, particle, function='ccorr'):
+        if function.lower() == 'ccorr':
+            sim_func = cross_correlation_equal_shape
+            # Optimum for this function is the maximum
+            optim = np.argmax
+        elif function.lower() == 'nccorr':
+            sim_func = norm_cross_correlation_equal_shape
+            # Optimum for this function is the maximum
+            optim = np.argmax
+        else:
+            raise ValueError("Unknown similarity function {}".format(function))
+
+        z_calib, temp_calib = np.array(list(self.layers.keys())), np.array(list(self.layers.values()))
+        particle.resize_bbox(*self.shape)
+
+        sim = sim_func(temp_calib, particle.template)
+        max_idx = optim(sim)
+        particle.set_z(z_calib[max_idx])
+        particle.set_similarity_curve(z_calib, sim, label_suffix=function)

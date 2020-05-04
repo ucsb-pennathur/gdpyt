@@ -122,13 +122,17 @@ class GdpytImage(object):
                     continue
 
             bbox = cont_bbox[1]
-            particles.append(GdpytParticle(self._filtered, id_, contour, bbox))
+            particles.append(GdpytParticle(self._raw, id_, contour, bbox))
             id_ += 1
 
         self._particles = particles
 
-    def draw_particles(self, contour_color=(0, 255, 0), thickness=2, draw_id=True, draw_bbox=True):
-        canvas = self._raw.copy()
+    def draw_particles(self, raw=True, contour_color=(0, 255, 0), thickness=2, draw_id=True, draw_bbox=True):
+        if raw:
+            canvas = self._raw.copy()
+        else:
+            canvas = self._filtered.copy()
+
         for particle in self.particles:
             cv2.drawContours(canvas, [particle.contour], -1, contour_color, thickness)
             if draw_id:
