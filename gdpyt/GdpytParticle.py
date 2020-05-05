@@ -54,7 +54,7 @@ class GdpytParticle(object):
     def set_similarity_curve(self, z, sim, label_suffix=None):
         assert len(z) == len(sim)
         columns = ['z', 'S_{}'.format(label_suffix.upper())]
-        self._similarity_curve = pd.DataFrame(np.array([z, sim]), columns=columns)
+        self._similarity_curve = pd.DataFrame({columns[0]: z, columns[1]: sim})
 
     def set_z(self, z):
         assert isinstance(z, float)

@@ -7,7 +7,7 @@ folder = r'C:\Users\silus\UCSB\master_thesis\python_stuff\gdpyt\tests\test_data\
 filetype = '.tif'
 processing = {
     'cv2.medianBlur': {'args': [9]},
-    'cv2.bilateralFilter': {'args': [9, 10, 10]}}
+    'cv2.bilateralFilter': {'args': [9, 13, 15]}}
 
 collection = GdpytImageCollection(folder, filetype, processing_specs=processing,
                                   min_particle_size=500)

@@ -40,3 +40,24 @@ def identify_circles(image):
 
     return contours, bboxes
 
+def merge_particles(particles):
+    id_ = None
+    merged_contour = None
+    for particle in particles:
+        if id_ is None:
+            id_ = particle.id
+        else:
+            if not particle.id == id_:
+                raise ValueError("Only particles with duplicate IDs can be merged")
+
+        if merged_contour is None:
+            merged_contour = particle.contour.copy()
+        else:
+            merged_contour = np.vstack([merged_contour, particle.contour.copy()])
+
+    new_contour = cv2.convexHull(merged_contour)
+    new_bbox = cv2.boundingRect(new_contour)
+
+    return new_contour, new_bbox
+
+

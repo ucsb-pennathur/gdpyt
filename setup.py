@@ -13,11 +13,12 @@ REQUIRES_PYTHON = '>=3.6.0'
 
 # What packages are required for this module to be executed?
 REQUIRED = [
-    'opencv>=4.0.1',
-    'scipy>1.3.0',
+    'opencv-python>=4.0',
+    'scipy',
     'matplotlib>3.1.0',
-    'numpy>1.18',
-    'pandas'
+    'numpy',
+    'pandas',
+    'scikit-learn'
 ]
 
 # What packages are optional?

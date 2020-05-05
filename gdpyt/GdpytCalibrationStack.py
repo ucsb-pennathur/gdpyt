@@ -80,13 +80,21 @@ class GdpytCalibratioStack(object):
             sim_func = norm_cross_correlation_equal_shape
             # Optimum for this function is the maximum
             optim = np.argmax
+
+        elif function.lower() == 'znccorr':
+            sim_func = zero_norm_cross_correlation_equal_shape
+            # Optimum for this function is the maximum
+            optim = np.argmax
         else:
             raise ValueError("Unknown similarity function {}".format(function))
 
         z_calib, temp_calib = np.array(list(self.layers.keys())), np.array(list(self.layers.values()))
         particle.resize_bbox(*self.shape)
 
-        sim = sim_func(temp_calib, particle.template)
+        sim = []
+        for c_temp in temp_calib:
+            sim.append(sim_func(c_temp, particle.template))
+        sim = np.array(sim)
         max_idx = optim(sim)
         particle.set_z(z_calib[max_idx])
         particle.set_similarity_curve(z_calib, sim, label_suffix=function)

@@ -3,3 +3,5 @@
 .idea/
 tests/test_data/
 __pycache__/
+examples/.ipynb_checkpoints
+tests/.ipynb_checkpoints

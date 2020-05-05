@@ -1,7 +1,8 @@
 import cv2
 import numpy as np
+import pandas as pd
 from .preprocessing import apply_filter
-from .particle_identification import apply_threshold, identify_contours, identify_circles
+from .particle_identification import apply_threshold, identify_contours, identify_circles, merge_particles
 from .GdpytParticle import GdpytParticle
 from os.path import isfile
 import logging
@@ -44,6 +45,9 @@ class GdpytImage(object):
         self._particles = []
         self._z = None
 
+    def _add_particle(self, id_, contour, bbox):
+        self._particles.append(GdpytParticle(self._filtered, id_, contour, bbox))
+
     def draw_particles(self, raw=True, contour_color=(0, 255, 0), thickness=2, draw_id=True, draw_bbox=True):
         if raw:
             canvas = self._raw.copy()
@@ -55,7 +59,7 @@ class GdpytImage(object):
             if draw_id:
                 bbox = particle.bbox
                 coords = (int(bbox[0] - 0.2 * bbox[2]), int(bbox[1] - 0.2 * bbox[3]))
-                cv2.putText(canvas, "ID: {} ({}, {})".format(particle.id, particle.location[0], particle.location[1]), coords, cv2.FONT_HERSHEY_SIMPLEX,
+                cv2.putText(canvas, "ID: {}".format(particle.id), coords, cv2.FONT_HERSHEY_SIMPLEX,
                         0.5, (255, 255, 255), 2)
             if draw_bbox:
                 x, y, w, h = particle.bbox
@@ -87,14 +91,19 @@ class GdpytImage(object):
         self._filtered = img.astype(np.uint8)
         self._histogram_preprocessed = cv2.calcHist([img], [0], None, [256], [0, 256])
 
-    def get_particle(self, id):
+    def get_particle(self, id_):
+        ret_particle = []
         for particle in self.particles:
-            if particle.id == id:
-                return particle
-        logger.error("No particle with ID {} found in this image".format(id))
+            if particle.id == id_:
+                ret_particle.append(particle)
+        if len(ret_particle) == 0:
+            logger.error("No particle with ID {} found in this image".format(id_))
+        elif len(ret_particle) > 1:
+            logger.warning("In image {}, {} particles with ID {} were found".format(self.filename, len(ret_particle), id_))
+
+        return ret_particle
 
     def identify_particles(self, min_size=None, max_size=None, find_circles=False):
-        particles = []
 
         if not find_circles:
             _, particle_mask = apply_threshold(self.filtered)
@@ -118,10 +127,8 @@ class GdpytImage(object):
                     continue
 
             bbox = cont_bbox[1]
-            particles.append(GdpytParticle(self._raw, id_, contour, bbox))
+            self._add_particle(id_, contour, bbox)
             id_ += 1
-
-        self._particles = particles
 
     def load(self, path, brightness_factor=100):
         img = cv2.imread(self._filepath, cv2.IMREAD_UNCHANGED)
@@ -129,12 +136,43 @@ class GdpytImage(object):
         # Calculate histogram
         self._histogram = cv2.calcHist([self._raw], [0], None, [256], [0, 256])
 
+    def merge_duplicate_particles(self):
+        unique_ids = self.unique_ids(counts=True)
+        duplicate_ids = unique_ids[unique_ids['count'] > 1].index.tolist()
+
+        for dup_id in duplicate_ids:
+            dup_p = self.get_particle(dup_id)
+            assert len(dup_p) > 1
+            merged_contour, merged_bbox = merge_particles(dup_p)
+
+            # Remove original particles
+            for i in range(len(dup_p)):
+                self._particles.remove(dup_p[i])
+
+            # Add the merged particle
+            self._add_particle(dup_id, merged_contour, merged_bbox)
+
     def set_z(self, z):
         assert isinstance(z, float)
         self._z = z
         # If the image is set to be at a certain height, all the particles in it are assigned that height
         for particle in self.particles:
             particle.set_z(z)
+
+    def unique_ids(self, counts=True):
+        unique_ids = pd.DataFrame()
+        for particle in self.particles:
+            if particle.id not in unique_ids.index:
+                unique_ids = pd.concat([unique_ids, pd.DataFrame({'count': [1]}, index=[particle.id])])
+            else:
+                unique_ids.loc[particle.id] = unique_ids.loc[particle.id] + 1
+
+        unique_ids.index.name = 'particle_id'
+        if not counts:
+            return unique_ids.index.tolist()
+        else:
+            return unique_ids
+
 
     @property
     def filename(self):

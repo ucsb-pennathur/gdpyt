@@ -1,5 +1,6 @@
-from .GdpytImage import GdpytImage#, GdptCalibrationStack
+from .GdpytImage import GdpytImage
 from .GdpytCalibrationSet import GdpytCalibrationSet
+from .plotting import plot_img_collection
 from os.path import join, isdir
 from os import listdir
 from collections import OrderedDict
@@ -12,14 +13,14 @@ logger = logging.getLogger()
 
 class GdpytImageCollection(object):
 
-    def __init__(self, folder, filetype, processing_specs=None, min_particle_size=None, max_particle_size=None):
+    def __init__(self, folder, filetype, processing_specs=None, min_particle_size=None, max_particle_size=None, exclude=[]):
         super(GdpytImageCollection, self).__init__()
         if not isdir(folder):
             raise ValueError("Specified folder {} does not exist".format(folder))
         
         self._folder = folder
         self._filetype = filetype
-        self._find_files()
+        self._find_files(exclude=exclude)
         self._add_images()
 
         # Define the processing done on all the images in this collection
@@ -48,7 +49,7 @@ class GdpytImageCollection(object):
             logger.warning('Loaded image {}'.format(img.filename))
         self._images = images
 
-    def _find_files(self):
+    def _find_files(self, exclude=[]):
         """
         Identifies all files of filetype filetype in folder
         :return:
@@ -57,6 +58,8 @@ class GdpytImageCollection(object):
         save_files = []
         for file in all_files:
             if file.endswith(self._filetype):
+                if file in exclude:
+                    continue
                 save_files.append(file)
 
         logger.warning(
@@ -64,14 +67,14 @@ class GdpytImageCollection(object):
         # Save all the files of the right filetype in this attribute
         self._files = save_files
 
-    def create_calibration(self, name_to_z):
+    def create_calibration(self, name_to_z, exclude=[]):
         """
         This creates a calibration from this image collection
         :param name_to_z: dictionary, maps each filename to a height. e.g {'run5_0.tif': 0.0, 'run5_1.tif': 1.0 ...}
                         This could also be done differently
         :return: A list of GdptCalibrationStacks. One for each particle in the images
         """
-        return GdpytCalibrationSet(self, name_to_z)
+        return GdpytCalibrationSet(self, name_to_z, exclude=exclude)
 
     def filter_images(self):
         for image in self.images.values():
@@ -85,22 +88,42 @@ class GdpytImageCollection(object):
         assert isinstance(calib_set, GdpytCalibrationSet)
 
         for image in self.images.values():
-            calib_set.infer_z(image, function='function')
+            calib_set.infer_z(image, function=function)
+
+    def plot(self, raw=True, draw_particles=True, exclude=[], **kwargs):
+        fig = plot_img_collection(self, raw=raw, draw_particles=draw_particles, exclude=exclude, **kwargs)
+        return fig
 
     def uniformize_particle_ids(self, baseline=None, threshold=50):
-        baseline_img = self._files[0]
-        baseline_img = self.images[baseline_img]
 
         baseline_locations = []
-        for particle in baseline_img.particles:
-            baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'y': particle.location[1]},
-                                                   index=[particle.id]))
-        baseline_locations = pd.concat(baseline_locations).sort_index()
+        # If a calibration set is given as the baseline, the particle IDs in this collection are assigned based on
+        # the location and ID of the calibration set. This should always be done when the collection contains target images
+        if baseline is not None:
+            assert isinstance(baseline, GdpytCalibrationSet)
+            for stack in baseline.calibration_stacks.values():
+                baseline_locations.append(pd.DataFrame({'x': stack.location[0], 'y': stack.location[1]},
+                                                       index=[stack.id]))
+            skip_first_img = False
+        # If no baseline is given, the particle IDs are assigned based on the IDs and location of the particles in the
+        # first image
+        else:
+            baseline_img = self._files[0]
+            baseline_img = self.images[baseline_img]
 
+
+            for particle in baseline_img.particles:
+                baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'y': particle.location[1]},
+                                                       index=[particle.id]))
+            skip_first_img = True
+
+        baseline_locations = pd.concat(baseline_locations).sort_index()
         # The next particle that can't be matched to a particle in the baseline gets this id
         next_id = len(baseline_locations)
 
-        for file in self._files[1:]:
+        for i, file in enumerate(self._files):
+            if (i == 0) and skip_first_img:
+                continue
             image = self.images[file]
             # Convert to list because ordering is important
             particles = [particle for particle in image.particles]
@@ -127,23 +150,9 @@ class GdpytImageCollection(object):
                                                            index=[particle.id]))
                     next_id += 1
 
-    # def _check_particle_consistency(self, tolerance):
-    #     all_ids = set()
-    #     for image in self.images.values():
-    #         all_ids.union(set(image.particles.keys()))
-    #
-    #     particle_locs = pd.DataFrame()
-    #     for image in self.images.values():
-    #         locs_this_img = []
-    #         id_this_img = all_ids.intersection(list(image.particles.keys()))
-    #         for id in sorted(id_this_img):
-    #             location = image.particles[id].location
-    #             locs_this_img.append(pd.DataFrame({'image': image.filename, 'id': id, 'x': location[0], 'y': location[1]}))
-    #         particle_locs.append(pd.concat(locs_this_img))
-    #     particle_locs = pd.concat(particle_locs)
-    #     median_loc = particle_locs[['id', 'x', 'y']].groupby(['id']).median().rename(columns={'x': 'x_med', 'y': 'y_med'})
-    #     particle_locs = particle_locs.join(median_loc.set_index('id'), on='id')
-
+            # The nearest neighbor mapping creates particles with dupliate IDs under some circumstances
+            # These need to be merged to one giant particle
+            image.merge_duplicate_particles()
 
 
     def update_processing(self, processing_specs, erase_old=False):
@@ -164,9 +173,6 @@ class GdpytImageCollection(object):
             self._max_particle_size = max
 
         self.identify_particles()
-
-
-
 
     @property
     def folder(self):
