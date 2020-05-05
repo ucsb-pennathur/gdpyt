@@ -40,21 +40,6 @@ class GdpytImageCollection(object):
         key = list(self.images.keys())[item]
         return self.images[key]
 
-    def _find_files(self):
-        """
-        Identifies all files of filetype filetype in folder
-        :return: 
-        """
-        all_files = listdir(self._folder)
-        save_files = []
-        for file in all_files:
-            if file.endswith(self._filetype):
-                save_files.append(file)
-                
-        logger.warning("Found {} files with filetype {} in folder {}".format(len(save_files), self.filetype, self.folder))
-        # Save all the files of the right filetype in this attribute
-        self._files = save_files
-
     def _add_images(self):
         images = OrderedDict()
         for file in self._files:
@@ -62,6 +47,45 @@ class GdpytImageCollection(object):
             images.update({img.filename: img})
             logger.warning('Loaded image {}'.format(img.filename))
         self._images = images
+
+    def _find_files(self):
+        """
+        Identifies all files of filetype filetype in folder
+        :return:
+        """
+        all_files = listdir(self._folder)
+        save_files = []
+        for file in all_files:
+            if file.endswith(self._filetype):
+                save_files.append(file)
+
+        logger.warning(
+            "Found {} files with filetype {} in folder {}".format(len(save_files), self.filetype, self.folder))
+        # Save all the files of the right filetype in this attribute
+        self._files = save_files
+
+    def create_calibration(self, name_to_z):
+        """
+        This creates a calibration from this image collection
+        :param name_to_z: dictionary, maps each filename to a height. e.g {'run5_0.tif': 0.0, 'run5_1.tif': 1.0 ...}
+                        This could also be done differently
+        :return: A list of GdptCalibrationStacks. One for each particle in the images
+        """
+        return GdpytCalibrationSet(self, name_to_z)
+
+    def filter_images(self):
+        for image in self.images.values():
+            image.filter_image(self._processing_specs)
+
+    def identify_particles(self):
+        for image in self.images.values():
+            image.identify_particles(min_size=self._min_particle_size, max_size=self._max_particle_size)
+
+    def infer_z(self, calib_set, function='ccorr'):
+        assert isinstance(calib_set, GdpytCalibrationSet)
+
+        for image in self.images.values():
+            calib_set.infer_z(image, function='function')
 
     def uniformize_particle_ids(self, baseline=None, threshold=50):
         baseline_img = self._files[0]
@@ -141,11 +165,7 @@ class GdpytImageCollection(object):
 
         self.identify_particles()
 
-    def infer_z(self, calib_set, function='ccorr'):
-        assert isinstance(calib_set, GdpytCalibrationSet)
 
-        for image in self.images.values():
-            calib_set.infer_z(image, function='function')
 
 
     @property
@@ -157,26 +177,15 @@ class GdpytImageCollection(object):
         return self._filetype
 
     @property
-    def images(self):
-        return self._images
-
-    @property
     def files(self):
         return self._files
 
-    def identify_particles(self):
-        for image in self.images.values():
-            image.identify_particles(min_size=self._min_particle_size, max_size=self._max_particle_size)
+    @property
+    def images(self):
+        return self._images
 
-    def filter_images(self):
-        for image in self.images.values():
-            image.filter_image(self._processing_specs)
 
-    def create_calibration(self, name_to_z):
-        """
-        This creates a calibration from this image collection
-        :param name_to_z: dictionary, maps each filename to a height. e.g {'run5_0.tif': 0.0, 'run5_1.tif': 1.0 ...}
-                        This could also be done differently
-        :return: A list of GdptCalibrationStacks. One for each particle in the images
-        """
-        return GdpytCalibrationSet(self, name_to_z)
+
+
+
+

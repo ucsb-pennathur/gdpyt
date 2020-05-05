@@ -24,28 +24,6 @@ class GdpytCalibratioStack(object):
         else:
             return item, self.layers[item]
 
-    def add_particle(self, particle):
-        assert isinstance(particle, GdpytParticle)
-        self._particles.append(particle)
-
-    def infer_z(self, particle):
-        assert isinstance(particle, GdpytParticle)
-        assert self.id == particle.id
-
-    def build_layers(self):
-        self._uniformize_and_center()
-        z = []
-        templates = []
-
-        for particle in self._particles:
-            z.append(particle.z)
-            templates.append(particle.template)
-
-        layers = OrderedDict()
-        for z, template in sorted(zip(z, templates), key=lambda k: k[0]):
-            layers.update({z: template})
-        self._layers = layers
-
     def _uniformize_and_center(self):
         # Find biggest bounding box
         w_max, h_max = (0, 0)
@@ -61,25 +39,23 @@ class GdpytCalibratioStack(object):
 
         self._shape = (w_max, h_max)
 
-    def plot(self, z=None, draw_contours=True):
-        fig = plot_calib_stack(self, z=z, draw_contours=draw_contours)
-        return fig
+    def add_particle(self, particle):
+        assert isinstance(particle, GdpytParticle)
+        self._particles.append(particle)
 
-    @property
-    def location(self):
-        return self._location
+    def build_layers(self):
+        self._uniformize_and_center()
+        z = []
+        templates = []
 
-    @property
-    def id(self):
-        return self._id
+        for particle in self._particles:
+            z.append(particle.z)
+            templates.append(particle.template)
 
-    @property
-    def layers(self):
-        return self._layers
-
-    @property
-    def shape(self):
-        return self._shape
+        layers = OrderedDict()
+        for z, template in sorted(zip(z, templates), key=lambda k: k[0]):
+            layers.update({z: template})
+        self._layers = layers
 
     def get_layers(self, range_z=None):
         if range_z is None:
@@ -114,3 +90,23 @@ class GdpytCalibratioStack(object):
         max_idx = optim(sim)
         particle.set_z(z_calib[max_idx])
         particle.set_similarity_curve(z_calib, sim, label_suffix=function)
+
+    def plot(self, z=None, draw_contours=True):
+        fig = plot_calib_stack(self, z=z, draw_contours=draw_contours)
+        return fig
+
+    @property
+    def id(self):
+        return self._id
+
+    @property
+    def location(self):
+        return self._location
+
+    @property
+    def layers(self):
+        return self._layers
+
+    @property
+    def shape(self):
+        return self._shape

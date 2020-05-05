@@ -44,34 +44,24 @@ class GdpytImage(object):
         self._particles = []
         self._z = None
 
-    @property
-    def raw(self):
-        return self._raw
+    def draw_particles(self, raw=True, contour_color=(0, 255, 0), thickness=2, draw_id=True, draw_bbox=True):
+        if raw:
+            canvas = self._raw.copy()
+        else:
+            canvas = self._filtered.copy()
 
-    @property
-    def processed(self):
-        return self._filtered
-
-    @property
-    def filename(self):
-        return self._filename
-
-    @property
-    def filepath(self):
-        return self._filepath
-
-    def load(self, path, brightness_factor=100):
-        img = cv2.imread(self._filepath, cv2.IMREAD_UNCHANGED)
-        self._raw = img * brightness_factor
-        # Calculate histogram
-        self._histogram = cv2.calcHist([self._raw], [0], None, [256], [0, 256])
-
-    def set_z(self, z):
-        assert isinstance(z, float)
-        self._z = z
-        # If the image is set to be at a certain height, all the particles in it are assigned that height
         for particle in self.particles:
-            particle.set_z(z)
+            cv2.drawContours(canvas, [particle.contour], -1, contour_color, thickness)
+            if draw_id:
+                bbox = particle.bbox
+                coords = (int(bbox[0] - 0.2 * bbox[2]), int(bbox[1] - 0.2 * bbox[3]))
+                cv2.putText(canvas, "ID: {} ({}, {})".format(particle.id, particle.location[0], particle.location[1]), coords, cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5, (255, 255, 255), 2)
+            if draw_bbox:
+                x, y, w, h = particle.bbox
+                cv2.rectangle(canvas, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+        return canvas
 
     def filter_image(self, filterspecs):
         """
@@ -96,6 +86,12 @@ class GdpytImage(object):
 
         self._filtered = img.astype(np.uint8)
         self._histogram_preprocessed = cv2.calcHist([img], [0], None, [256], [0, 256])
+
+    def get_particle(self, id):
+        for particle in self.particles:
+            if particle.id == id:
+                return particle
+        logger.error("No particle with ID {} found in this image".format(id))
 
     def identify_particles(self, min_size=None, max_size=None, find_circles=False):
         particles = []
@@ -127,37 +123,43 @@ class GdpytImage(object):
 
         self._particles = particles
 
-    def draw_particles(self, raw=True, contour_color=(0, 255, 0), thickness=2, draw_id=True, draw_bbox=True):
-        if raw:
-            canvas = self._raw.copy()
-        else:
-            canvas = self._filtered.copy()
+    def load(self, path, brightness_factor=100):
+        img = cv2.imread(self._filepath, cv2.IMREAD_UNCHANGED)
+        self._raw = img * brightness_factor
+        # Calculate histogram
+        self._histogram = cv2.calcHist([self._raw], [0], None, [256], [0, 256])
 
+    def set_z(self, z):
+        assert isinstance(z, float)
+        self._z = z
+        # If the image is set to be at a certain height, all the particles in it are assigned that height
         for particle in self.particles:
-            cv2.drawContours(canvas, [particle.contour], -1, contour_color, thickness)
-            if draw_id:
-                bbox = particle.bbox
-                coords = (int(bbox[0] - 0.2 * bbox[2]), int(bbox[1] - 0.2 * bbox[3]))
-                cv2.putText(canvas, "ID: {} ({}, {})".format(particle.id, particle.location[0], particle.location[1]), coords, cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5, (255, 255, 255), 2)
-            if draw_bbox:
-                x, y, w, h = particle.bbox
-                cv2.rectangle(canvas, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        return canvas
+            particle.set_z(z)
 
-    def get_particle(self, id):
-        for particle in self.particles:
-            if particle.id == id:
-                return particle
-        logger.error("No particle with ID {} found in this image".format(id))
+    @property
+    def filename(self):
+        return self._filename
 
-    def shape(self):
-        return self.raw.shape
+    @property
+    def filepath(self):
+        return self._filepath
+
+    @property
+    def filtered(self):
+        return self._filtered
 
     @property
     def particles(self):
         return self._particles
 
     @property
-    def filtered(self):
+    def processed(self):
         return self._filtered
+
+    @property
+    def raw(self):
+        return self._raw
+
+    def shape(self):
+        return self.raw.shape
+
