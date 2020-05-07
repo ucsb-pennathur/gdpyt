@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
+import pandas as pd
 # from gdpyt import GdpytCalibratioStack
 # from gdpyt import GdpytImageCollection
 
@@ -79,3 +81,29 @@ def plot_img_collection(collection, raw=True, draw_particles=True, exclude=[], *
     fig.subplots_adjust(wspace=0.05, hspace=0.05)
 
     return fig
+
+def plot_particle_trajectories(collection, sort_images=None, create_gif=False):
+    coords = []
+    if sort_images is None:
+        for image in collection.images.values():
+            coords.append(image.particle_coordinates())
+    else:
+        if not callable(sort_images):
+            raise TypeError("sort_images must be a function that takes an image name as an argument and returns a value"
+                            "that can be used to sort the images")
+        # Get the particle coordinates from all the images
+        for file in sorted(collection.files, key=sort_images):
+            coords.append(collection.images[file].particle_coordinates())
+
+    coords = pd.concat(coords)
+    if not create_gif:
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        for id_ in coords['id'].unique():
+            thisid = coords[coords['id'] == id_]
+            ax.scatter(thisid['x'], thisid['y'], thisid['z'], label='ID_{}'.format(id_))
+        ax.legend()
+
+        return fig
+
+

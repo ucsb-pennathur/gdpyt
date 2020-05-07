@@ -14,6 +14,7 @@ class GdpytParticle(object):
         self._compute_center()
         self._compute_convex_hull()
         self._similarity_curve = None
+        self._z = None
 
     def _create_template(self):
         x, y, w, h = self._bbox
