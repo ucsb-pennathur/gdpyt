@@ -48,16 +48,18 @@ class GdpytImage(object):
     def _add_particle(self, id_, contour, bbox):
         self._particles.append(GdpytParticle(self._filtered, id_, contour, bbox))
 
-    def _update_processing_stats(self, name, value):
-        if not isinstance(str, name):
-            raise TypeError("name must be a string describbing the name of the parameter")
+    def _update_processing_stats(self, names, values):
+        if not isinstance(names, list):
+            names = [names]
+        new_stats = {}
+        for name, value in zip(names, values):
+            new_stats.update({name: [value]})
+        new_stats = pd.DataFrame(new_stats)
+
         if self._processing_stats is None:
-            self._processing_stats = pd.DataFrame({name, [value]})
+            self._processing_stats = new_stats
         else:
-            if name in self._processing_stats.columns:
-                self._processing_stats[name] = [value]
-            else:
-                self._processing_stats = pd.concat([self._processing_stats, pd.DataFrame({name: [value]})], axis=1)
+            self._processing_stats = new_stats.combine_first(self._processing_stats)
 
     def draw_particles(self, raw=True, contour_color=(0, 255, 0), thickness=2, draw_id=True, draw_bbox=True):
         if raw:
@@ -118,20 +120,23 @@ class GdpytImage(object):
 
         if not find_circles:
             _, particle_mask = apply_threshold(self.filtered)
+            # Identify particles
+            contours, bboxes = identify_contours(particle_mask)
+            particle_mask = particle_mask.astype(bool)
             # masked_img = cv2.bitwise_and(self.filtered, self.filtered, mask=particle_mask)
+
+            # Inverse of the particle area
             inv_mask = particle_mask != 0
             masked_img_inv = 255 * np.ones_like(particle_mask, dtype=np.uint8)
             masked_img_inv[inv_mask] = 0
             particle_mask_inv = cv2.bitwise_and(self.filtered, self.filtered, mask=masked_img_inv).astype(bool)
-            particle_mask = particle_mask.astype(bool)
-
-            # Identify particles
-            contours, bboxes = identify_contours(particle_mask)
 
             # Calculate SNR + Particle image density
             snr_filt = self.filtered[particle_mask].mean() / self.filtered[particle_mask_inv].std()
             snr_raw = self.raw[particle_mask].mean() / self.raw[particle_mask_inv].std()
             p_density = particle_mask.sum() / particle_mask.size
+
+            self._update_processing_stats(['snr_r', 'snr_f', 'rho_p'], [snr_raw, snr_filt, p_density])
 
         else:
             #_, particle_mask = apply_threshold(self.filtered)
