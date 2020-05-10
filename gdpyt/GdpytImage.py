@@ -181,10 +181,14 @@ class GdpytImage(object):
             # Add the merged particle
             self._add_particle(dup_id, merged_contour, merged_bbox)
 
-    def particle_coordinates(self):
+    def particle_coordinates(self, id_=None):
         coords = []
         no_z_count = 0
         for particle in self.particles:
+            if id_ is not None:
+                assert isinstance(id_, list)
+                if particle.id not in id_:
+                    continue
             x, y = particle.location
             if particle.z is None:
                 no_z_count += 1
@@ -193,7 +197,12 @@ class GdpytImage(object):
                 z = particle.z
                 coords.append(pd.DataFrame({'id': [particle.id], 'x': [x], 'y': [y], 'z': [z]}))
         if no_z_count > 0:
-            logger.warning("Image {}: {} out of {} particles have no z coordinate".format(self.filename, no_z_count, len(self.particles)))
+            if id_ is not None:
+                total_particles = len(id_)
+            else:
+                total_particles = len(self.particles)
+            logger.warning("Image {}: {} out of {} particles have no z coordinate".format(self.filename, no_z_count,
+                                                                                          total_particles))
         coords = pd.concat(coords).sort_values(by='id')
 
         return coords
@@ -244,6 +253,10 @@ class GdpytImage(object):
     def raw(self):
         return self._raw
 
+    @property
     def shape(self):
         return self.raw.shape
 
+    @property
+    def stats(self):
+        return self._processing_stats

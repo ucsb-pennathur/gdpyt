@@ -1,6 +1,6 @@
 from .GdpytImage import GdpytImage
 from .GdpytCalibrationSet import GdpytCalibrationSet
-from .plotting import plot_img_collection, plot_particle_trajectories
+from .plotting import plot_img_collection, plot_particle_trajectories, plot_particle_coordinate
 from os.path import join, isdir
 from os import listdir
 from collections import OrderedDict
@@ -96,6 +96,10 @@ class GdpytImageCollection(object):
 
     def plot_particle_trajectories(self, sort_images=None, create_gif=False):
         fig =  plot_particle_trajectories(self, sort_images=sort_images, create_gif=create_gif)
+        return fig
+
+    def plot_particle_coordinate(self, coordinate='z', sort_images=None, particle_ids=None):
+        fig = plot_particle_coordinate(self, coordinate=coordinate, sort_images=sort_images, particle_id=particle_ids)
         return fig
 
     def uniformize_particle_ids(self, baseline=None, threshold=50):
@@ -194,7 +198,10 @@ class GdpytImageCollection(object):
     def images(self):
         return self._images
 
-
+    @property
+    def image_stats(self):
+        image_stats = [image.stats for image in self.images.values()]
+        return pd.concat(image_stats, ignore_index=False, keys=list(self.images.keys()), names=['Image']).droplevel(1)
 
 
 

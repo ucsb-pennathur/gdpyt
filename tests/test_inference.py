@@ -27,3 +27,8 @@ test_collection = GdpytImageCollection(test_folder, filetype, processing_specs=p
 test_collection.uniformize_particle_ids(baseline=calib_set)
 test_collection.infer_z(calib_set)
 
+test_collection.image_stats
+test_collection.plot_particle_coordinate(particle_ids=[1])
+
+pass
+

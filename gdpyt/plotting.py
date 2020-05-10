@@ -106,4 +106,39 @@ def plot_particle_trajectories(collection, sort_images=None, create_gif=False):
 
         return fig
 
+def plot_particle_coordinate(collection, coordinate='z', sort_images=None, particle_id=None):
+    if particle_id is None:
+        raise ValueError("Specify an integer or a list of integers corresponding to the particle IDs that should be plotted")
+    else:
+        if isinstance(particle_id, int):
+            particle_id = [particle_id]
+        elif isinstance(particle_id, list):
+            pass
+        else:
+            raise TypeError("particle_id must be an integer or a list. Received type {}".format(type(particle_id)))
+
+    if coordinate not in ['x', 'y', 'z']:
+        raise ValueError("coordinate must be one of 'x', 'y' or 'z'. Received {}".format(coordinate))
+
+    coords = []
+    if sort_images is None:
+        for image in collection.images.values():
+            coords.append(image.particle_coordinates(id_=particle_id).set_index('id')[[coordinate]])
+    else:
+        if not callable(sort_images):
+            raise TypeError("sort_images must be a function that takes an image name as an argument and returns a value"
+                            "that can be used to sort the images")
+        # Get the particle coordinates from all the images
+        for file in sorted(collection.files, key=sort_images):
+            coords.append(collection.images[file].particle_coordinates(id_=particle_id).set_index('id')[[coordinate]])
+
+    coords = pd.concat(coords)
+    fig, ax = plt.subplots(figsize=(11, 7))
+    for id_ in particle_id:
+        ax.plot(coords.loc[id_].values, label='ID {}'.format(id_))
+    ax.set_xlabel('Image #')
+    ax.set_ylabel('{} position'.format(coordinate.upper()))
+    ax.legend()
+
+    return fig
 
