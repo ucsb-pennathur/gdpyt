@@ -24,6 +24,20 @@ class GdpytCalibratioStack(object):
         else:
             return item, self.layers[item]
 
+    def __repr__(self):
+        class_ = 'GdpytCalibrationStack'
+        min_z = min(list(self.layers.keys()))
+        max_z = max(list(self.layers.keys()))
+        repr_dict = {'Particle ID': self.id,
+                     'Location (x, y)': self.location,
+                     'Template dimensions': self.shape,
+                     'Number of layers': len(self),
+                     'Min. and max. z coordinate': [min_z, max_z]}
+        out_str = "{}: \n".format(class_)
+        for key, val in repr_dict.items():
+            out_str += '{}: {} \n'.format(key, str(val))
+        return out_str
+
     def _uniformize_and_center(self):
         # Find biggest bounding box
         w_max, h_max = (0, 0)
