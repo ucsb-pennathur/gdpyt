@@ -16,6 +16,19 @@ class GdpytParticle(object):
         self._similarity_curve = None
         self._z = None
 
+    def __repr__(self):
+        class_ = 'GdpytParticle'
+        repr_dict = {'ID': self.id,
+                     'Location': self.location,
+                     'Bounding box dimensions': [self.bbox[2], self.bbox[3]],
+                     'Area': self.area,
+                     'Solidity': self.solidity,
+                     'Z coordinate': self.z}
+        out_str = "{}: {} \n".format(class_, self.id)
+        for key, val in repr_dict.items():
+            out_str += '{}: {} \n'.format(key, str(val))
+        return out_str
+
     def _create_template(self):
         x, y, w, h = self._bbox
         self._template = self._image[y: y + h, x: x + w]
@@ -66,7 +79,7 @@ class GdpytParticle(object):
 
     @property
     def area(self):
-        return self._hull
+        return self._area
 
     @property
     def bbox(self):

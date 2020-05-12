@@ -41,6 +41,18 @@ class GdpytImageCollection(object):
         key = list(self.images.keys())[item]
         return self.images[key]
 
+    def __repr__(self):
+        class_ = 'GdpytImageCollection'
+        repr_dict = {'Folder': self.folder,
+                     'Filetype': self.filetype,
+                     'Number of images': len(self),
+                     'Min. and max. particle sizes': [self._min_particle_size, self._max_particle_size],
+                     'Preprocessing': self._processing_specs}
+        out_str = "{}: \n".format(class_)
+        for key, val in repr_dict.items():
+            out_str += '{}: {} \n'.format(key, str(val))
+        return out_str
+
     def _add_images(self):
         images = OrderedDict()
         for file in self._files:

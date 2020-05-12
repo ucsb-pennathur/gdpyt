@@ -21,6 +21,16 @@ class GdpytCalibrationSet(object):
     def __len__(self):
         return len(self.calibration_stacks)
 
+    def __repr__(self):
+        class_ = 'GdpytCalibrationSet'
+        repr_dict = {'GdpytImageCollection': self._collection.folder,
+                     'Calibration stacks for particle IDs': list(self.calibration_stacks.keys())}
+        out_str = "{}: \n".format(class_)
+        for key, val in repr_dict.items():
+            out_str += '{}: {} \n'.format(key, str(val))
+        return out_str
+
+
     def _create_stacks(self, exclude=[]):
         stacks = {}
         for image in self.collection.images.values():

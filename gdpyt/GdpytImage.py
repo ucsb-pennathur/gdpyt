@@ -45,6 +45,16 @@ class GdpytImage(object):
         self._particles = []
         self._z = None
 
+    def __repr__(self):
+        class_ = 'GdpytImage'
+        repr_dict = {'Dimensions': self.shape,
+                     'Particles in this image': [particle.id for particle in self.particles],
+                     'Z coordinate': self._z}
+        out_str = "{}: {} \n".format(class_, self.filename)
+        for key, val in repr_dict.items():
+            out_str += '{}: {} \n'.format(key, str(val))
+        return out_str
+
     def _add_particle(self, id_, contour, bbox):
         self._particles.append(GdpytParticle(self._filtered, id_, contour, bbox))
 
