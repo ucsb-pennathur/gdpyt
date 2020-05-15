@@ -15,7 +15,7 @@ def plot_calib_stack(stack, z=None, draw_contours=False):
     n_images = len(stack)
     n_cols = min(10, n_images)
     n_rows = int(n_images / n_cols) + 1
-    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(n_rows * 2, 2 * n_cols))
+    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(2 * n_cols, n_rows * 2))
 
     if not isinstance(axes, np.ndarray):
         axes = np.array([axes]).reshape(-1,1)
@@ -34,7 +34,7 @@ def plot_calib_stack(stack, z=None, draw_contours=False):
             axes[i, j].get_yaxis().set_visible(False)
 
     fig.suptitle('Calibration stack (Particle ID {})'.format(stack.id))
-    fig.subplots_adjust(wspace=0.05, hspace=0.2)
+    fig.subplots_adjust(wspace=0.05, hspace=0.25)
 
     return fig
 
@@ -47,7 +47,7 @@ def plot_img_collection(collection, raw=True, draw_particles=True, exclude=[], *
     n_axes = len(images_to_plot)
     n_cols = min(10, n_axes)
     n_rows = int(n_axes / n_cols) + 1
-    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(n_rows * 2, 2 * n_cols))
+    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(2 * n_cols, n_rows * 2))
 
     if not isinstance(axes, np.ndarray):
         axes = np.array([axes]).reshape(-1, 1)
