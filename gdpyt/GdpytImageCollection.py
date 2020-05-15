@@ -13,7 +13,8 @@ logger = logging.getLogger()
 
 class GdpytImageCollection(object):
 
-    def __init__(self, folder, filetype, processing_specs=None, min_particle_size=None, max_particle_size=None, exclude=[]):
+    def __init__(self, folder, filetype, processing_specs=None, thresholding_specs=None,
+                 min_particle_size=None, max_particle_size=None, exclude=[]):
         super(GdpytImageCollection, self).__init__()
         if not isdir(folder):
             raise ValueError("Specified folder {} does not exist".format(folder))
@@ -24,7 +25,16 @@ class GdpytImageCollection(object):
         self._add_images()
 
         # Define the processing done on all the images in this collection
-        self._processing_specs = processing_specs
+        if processing_specs is None:
+            self._processing_specs = {}
+        else:
+            self._processing_specs = processing_specs
+
+        # Define the thresholding done on all the images in this collection
+        if thresholding_specs is None:
+            self._thresholding_specs = {'otsu': []}
+        else:
+            self._thresholding_specs = thresholding_specs
 
         # Minimum and maximum particle size for image in this collection
         self._min_particle_size = min_particle_size
@@ -94,7 +104,8 @@ class GdpytImageCollection(object):
 
     def identify_particles(self):
         for image in self.images.values():
-            image.identify_particles(min_size=self._min_particle_size, max_size=self._max_particle_size)
+            image.identify_particles(self._thresholding_specs,
+                                     min_size=self._min_particle_size, max_size=self._max_particle_size)
 
     def infer_z(self, calib_set, function='ccorr'):
         assert isinstance(calib_set, GdpytCalibrationSet)
