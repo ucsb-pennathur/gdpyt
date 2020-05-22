@@ -2,11 +2,28 @@ import cv2
 import imutils
 import numpy as np
 
-def apply_threshold(img, invert=False):
+def apply_threshold(img, parameter, invert=False):
+    if not len(parameter) == 1:
+        raise ValueError("Thresholding parameter must be specified as a dictionary with one key and a list containing"
+                         "supplementary arguments for that function as a value")
+
+    method = list(parameter.keys())[0]
+    if method not in ['otsu','adaptive_mean', 'adaptive_gaussian']:
+        raise ValueError("method must be one of ['otsu','adaptive_mean', 'adaptive_gaussian']")
     if invert:
-        thresh_img = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
+        threshold_type = cv2.THRESH_BINARY
     else:
-        thresh_img = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+        threshold_type = cv2.THRESH_BINARY_INV
+
+    if method == 'otsu':
+        _, thresh_img = cv2.threshold(img, 0, 255, threshold_type | cv2.THRESH_OTSU)
+    elif method == 'adaptive_mean':
+        args = parameter[method]
+        thresh_img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, threshold_type, *args)
+    elif method == 'adaptive_gaussian':
+        args = parameter[method]
+        thresh_img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, threshold_type, *args)
+
     return thresh_img
 
 def identify_contours(particle_mask):

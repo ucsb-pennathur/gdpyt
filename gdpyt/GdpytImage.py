@@ -126,10 +126,10 @@ class GdpytImage(object):
 
         return ret_particle
 
-    def identify_particles(self, min_size=None, max_size=None, find_circles=False):
+    def identify_particles(self, thresh_specs, min_size=None, max_size=None, find_circles=False):
 
         if not find_circles:
-            _, particle_mask = apply_threshold(self.filtered)
+            particle_mask = apply_threshold(self.filtered, parameter=thresh_specs)
             # Identify particles
             contours, bboxes = identify_contours(particle_mask)
             particle_mask = particle_mask.astype(bool)
