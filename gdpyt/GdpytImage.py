@@ -169,6 +169,9 @@ class GdpytImage(object):
             self._add_particle(id_, contour, bbox)
             id_ += 1
 
+    def is_infered(self):
+        return all([particle.z is not None for particle in self.particles])
+
     def load(self, path, brightness_factor=100):
         img = cv2.imread(self._filepath, cv2.IMREAD_UNCHANGED)
         self._raw = img * brightness_factor
@@ -270,3 +273,4 @@ class GdpytImage(object):
     @property
     def stats(self):
         return self._processing_stats
+
