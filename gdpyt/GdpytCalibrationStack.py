@@ -3,6 +3,9 @@ from collections import OrderedDict
 from .plotting import plot_calib_stack
 from .similarity import *
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 class GdpytCalibratioStack(object):
 
@@ -49,6 +52,7 @@ class GdpytCalibratioStack(object):
                 h_max = h
 
         for particle in self._particles:
+            logger.debug('Stack resize bbox: {}'.format((w_max, h_max)))
             particle.resize_bbox(w_max, h_max)
 
         self._shape = (w_max, h_max)
@@ -107,10 +111,11 @@ class GdpytCalibratioStack(object):
 
         sim = []
         for c_temp in temp_calib:
-            sim.append(sim_func(c_temp, particle.template))
+             sim.append(sim_func(c_temp, particle.template))
         sim = np.array(sim)
         max_idx = optim(sim)
         particle.set_z(z_calib[max_idx])
+        particle.set_max_sim(sim[max_idx])
         particle.set_similarity_curve(z_calib, sim, label_suffix=function)
 
     def plot(self, z=None, draw_contours=True):

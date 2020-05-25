@@ -15,6 +15,7 @@ class GdpytParticle(object):
         self._compute_convex_hull()
         self._similarity_curve = None
         self._z = None
+        self._max_sim = None
 
     def __repr__(self):
         class_ = 'GdpytParticle'
@@ -31,7 +32,17 @@ class GdpytParticle(object):
 
     def _create_template(self):
         x, y, w, h = self._bbox
-        self._template = self._image[y: y + h, x: x + w]
+        pad_x, pad_y = 0, 0
+        if y + h > self._image.shape[0]:
+            pad_y = y + h - self._image.shape[0]
+        if x + w > self._image.shape[1]:
+            pad_x = x + w - self._image.shape[1]
+
+        if (pad_x == 0) and (pad_y == 0):
+            self._template = self._image[y: y + h, x: x + w]
+        else:
+            self._template = np.pad(self._image[y: y + h, x: x + w].astype(np.float), ((0, pad_y), (0, pad_x)),
+                                    'constant', constant_values=np.nan)
 
     def _compute_convex_hull(self):
         hull = cv2.convexHull(self.contour)
@@ -77,6 +88,9 @@ class GdpytParticle(object):
     def set_id(self, id_):
         self._id = id_
 
+    def set_max_sim(self, sim):
+        self._max_sim = sim
+
     @property
     def area(self):
         return self._area
@@ -100,6 +114,10 @@ class GdpytParticle(object):
     @property
     def location(self):
         return self._location
+
+    @property
+    def max_sim(self):
+        return self._max_sim
 
     @property
     def solidity(self):

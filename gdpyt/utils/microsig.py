@@ -10,17 +10,15 @@ from tkinter import filedialog
 #import warnings
 #warnings.filterwarnings("ignore")
 
-def generate_synthetic_images(settings_file, txt_folder, destination_folder=None):
-    assert destination_folder is not None
-
+def generate_synthetic_images(settings_file, txt_folder, destination_folder):
     if not os.path.isdir(destination_folder):
         os.mkdir(destination_folder)
 
     mic = {}
     with open(settings_file) as f:
-        for x in f:
-            words = x.split()
-            mic[words[0]] = float(words[2])
+        for line in f:
+            words = line.split('=')
+            mic[words[0].strip()] = eval(words[1].strip())
         mic['pixel_dim_x'] = int(mic['pixel_dim_x'])
         mic['pixel_dim_y'] = int(mic['pixel_dim_y'])
         mic['n_rays'] = int(mic['n_rays'])

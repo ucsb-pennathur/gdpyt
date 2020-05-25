@@ -220,6 +220,19 @@ class GdpytImage(object):
 
         return coords
 
+    def maximum_cm(self, id_=None):
+        cms = []
+        for particle in self.particles:
+            if id_ is not None:
+                assert isinstance(id_, list)
+                if particle.id not in id_:
+                    continue
+            cm = particle.max_sim
+            cms.append(pd.DataFrame({'id': [particle.id], 'Cm': [cm]}))
+        cms = pd.concat(cms).sort_values(by='id')
+
+        return cms
+
     def set_z(self, z):
         assert isinstance(z, float)
         self._z = z
