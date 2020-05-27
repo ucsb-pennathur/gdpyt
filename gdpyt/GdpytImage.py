@@ -4,7 +4,7 @@ import pandas as pd
 from .preprocessing import apply_filter
 from .particle_identification import apply_threshold, identify_contours, identify_circles, merge_particles
 from .GdpytParticle import GdpytParticle
-from os.path import isfile
+from os.path import isfile, basename
 import logging
 
 logger = logging.getLogger()
@@ -30,7 +30,7 @@ class GdpytImage(object):
             raise ValueError("{} is not a valid file".format(path))
 
         self._filepath = path
-        self._filename = path.split('\\')[-1]
+        self._filename = basename(path)
 
         # Load the image. This sets the ._raw attribute
         self.load(path)
