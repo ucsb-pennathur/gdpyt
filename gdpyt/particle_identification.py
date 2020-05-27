@@ -11,9 +11,9 @@ def apply_threshold(img, parameter, invert=False):
     if method not in ['otsu','adaptive_mean', 'adaptive_gaussian']:
         raise ValueError("method must be one of ['otsu','adaptive_mean', 'adaptive_gaussian']")
     if invert:
-        threshold_type = cv2.THRESH_BINARY
-    else:
         threshold_type = cv2.THRESH_BINARY_INV
+    else:
+        threshold_type = cv2.THRESH_BINARY
 
     if method == 'otsu':
         _, thresh_img = cv2.threshold(img, 0, 255, threshold_type | cv2.THRESH_OTSU)

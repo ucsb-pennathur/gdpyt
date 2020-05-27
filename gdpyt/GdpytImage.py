@@ -169,6 +169,9 @@ class GdpytImage(object):
             self._add_particle(id_, contour, bbox)
             id_ += 1
 
+    def is_infered(self):
+        return all([particle.z is not None for particle in self.particles])
+
     def load(self, path, brightness_factor=100):
         img = cv2.imread(self._filepath, cv2.IMREAD_UNCHANGED)
         self._raw = img * brightness_factor
@@ -216,6 +219,19 @@ class GdpytImage(object):
         coords = pd.concat(coords).sort_values(by='id')
 
         return coords
+
+    def maximum_cm(self, id_=None):
+        cms = []
+        for particle in self.particles:
+            if id_ is not None:
+                assert isinstance(id_, list)
+                if particle.id not in id_:
+                    continue
+            cm = particle.max_sim
+            cms.append(pd.DataFrame({'id': [particle.id], 'Cm': [cm]}))
+        cms = pd.concat(cms).sort_values(by='id')
+
+        return cms
 
     def set_z(self, z):
         assert isinstance(z, float)
@@ -270,3 +286,4 @@ class GdpytImage(object):
     @property
     def stats(self):
         return self._processing_stats
+

@@ -15,6 +15,7 @@ class GdpytParticle(object):
         self._compute_convex_hull()
         self._similarity_curve = None
         self._z = None
+        self._max_sim = None
 
     def __repr__(self):
         class_ = 'GdpytParticle'
@@ -30,8 +31,31 @@ class GdpytParticle(object):
         return out_str
 
     def _create_template(self):
+        x0, y0, w0, h0 = self._bbox
         x, y, w, h = self._bbox
-        self._template = self._image[y: y + h, x: x + w]
+        pad_x_m, pad_x_p, pad_y_m, pad_y_p = 0, 0, 0, 0
+        if y + h > self._image.shape[0]:
+            pad_y_p = y + h - self._image.shape[0]
+        if y < 0:
+            pad_y_m = - y
+            h = y + h
+            y = 0
+        if x + w > self._image.shape[1]:
+            pad_x_p = x + w - self._image.shape[1]
+        if x < 0:
+            pad_x_m = - x
+            w = x + w
+            x = 0
+
+        pad_x = (pad_x_m, pad_x_p)
+        pad_y = (pad_y_m, pad_y_p)
+
+        if (pad_x == (0, 0)) and (pad_y == (0, 0)):
+            self._template = self._image[y: y + h, x: x + w]
+        else:
+            self._template = np.pad(self._image[y: y + h, x: x + w].astype(np.float), (pad_y, pad_x),
+                                    'constant', constant_values=np.nan)
+        assert self._template.shape == (h0, w0)
 
     def _compute_convex_hull(self):
         hull = cv2.convexHull(self.contour)
@@ -77,6 +101,9 @@ class GdpytParticle(object):
     def set_id(self, id_):
         self._id = id_
 
+    def set_max_sim(self, sim):
+        self._max_sim = sim
+
     @property
     def area(self):
         return self._area
@@ -100,6 +127,10 @@ class GdpytParticle(object):
     @property
     def location(self):
         return self._location
+
+    @property
+    def max_sim(self):
+        return self._max_sim
 
     @property
     def solidity(self):

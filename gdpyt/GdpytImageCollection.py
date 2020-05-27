@@ -106,8 +106,20 @@ class GdpytImageCollection(object):
         for image in self.images.values():
             image.identify_particles(self._thresholding_specs,
                                      min_size=self._min_particle_size, max_size=self._max_particle_size)
+    def is_infered(self):
+        """ Checks if the z coordinate has been infered for the images in this collection. Only returns true if that's
+        true for all the images. """
+        return all([image.is_infered() for image in self.images.values()])
 
     def infer_z(self, calib_set, function='ccorr'):
+        """ Infers the z coordinate of each image in this collection using the passed calibration set and function to
+        compute the similarity.
+        :param calib_set:   GdpytCalibrationSet object
+         :param function:   Specifies the function that is used to compute the similarity between the images to be infered
+                            and the calibration templates.
+                            Must be one of "ccorr" (Cross-correlation), "nccorr" (Normalized cross-correlation) and
+                            "znccorr" (zero-normalized cross-correlation) """
+
         assert isinstance(calib_set, GdpytCalibrationSet)
 
         for image in self.images.values():
@@ -118,7 +130,7 @@ class GdpytImageCollection(object):
         return fig
 
     def plot_particle_trajectories(self, sort_images=None, create_gif=False):
-        fig =  plot_particle_trajectories(self, sort_images=sort_images, create_gif=create_gif)
+        fig = plot_particle_trajectories(self, sort_images=sort_images, create_gif=create_gif)
         return fig
 
     def plot_particle_coordinate(self, coordinate='z', sort_images=None, particle_ids=None):
