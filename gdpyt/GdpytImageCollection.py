@@ -1,12 +1,13 @@
 from .GdpytImage import GdpytImage
 from .GdpytCalibrationSet import GdpytCalibrationSet
-from .plotting import plot_img_collection, plot_particle_trajectories, plot_particle_coordinate
+from .plotting import plot_img_collection, plot_particle_trajectories, plot_particle_coordinate, plot_image
 from os.path import join, isdir
 from os import listdir
 from collections import OrderedDict
 from sklearn.neighbors import NearestNeighbors
 import pandas as pd
 import numpy as np
+import re
 import logging
 
 logger = logging.getLogger()
@@ -87,7 +88,27 @@ class GdpytImageCollection(object):
         logger.warning(
             "Found {} files with filetype {} in folder {}".format(len(save_files), self.filetype, self.folder))
         # Save all the files of the right filetype in this attribute
-        self._files = save_files
+
+        img_index = []
+        for i in save_files:
+            # "calib_20.tif"
+            ii = re.search('_(.*).tif', i).group(1)
+            if "_" in ii:
+                # "chip1test1_....run_20.tif"
+                ii = ii[-3:]
+                if "_" in ii:
+                    iii = re.search('_(.*)', ii).group(1)
+                    ii = iii
+            ii = int(ii)
+
+            img_index.append(ii)
+
+        zipped_lists = zip(img_index, save_files)
+        sorted_pairs = sorted(zipped_lists)
+        tuples = zip(*sorted_pairs)
+        list1, list2 = [ list(tuple) for tuple in tuples]
+        self._files = list2
+
 
     def create_calibration(self, name_to_z, exclude=[]):
         """
@@ -111,7 +132,7 @@ class GdpytImageCollection(object):
         true for all the images. """
         return all([image.is_infered() for image in self.images.values()])
 
-    def infer_z(self, calib_set, function='ccorr'):
+    def infer_z(self, calib_set, function='nccorr'):
         """ Infers the z coordinate of each image in this collection using the passed calibration set and function to
         compute the similarity.
         :param calib_set:   GdpytCalibrationSet object
@@ -151,13 +172,13 @@ class GdpytImageCollection(object):
         # If no baseline is given, the particle IDs are assigned based on the IDs and location of the particles in the
         # first image
         else:
-            baseline_img = self._files[0]
+            baseline_img = self._files[10]
             baseline_img = self.images[baseline_img]
-
 
             for particle in baseline_img.particles:
                 baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'y': particle.location[1]},
                                                        index=[particle.id]))
+
             skip_first_img = True
 
         baseline_locations = pd.concat(baseline_locations).sort_index()
