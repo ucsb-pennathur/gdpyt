@@ -7,10 +7,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class GdpytCalibratioStack(object):
+class GdpytCalibrationStack(object):
 
     def __init__(self, particle_id, location):
-        super(GdpytCalibratioStack, self).__init__()
+        super(GdpytCalibrationStack, self).__init__()
         self._id = particle_id
         self._location = location
         self._layers = OrderedDict()

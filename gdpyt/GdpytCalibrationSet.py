@@ -1,4 +1,4 @@
-from .GdpytCalibrationStack import GdpytCalibratioStack
+from .GdpytCalibrationStack import GdpytCalibrationStack
 
 class GdpytCalibrationSet(object):
 
@@ -37,7 +37,7 @@ class GdpytCalibrationSet(object):
             if image.filename not in exclude:
                 for particle in image.particles:
                     if particle.id not in stacks.keys():
-                        new_stack = GdpytCalibratioStack(particle.id, particle.location)
+                        new_stack = GdpytCalibrationStack(particle.id, particle.location)
                         new_stack.add_particle(particle)
                         stacks.update({particle.id: new_stack})
                     else:

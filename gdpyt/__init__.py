@@ -2,4 +2,4 @@ from .GdpytImageCollection import GdpytImageCollection
 from .GdpytImage import GdpytImage
 from .GdpytParticle import GdpytParticle
 from .GdpytCalibrationSet import GdpytCalibrationSet
-from .GdpytCalibrationStack import GdpytCalibratioStack
+from .GdpytCalibrationStack import GdpytCalibrationStack
