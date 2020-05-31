@@ -100,7 +100,7 @@ class GdpytImage(object):
 
         This method should assign self._processed and self._processing_stats
         """
-        img = (self._raw / 256).astype(np.uint8)
+        img = self._raw.copy()
         for process_func in filterspecs.keys():
             func = eval(process_func)
             args = filterspecs[process_func]['args']
@@ -126,57 +126,79 @@ class GdpytImage(object):
 
         return ret_particle
 
-    def identify_particles(self, thresh_specs, min_size=None, max_size=None, find_circles=False):
+    def identify_particles(self, thresh_specs, min_size=None, max_size=None, shape_tol=0.1):
+        if shape_tol is not None:
+            assert 0 < shape_tol < 1
+        particle_mask = apply_threshold(self.filtered, parameter=thresh_specs)
+        # Identify particles
 
-        if not find_circles:
-            particle_mask = apply_threshold(self.filtered, parameter=thresh_specs)
-            # Identify particles
-            contours, bboxes = identify_contours(particle_mask)
-            particle_mask = particle_mask.astype(bool)
-            # masked_img = cv2.bitwise_and(self.filtered, self.filtered, mask=particle_mask)
+        contours, bboxes = identify_contours(particle_mask)
 
-            # Inverse of the particle area
-            inv_mask = particle_mask != 0
-            masked_img_inv = 255 * np.ones_like(particle_mask, dtype=np.uint8)
-            masked_img_inv[inv_mask] = 0
-            particle_mask_inv = cv2.bitwise_and(self.filtered, self.filtered, mask=masked_img_inv).astype(bool)
-
-            # Calculate SNR + Particle image density
-            snr_filt = self.filtered[particle_mask].mean() / self.filtered[particle_mask_inv].std()
-            snr_raw = self.raw[particle_mask].mean() / self.raw[particle_mask_inv].std()
-            p_density = particle_mask.sum() / particle_mask.size
-
-            self._update_processing_stats(['snr_r', 'snr_f', 'rho_p'], [snr_raw, snr_filt, p_density])
-
-        else:
-            #_, particle_mask = apply_threshold(self.filtered)
-            #masked_img = cv2.bitwise_and(self.filtered, self.filtered, mask=particle_mask)
-            contours, bboxes = identify_circles(self.filtered)
         id_ = 0
         # Sort contours and bboxes by x-coordinate:
+        skipped_cnts = []
         for cont_bbox in sorted(zip(contours, bboxes), key=lambda b: b[1][0], reverse=True):
             contour = cont_bbox[0]
             contour_area = abs(cv2.contourArea(contour))
+            # get perimeter
+            contour_perim = cv2.arcLength(contour, True)
+
             # If specified, check if contour is too small or too large. If true, skip the creation of the particle
             if min_size is not None:
                 if contour_area < min_size:
+                    skipped_cnts.append(contour)
                     continue
             if max_size is not None:
                 if contour_area > max_size:
+                    skipped_cnts.append(contour)
                     continue
 
             bbox = cont_bbox[1]
+
+            if shape_tol is not None:
+                # Discard contours that are clearly not a circle just by looking at the aspect ratio of the bounding box
+                bbox_ar = bbox[2] / bbox[3]
+                if abs(np.maximum(bbox_ar, 1 / bbox_ar) - 1) > shape_tol:
+                    skipped_cnts.append(contour)
+                    continue
+                # Check if circle by calculating thinness ratio
+                tr = 4 * np.pi * contour_area / contour_perim**2
+                if abs(np.maximum(tr, 1 / tr) - 1) > shape_tol:
+                    skipped_cnts.append(contour)
+                    continue
+
+            # Add particle
             self._add_particle(id_, contour, bbox)
             id_ += 1
+
+        # Fill in areas of the skipped particles in the particle mask
+        #for i in range(len(skipped_cnts)):
+            #cv2.drawContours(particle_mask, skipped_cnts, i, color=0, thickness=-1)
+
+        particle_mask = particle_mask.astype(bool)
+        # masked_img = cv2.bitwise_and(self.filtered, self.filtered, mask=particle_mask)
+
+        # Inverse of the particle area
+        inv_mask = particle_mask != 0
+
+        # Calculate SNR + Particle image density
+        sigma_bckgr = self.raw[inv_mask].std()
+        sigma_bckgr_f = self.filtered[inv_mask].std()
+        snr_filt = self.filtered[particle_mask].mean() / self.filtered[inv_mask].std()
+        snr_raw = self.raw[particle_mask].mean() / self.raw[inv_mask].std()
+        p_density = particle_mask.sum() / particle_mask.size
+
+        self._update_processing_stats(['sigma_bckgr_r', 'sigma_bckgr_f', 'snr_r', 'snr_f', 'rho_p'],
+                                      [sigma_bckgr, sigma_bckgr_f, snr_raw, snr_filt, p_density])
 
     def is_infered(self):
         return all([particle.z is not None for particle in self.particles])
 
-    def load(self, path, brightness_factor=100):
-        img = cv2.imread(self._filepath, cv2.IMREAD_UNCHANGED)
-        self._raw = img * brightness_factor
+    def load(self, path, mode=cv2.IMREAD_UNCHANGED):
+        img = cv2.imread(self._filepath, mode)
+        self._raw = cv2.normalize(img, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
         # Calculate histogram
-        self._histogram = cv2.calcHist([self._raw], [0], None, [256], [0, 256])
+        self._histogram = cv2.calcHist([self._raw], [0], None, [255], [0, 255])
 
     def merge_duplicate_particles(self):
         unique_ids = self.unique_ids(counts=True)
