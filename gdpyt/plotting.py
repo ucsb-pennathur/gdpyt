@@ -148,10 +148,3 @@ def plot_image(img, cmap='gray'):
     ax.imshow(img, cmap=cmap)
 
     return fig
-
-def plot_3d_surface(img):
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-
-    # make data
-    u = np.linspace(0,img[[],img.shape[0])
