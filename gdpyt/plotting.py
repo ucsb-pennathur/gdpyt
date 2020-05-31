@@ -142,3 +142,9 @@ def plot_particle_coordinate(collection, coordinate='z', sort_images=None, parti
 
     return fig
 
+def plot_image(img, cmap='gray'):
+    fig = plt.figure()
+    ax = fig.add_subplot(1,1,1)
+    ax.imshow(img, cmap=cmap)
+
+    return fig
