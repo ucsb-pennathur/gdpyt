@@ -30,9 +30,7 @@ def apply_threshold(img, parameter, invert=False):
             if not len(parameter[method]) == 1:
                 raise ValueError("For manual thresholding only one parameter (the manual threshold) must be specified")
             threshval = parameter[method][0]
-        thresh_img = cv2.threshold(img, threshval, 255, threshold_type)
-
-
+        _, thresh_img = cv2.threshold(img, threshval, 255, threshold_type)
     return thresh_img
 
 def identify_contours(particle_mask):

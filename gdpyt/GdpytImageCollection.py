@@ -14,7 +14,7 @@ logger = logging.getLogger()
 class GdpytImageCollection(object):
 
     def __init__(self, folder, filetype, processing_specs=None, thresholding_specs=None,
-                 min_particle_size=None, max_particle_size=None, exclude=[]):
+                 min_particle_size=None, max_particle_size=None, shape_tol=0.2, exclude=[]):
         super(GdpytImageCollection, self).__init__()
         if not isdir(folder):
             raise ValueError("Specified folder {} does not exist".format(folder))
@@ -39,6 +39,11 @@ class GdpytImageCollection(object):
         # Minimum and maximum particle size for image in this collection
         self._min_particle_size = min_particle_size
         self._max_particle_size = max_particle_size
+        # Shape tolerance
+        if shape_tol is not None:
+            if not 0 < shape_tol < 1:
+                raise ValueError("Shape tolerance parameter shape_tol must be between 0 and 1")
+        self._shape_tol = shape_tol
 
         self.filter_images()
         self.identify_particles()
@@ -57,6 +62,7 @@ class GdpytImageCollection(object):
                      'Filetype': self.filetype,
                      'Number of images': len(self),
                      'Min. and max. particle sizes': [self._min_particle_size, self._max_particle_size],
+                     'Shape tolerance': self._shape_tol,
                      'Preprocessing': self._processing_specs}
         out_str = "{}: \n".format(class_)
         for key, val in repr_dict.items():
@@ -105,7 +111,8 @@ class GdpytImageCollection(object):
     def identify_particles(self):
         for image in self.images.values():
             image.identify_particles(self._thresholding_specs,
-                                     min_size=self._min_particle_size, max_size=self._max_particle_size)
+                                     min_size=self._min_particle_size, max_size=self._max_particle_size,
+                                     shape_tol=self._shape_tol)
     def is_infered(self):
         """ Checks if the z coordinate has been infered for the images in this collection. Only returns true if that's
         true for all the images. """
@@ -154,15 +161,18 @@ class GdpytImageCollection(object):
             baseline_img = self._files[0]
             baseline_img = self.images[baseline_img]
 
-
             for particle in baseline_img.particles:
                 baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'y': particle.location[1]},
                                                        index=[particle.id]))
             skip_first_img = True
 
-        baseline_locations = pd.concat(baseline_locations).sort_index()
-        # The next particle that can't be matched to a particle in the baseline gets this id
-        next_id = len(baseline_locations)
+        if len(baseline_locations) == 0:
+            baseline_locations = pd.DataFrame()
+            next_id = None
+        else:
+            baseline_locations = pd.concat(baseline_locations).sort_index()
+            # The next particle that can't be matched to a particle in the baseline gets this id
+            next_id = len(baseline_locations)
 
         for i, file in enumerate(self._files):
             if (i == 0) and skip_first_img:
@@ -173,6 +183,12 @@ class GdpytImageCollection(object):
             locations = [list(p.location) for p in particles]
 
             if len(locations) == 0:
+                continue
+            if baseline_locations.empty:
+                dfs = [pd.DataFrame({'x': p.location[0], 'y': p.location[1]},
+                             index=[p.id]) for p in particles]
+                baseline_locations = pd.concat(dfs)
+                next_id = len(baseline_locations)
                 continue
 
             nneigh = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(baseline_locations.values)
@@ -207,7 +223,7 @@ class GdpytImageCollection(object):
             self._processing_specs = processing_specs
 
         self.filter_images()
-        self.identify_particles(min_size=self._min_particle_size, max_size=self._max_particle_size)
+        self.identify_particles()
 
     def update_particle_size_range(self, min=None, max=None):
         if min is not None:
