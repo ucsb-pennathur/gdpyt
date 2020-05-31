@@ -22,7 +22,7 @@ def apply_threshold(img, parameter, invert=False):
         thresh_img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, threshold_type, *args)
     elif method == 'adaptive_gaussian':
         args = parameter[method]
-        thresh_img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, threshold_type, *args)
+        thresh_img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, threshold_type, *args)
 
     return thresh_img
 
