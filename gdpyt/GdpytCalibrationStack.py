@@ -114,9 +114,11 @@ class GdpytCalibratioStack(object):
              sim.append(sim_func(c_temp, particle.template))
         sim = np.array(sim)
         max_idx = optim(sim)
-        particle.set_z(z_calib[max_idx])
-        particle.set_max_sim(sim[max_idx])
+        xp, poly = interpolation(z_calib, sim, max_idx)
+        particle.set_z(xp[np.argmax(poly)])
+        particle.set_max_sim(np.amax(poly))
         particle.set_similarity_curve(z_calib, sim, label_suffix=function)
+        particle.set_interpolation_curve(xp, poly, label_suffix=function)
 
     def plot(self, z=None, draw_contours=True):
         fig = plot_calib_stack(self, z=z, draw_contours=draw_contours)

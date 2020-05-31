@@ -14,6 +14,7 @@ class GdpytParticle(object):
         self._compute_center()
         self._compute_convex_hull()
         self._similarity_curve = None
+        self._interpolation_curve = None
         self._z = None
         self._max_sim = None
 
@@ -89,6 +90,11 @@ class GdpytParticle(object):
         top_corner = np.array(self.location) - np.array([wl, ht])
         self._set_bbox((top_corner[0], top_corner[1], w, h))
 
+    def set_interpolation_curve(self, z, sim, label_suffix=None):
+        assert len(z) == len(sim)
+        columns = ['z', 'S_{}'.format(label_suffix.upper())]
+        self._interpolation_curve = pd.DataFrame({columns[0]: z, columns[1]: sim})
+
     def set_similarity_curve(self, z, sim, label_suffix=None):
         assert len(z) == len(sim)
         columns = ['z', 'S_{}'.format(label_suffix.upper())]
@@ -123,6 +129,10 @@ class GdpytParticle(object):
     @property
     def id(self):
         return self._id
+
+    @property
+    def interpolation_curve(self):
+        return self._interpolation_curve
 
     @property
     def location(self):
