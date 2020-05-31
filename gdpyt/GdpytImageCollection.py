@@ -1,6 +1,6 @@
 from .GdpytImage import GdpytImage
 from .GdpytCalibrationSet import GdpytCalibrationSet
-from .plotting import plot_img_collection, plot_particle_trajectories, plot_particle_coordinate, plot_image
+from .plotting import plot_img_collection, plot_particle_trajectories, plot_particle_coordinate
 from os.path import join, isdir
 from os import listdir
 from collections import OrderedDict
