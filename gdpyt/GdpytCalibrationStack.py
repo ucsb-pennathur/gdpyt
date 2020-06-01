@@ -93,16 +93,24 @@ class GdpytCalibrationStack(object):
 
     def infer_z(self, particle, function='ccorr'):
         if function.lower() == 'ccorr':
-            sim_func = cross_correlation_equal_shape
+            if self._template_dilation is None:
+                sim_func = cross_correlation_equal_shape
+            else:
+                sim_func = max_cross_correlation
             # Optimum for this function is the maximum
             optim = np.argmax
         elif function.lower() == 'nccorr':
-            sim_func = norm_cross_correlation_equal_shape
+            if self._template_dilation is None:
+                sim_func = norm_cross_correlation_equal_shape
+            else:
+                sim_func = max_norm_cross_correlation
             # Optimum for this function is the maximum
             optim = np.argmax
-
         elif function.lower() == 'znccorr':
-            sim_func = zero_norm_cross_correlation_equal_shape
+            if self._template_dilation is None:
+                sim_func = zero_norm_cross_correlation_equal_shape
+            else:
+                sim_func = max_zero_norm_cross_correlation
             # Optimum for this function is the maximum
             optim = np.argmax
         else:

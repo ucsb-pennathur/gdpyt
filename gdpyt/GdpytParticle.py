@@ -91,7 +91,7 @@ class GdpytParticle(object):
 
         wl, ht = int(w * dil_x / 2), int(h * dil_y / 2)
         top_corner = np.array(self.location) - np.array([wl, ht])
-        dilated_bbox = (top_corner[0], top_corner[1], w * dil_x, h * dil_y)
+        dilated_bbox = (top_corner[0], top_corner[1], int(w * dil_x), int(h * dil_y))
         return dilated_bbox
 
     def _set_location(self, location):
