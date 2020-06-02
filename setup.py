@@ -14,6 +14,7 @@ REQUIRES_PYTHON = '>=3.6.0'
 # What packages are required for this module to be executed?
 REQUIRED = [
     'opencv-python>=4.0',
+    'scikit-image>=0.16',
     'scipy',
     'matplotlib>3.1.0',
     'numpy',
