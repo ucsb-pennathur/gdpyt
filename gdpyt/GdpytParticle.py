@@ -10,7 +10,7 @@ class GdpytParticle(object):
         assert isinstance(image, np.ndarray)
         self._image = image
         self._contour = contour
-        self._set_bbox(bbox)
+        self._bbox = bbox
         self._compute_center()
         self._compute_convex_hull()
         self._similarity_curve = None
@@ -31,9 +31,13 @@ class GdpytParticle(object):
             out_str += '{}: {} \n'.format(key, str(val))
         return out_str
 
-    def _create_template(self):
-        x0, y0, w0, h0 = self._bbox
-        x, y, w, h = self._bbox
+    def _create_template(self, bbox=None):
+        if bbox is None:
+            x0, y0, w0, h0 = self._bbox
+            x, y, w, h = self._bbox
+        else:
+            x0, y0, w0, h0 = bbox
+            x, y, w, h = bbox
         pad_x_m, pad_x_p, pad_y_m, pad_y_p = 0, 0, 0, 0
         if y + h > self._image.shape[0]:
             pad_y_p = y + h - self._image.shape[0]
@@ -52,11 +56,12 @@ class GdpytParticle(object):
         pad_y = (pad_y_m, pad_y_p)
 
         if (pad_x == (0, 0)) and (pad_y == (0, 0)):
-            self._template = self._image[y: y + h, x: x + w]
+            template = self._image[y: y + h, x: x + w]
         else:
-            self._template = np.pad(self._image[y: y + h, x: x + w].astype(np.float), (pad_y, pad_x),
+            template = np.pad(self._image[y: y + h, x: x + w].astype(np.float), (pad_y, pad_x),
                                     'constant', constant_values=np.nan)
-        assert self._template.shape == (h0, w0)
+        assert template.shape == (h0, w0)
+        return template
 
     def _compute_convex_hull(self):
         hull = cv2.convexHull(self.contour)
@@ -71,13 +76,34 @@ class GdpytParticle(object):
         cY = int(M["m01"] / M["m00"])
         self._set_location((cX, cY))
 
+    def _dilated_bbox(self, dilation=None):
+        w, h = self.bbox[2], self.bbox[3]
+        if dilation is None:
+            return self._bbox
+        elif isinstance(dilation, tuple):
+            assert len(dilation) == 2
+            dil_x, dil_y = dilation
+        elif isinstance(dilation, float) or isinstance(dilation, int):
+            dil_x = dilation
+            dil_y = dilation
+        else:
+            raise TypeError("Wrong type for dilation (Received {})".format(type(dilation)))
+
+        wl, ht = int(w * dil_x / 2), int(h * dil_y / 2)
+        top_corner = np.array(self.location) - np.array([wl, ht])
+        dilated_bbox = (top_corner[0], top_corner[1], int(w * dil_x), int(h * dil_y))
+        return dilated_bbox
+
     def _set_location(self, location):
         assert len(location) == 2
         self._location = location
 
-    def _set_bbox(self, bbox):
-        self._bbox = bbox
-        self._create_template()
+    def get_template(self, dilation=None):
+        if dilation is None:
+            return self._create_template()
+        else:
+            dil_bbox = self._dilated_bbox(dilation=dilation)
+            return self._create_template(bbox=dil_bbox)
 
     def resize_bbox(self, w, h):
         """
@@ -88,7 +114,7 @@ class GdpytParticle(object):
         """
         wl, ht = int(w / 2), int(h / 2)
         top_corner = np.array(self.location) - np.array([wl, ht])
-        self._set_bbox((top_corner[0], top_corner[1], w, h))
+        self._bbox = (top_corner[0], top_corner[1], w, h)
 
     def set_interpolation_curve(self, z, sim, label_suffix=None):
         assert len(z) == len(sim)
@@ -152,7 +178,7 @@ class GdpytParticle(object):
 
     @property
     def template(self):
-        return self._template
+        return self._create_template()
 
     @property
     def z(self):

@@ -1,8 +1,9 @@
 from .GdpytCalibrationStack import GdpytCalibrationStack
+from math import sqrt
 
 class GdpytCalibrationSet(object):
 
-    def __init__(self, collection, image_to_z, exclude=[]):
+    def __init__(self, collection, image_to_z, exclude=[], dilate=True):
         super(GdpytCalibrationSet, self).__init__()
         self._collection = collection
 
@@ -16,7 +17,7 @@ class GdpytCalibrationSet(object):
                     raise ValueError("No z coordinate specified for image {}")
                 else:
                     image.set_z(image_to_z[image.filename])
-        self._create_stacks(exclude=exclude)
+        self._create_stacks(exclude=exclude, dilate=dilate)
 
     def __len__(self):
         return len(self.calibration_stacks)
@@ -31,13 +32,17 @@ class GdpytCalibrationSet(object):
         return out_str
 
 
-    def _create_stacks(self, exclude=[]):
+    def _create_stacks(self, exclude=[], dilate=True):
         stacks = {}
+        if dilate:
+            dilation = sqrt(self.collection.shape_tol + 1)
+        else:
+            dilation = None
         for image in self.collection.images.values():
             if image.filename not in exclude:
                 for particle in image.particles:
                     if particle.id not in stacks.keys():
-                        new_stack = GdpytCalibrationStack(particle.id, particle.location)
+                        new_stack = GdpytCalibrationStack(particle.id, particle.location, dilation=dilation)
                         new_stack.add_particle(particle)
                         stacks.update({particle.id: new_stack})
                     else:

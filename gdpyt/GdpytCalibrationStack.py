@@ -9,13 +9,14 @@ logger = logging.getLogger(__name__)
 
 class GdpytCalibrationStack(object):
 
-    def __init__(self, particle_id, location):
+    def __init__(self, particle_id, location, dilation=None):
         super(GdpytCalibrationStack, self).__init__()
         self._id = particle_id
         self._location = location
         self._layers = OrderedDict()
         self._particles = []
         self._shape = None
+        self._template_dilation = dilation
 
     def __len__(self):
         return len(self._layers)
@@ -33,7 +34,8 @@ class GdpytCalibrationStack(object):
         max_z = max(list(self.layers.keys()))
         repr_dict = {'Particle ID': self.id,
                      'Location (x, y)': self.location,
-                     'Template dimensions': self.shape,
+                     'Particle bounding box dimensions': self.shape,
+                     'Template dilation': self._template_dilation,
                      'Number of layers': len(self),
                      'Min. and max. z coordinate': [min_z, max_z]}
         out_str = "{}: \n".format(class_)
@@ -68,7 +70,7 @@ class GdpytCalibrationStack(object):
 
         for particle in self._particles:
             z.append(particle.z)
-            templates.append(particle.template)
+            templates.append(particle.get_template(dilation=self._template_dilation))
 
         layers = OrderedDict()
         for z, template in sorted(zip(z, templates), key=lambda k: k[0]):
@@ -91,16 +93,24 @@ class GdpytCalibrationStack(object):
 
     def infer_z(self, particle, function='ccorr'):
         if function.lower() == 'ccorr':
-            sim_func = cross_correlation_equal_shape
+            if self._template_dilation is None:
+                sim_func = cross_correlation_equal_shape
+            else:
+                sim_func = max_cross_correlation
             # Optimum for this function is the maximum
             optim = np.argmax
         elif function.lower() == 'nccorr':
-            sim_func = norm_cross_correlation_equal_shape
+            if self._template_dilation is None:
+                sim_func = norm_cross_correlation_equal_shape
+            else:
+                sim_func = max_norm_cross_correlation
             # Optimum for this function is the maximum
             optim = np.argmax
-
         elif function.lower() == 'znccorr':
-            sim_func = zero_norm_cross_correlation_equal_shape
+            if self._template_dilation is None:
+                sim_func = zero_norm_cross_correlation_equal_shape
+            else:
+                sim_func = max_zero_norm_cross_correlation
             # Optimum for this function is the maximum
             optim = np.argmax
         else:
@@ -111,7 +121,7 @@ class GdpytCalibrationStack(object):
 
         sim = []
         for c_temp in temp_calib:
-             sim.append(sim_func(c_temp, particle.template))
+            sim.append(sim_func(c_temp, particle.template))
         sim = np.array(sim)
         max_idx = optim(sim)
         xp, poly = interpolation(z_calib, sim, max_idx)

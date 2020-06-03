@@ -116,14 +116,14 @@ class GdpytImageCollection(object):
         self._files = list2
 
 
-    def create_calibration(self, name_to_z, exclude=[]):
+    def create_calibration(self, name_to_z, exclude=[], dilate=True):
         """
         This creates a calibration from this image collection
         :param name_to_z: dictionary, maps each filename to a height. e.g {'run5_0.tif': 0.0, 'run5_1.tif': 1.0 ...}
                         This could also be done differently
         :return: A list of GdptCalibrationStacks. One for each particle in the images
         """
-        return GdpytCalibrationSet(self, name_to_z, exclude=exclude)
+        return GdpytCalibrationSet(self, name_to_z, exclude=exclude, dilate=dilate)
 
     def filter_images(self):
         for image in self.images.values():
@@ -275,6 +275,10 @@ class GdpytImageCollection(object):
     def image_stats(self):
         image_stats = [image.stats for image in self.images.values()]
         return pd.concat(image_stats, ignore_index=False, keys=list(self.images.keys()), names=['Image']).droplevel(1)
+
+    @property
+    def shape_tol(self):
+        return self._shape_tol
 
 
 
