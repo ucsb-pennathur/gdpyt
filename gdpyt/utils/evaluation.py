@@ -4,14 +4,19 @@ import pandas as pd
 import numpy as np
 from os.path import join
 from os import listdir
+import logging
 
+logger = logging.getLogger(__name__)
 
 class GdpytPerformanceEvaluation(object):
+
+    __name__ = 'GdpytPerformanceEvaluation'
 
     def __init__(self, image_collection, source_folder):
         assert isinstance(image_collection, GdpytImageCollection)
         if not image_collection.is_infered():
-            raise RuntimeError("Can only evaluate performance on image collections that are fully inferred")
+            logger.warning("{}: Some images in collection {} contain particles whose z coordinate "
+                           "has not been infered".format(self.__name__, image_collection.folder))
         self._collection = image_collection
         self._source_folder = source_folder
         self._evaluate()
@@ -35,8 +40,11 @@ class GdpytPerformanceEvaluation(object):
 
             # Create KDTree for efficient distance lookup
             dist_tree = KDTree(source_data[['x', 'y']].values)
-            particle_locs = self._collection.images[file.split('.')[0] + img_ftype].particle_coordinates()
+
+            # Get coordinates of particles. Omit particles that have no z coordinate
+            particle_locs = self._collection.images[file.split('.')[0] + img_ftype].particle_coordinates().dropna(subset=['z'])
             max_sims = self._collection.images[file.split('.')[0] + img_ftype].maximum_cm()
+            max_sims = max_sims[max_sims['id'].isin(particle_locs['id'])]
 
             dist, idx = dist_tree.query(particle_locs[['x', 'y']].values, k=1, p=2)
 

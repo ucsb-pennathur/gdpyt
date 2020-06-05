@@ -76,8 +76,11 @@ class GdpytParticle(object):
         cY = int(M["m01"] / M["m00"])
         self._set_location((cX, cY))
 
-    def _dilated_bbox(self, dilation=None):
-        w, h = self.bbox[2], self.bbox[3]
+    def _dilated_bbox(self, dilation=None, dims=None):
+        if dims is None:
+            w, h = self.bbox[2], self.bbox[3]
+        else:
+            w, h = dims
         if dilation is None:
             return self._bbox
         elif isinstance(dilation, tuple):
@@ -94,15 +97,31 @@ class GdpytParticle(object):
         dilated_bbox = (top_corner[0], top_corner[1], int(w * dil_x), int(h * dil_y))
         return dilated_bbox
 
+    def _resized_bbox(self, resize=None):
+        if resize is None:
+            return self._bbox
+        else:
+            w, h = resize
+            wl, ht = int(w / 2), int(h / 2)
+            top_corner = np.array(self.location) - np.array([wl, ht])
+            return top_corner[0], top_corner[1], w, h
+
     def _set_location(self, location):
         assert len(location) == 2
         self._location = location
 
-    def get_template(self, dilation=None):
-        if dilation is None:
+    def get_template(self, dilation=None, resize=None):
+        if dilation is None and resize is None:
             return self._create_template()
-        else:
+        elif dilation is not None and resize is None:
             dil_bbox = self._dilated_bbox(dilation=dilation)
+            return self._create_template(bbox=dil_bbox)
+        elif dilation is None and resize is not None:
+            resized_bbox = self._resized_bbox(resize)
+            return self._create_template(bbox=resized_bbox)
+        else:
+            resized_bbox = self._resized_bbox(resize=resize)
+            dil_bbox = self._dilated_bbox(dilation=dilation, dims=resized_bbox[2:])
             return self._create_template(bbox=dil_bbox)
 
     def resize_bbox(self, w, h):
@@ -112,9 +131,7 @@ class GdpytParticle(object):
         :param h: new height (int)
         :return:
         """
-        wl, ht = int(w / 2), int(h / 2)
-        top_corner = np.array(self.location) - np.array([wl, ht])
-        self._bbox = (top_corner[0], top_corner[1], w, h)
+        self._bbox = self._resized_bbox(resize=(w, h))
 
     def set_interpolation_curve(self, z, sim, label_suffix=None):
         assert len(z) == len(sim)

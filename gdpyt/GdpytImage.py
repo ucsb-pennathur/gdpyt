@@ -227,10 +227,10 @@ class GdpytImage(object):
             x, y = particle.location
             if particle.z is None:
                 no_z_count += 1
-                coords.append(pd.DataFrame({'id': [particle.id], 'x': [x], 'y': [y]}))
+                coords.append(pd.DataFrame({'id': [int(particle.id)], 'x': [x], 'y': [y]}))
             else:
                 z = particle.z
-                coords.append(pd.DataFrame({'id': [particle.id], 'x': [x], 'y': [y], 'z': [z]}))
+                coords.append(pd.DataFrame({'id': [int(particle.id)], 'x': [x], 'y': [y], 'z': [z]}))
         if no_z_count > 0:
             if id_ is not None:
                 total_particles = len(id_)
@@ -250,7 +250,7 @@ class GdpytImage(object):
                 if particle.id not in id_:
                     continue
             cm = particle.max_sim
-            cms.append(pd.DataFrame({'id': [particle.id], 'Cm': [cm]}))
+            cms.append(pd.DataFrame({'id': [int(particle.id)], 'Cm': [cm]}))
         cms = pd.concat(cms).sort_values(by='id')
 
         return cms

@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from torch.autograd import Variable
+from gdpyt.plotting import plot_tensor_dset
 import numpy as np
 import time
 import logging
@@ -26,7 +27,7 @@ class GdpytNet(nn.Module):
         if max_pool_params is not None:
             assert isinstance(max_pool_params, dict)
         if batch_norm is not None:
-            assert isinstance(batch_norm, list)
+            assert isinstance(batch_norm, tuple)
 
         self.blocks = nn.ModuleList()
         self.n_conv_layers = n_conv_layers
@@ -59,9 +60,9 @@ class GdpytNet(nn.Module):
         for i in range(self.n_linear_layers):
             # One quarter the input nodes, except the last layer (1 output)
             if i == self.n_linear_layers - 1:
-                linear_block = LinearBlock(inp_shape, 10)
+                linear_block = LinearBlock(inp_shape, 1, activation=None)
             else:
-                linear_block = LinearBlock(inp_shape, 0.25)
+                linear_block = LinearBlock(inp_shape, 0.25, activation='relu')
             inp_shape = linear_block.outp_shape
             self.blocks.append(linear_block)
 
@@ -116,7 +117,7 @@ class ConvBlock(nn.Module):
 
 class LinearBlock(nn.Module):
 
-    def __init__(self, inp_shape, out_features, bias=True):
+    def __init__(self, inp_shape, out_features, bias=True, activation=None):
         super(LinearBlock, self).__init__()
 
         if isinstance(inp_shape, int):
@@ -135,7 +136,15 @@ class LinearBlock(nn.Module):
 
         layer_content = []
         layer_content.append(nn.Linear(in_features, out_features, bias=bias))
-        layer_content.append(nn.ReLU())
+        if activation is not None:
+            if activation == 'tanh':
+                layer_content.append(nn.Tanh())
+            elif activation == 'relu':
+                layer_content.append(nn.ReLU())
+            elif activation == 'lrelu':
+                layer_content.append(nn.LeakyReLU())
+            else:
+                layer_content.append(nn.ReLU())
 
         self.layers = nn.Sequential(*layer_content)
 
@@ -149,7 +158,7 @@ def init_weights(module):
         Xavier initialization for Conv and Linear layers
     """
     if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
-        nn.init.xavier_normal_(module.weight.data)
+        nn.init.kaiming_normal_(module.weight.data, nonlinearity='relu')
     elif isinstance(module, nn.BatchNorm2d):
         module.reset_parameters()
 
@@ -187,59 +196,65 @@ def conv2d_out_shape(shape, out_channels, kernel_size=3, padding=0, stride=1, di
 
 def train_net(model, device, optimizer, criterion, dataloader,
               epochs=10, lambda_=1e-3, reg_type=None):
+
     # Initialize model weights
     model.apply(init_weights)
     model.train()
     model.to(device)
 
     avg_epoch_loss_train = []
+    std_epoch_loss_train = []
 
     for e in range(epochs):
         start = time.time()
         logger.info("Epoch {}: Start".format(e))
-        loss_accum = 0
-        correct_train = 0
+        loss_batch = []
 
         model.train()  # Set model to training mode
 
-        for i, (batch_x, batch_y) in enumerate(dataloader):
+        for i, batch in enumerate(dataloader):
             logger.info("Epoch {}, Batch {}".format(e, i))
             # Data in minibatch format N x C x H x H
-            # X = batch['input'].to(device)
-            # y = batch['target'].to(device)
-            X = Variable(batch_x)
-            y = Variable(batch_y)
-            prediction = model(X)  # [N, 2, H, W]
+            X = batch['input'].to(device)
+            y = batch['target'].to(device)
+            prediction = model(X)  # [N, 1]
+            #logger.info("Prediction: {}, Target: {}".format(prediction, y))
             loss = criterion(prediction, y)
 
-            if reg_type:
+            # L1 or L2 regularization
+            if reg_type is not None:
                 assert reg_type in ['l2', 'l1']
                 if reg_type == 'l2':
                     for p in model.parameters():
                         loss += lambda_ * p.pow(2).sum()
+                elif reg_type == 'l1':
+                    with torch.no_grad():
+                        for p in model.parameters():
+                            p.sub_(p.sign() * p.abs().clamp(max=lambda_))
+                else:
+                    raise NotImplementedError
 
-            loss_accum += loss.item()
+            loss_batch.append(loss.item())
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            if reg_type == 'l1':
-                with torch.no_grad():
-                    for p in model.parameters():
-                        p.sub_(p.sign() * p.abs().clamp(max=lambda_))
-
-        avg_epoch_loss_train.append(loss_accum / (len(dataloader) * len(X)))
+        avg_epoch_loss_train.append(np.array(loss_batch).sum() / (len(dataloader) * len(X)))
+        std_epoch_loss_train.append(np.array(loss_batch).std())
 
         end = time.time() - start
         logger.info(
             "Epoch {}: Duration: {:.02f}s, Train Loss: {:.02e}".format(
                 e, end, avg_epoch_loss_train[e]))
 
-    return avg_epoch_loss_train, model
+    return avg_epoch_loss_train, std_epoch_loss_train, model
 
 
 class GdpytTensorDataset(Dataset):
+
+    __name__ = 'GdpytTensorDataset'
+
     def __init__(self, transforms_=None, normalize=False):
 
         """
@@ -254,39 +269,132 @@ class GdpytTensorDataset(Dataset):
             #     transforms.append(transf)
         transform.append(ToTensor())
         self.transform = transforms.Compose(transform)
+        self._shape = None
+        self.stats = None
+        self._mode = None
 
     def __len__(self):
-        return len(self.stack)
+        return len(self._source)
 
     def __getitem__(self, idx):
-        target, image = self._source[idx]
+        source_particle = self._source[idx]
+
+        target = source_particle.z
+        image = source_particle.get_template(resize=self._shape)
 
         if self.normalize:
-            image = (image - self.stack.stats['mean']) / self.stack.stats['std']
+            image = (image - self.stats['mean']) / self.stats['std']
 
-        image = np.nan_to_num(image[:, :, np.newaxis])
+        # Add channel dimension if array is only a 2D image
+        if len(image.shape) == 2:
+            image = np.nan_to_num(image[:, :, np.newaxis])
+        else:
+            image = np.nan_to_num(image)
         target = np.array([target])
 
-        sample = {'input': image, 'target': target}
+        if self._mode in ['train', 'test']:
+            sample = {'input': image, 'target': target}
+        else:
+            sample = {'input': image}
 
         if self.transform:
             sample = self.transform(sample)
 
         return sample
 
-    def from_calib_stack(self, stack):
-        self._source = stack
+    def _compute_stats(self):
+        imgs = []
+        for particle in self._source:
+            imgs.append(particle.get_template(resize=self.shape))
+        imgs = np.array(imgs)
+        self.stats = {'mean': imgs.mean(), 'std': imgs.std()}
 
-    def return_dataloader(self, batch_size=4, shuffle=True, num_workers=4):
-        return DataLoader(self, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+    def _load_calib_stack(self, stack, skip_na=True):
+        all_ = []
+        for particle in stack.particles:
+            if stack.shape == self.shape:
+                template = particle.get_template()
+            else:
+                template = particle.get_template(resize=self.shape)
+            if skip_na and np.isnan(template).sum() != 0:
+                continue
+            all_.append(particle)
+        return all_
+
+    def from_calib_set(self, calib_set, max_size=None, skip_na=True, min_stack_len=10):
+        # Identify largest template in calibration set
+        w_max, h_max = (0, 0)
+        skip_stacks = []
+        for stack_id, stack in calib_set.calibration_stacks.items():
+            w, h = stack.shape
+            if min_stack_len is not None:
+                if len(stack) < min_stack_len:
+                    skip_stacks.append(stack_id)
+                    continue
+            if max_size is not None:
+                if w > max_size or h > max_size:
+                    skip_stacks.append(stack_id)
+                    continue
+            if w > w_max:
+                w_max = w
+            if h > h_max:
+                h_max = h
+        logger.info("Max. size specified: {}. Shape of calibration set: {}".format(max_size, (w_max, h_max)))
+        self._shape = (w_max, h_max)
+
+        # Load all calibration stacks in this calibration set
+        all_ = []
+        for stack_id, stack in calib_set.calibration_stacks.items():
+            if stack_id not in skip_stacks:
+                all_ += self._load_calib_stack(stack, skip_na=skip_na)
+        self._source = all_
+        logger.info("Created a {} as a training set using {} particles from calibration set".format(self.__name__, len(all_)))
+
+        # When loading from calibration set or stack it's always a training set
+        self._mode = 'train'
+        self._compute_stats()
+
+    def from_image_collection(self, collection, ref_shape=None, max_size=None, skip_na=True):
+        if ref_shape is None:
+            logger.error("A shape as a 2 element tuple when loading a test set from an image collection. "
+                         "This should be the shape of a sample from the training set")
+            raise TypeError
+        else:
+            assert isinstance(ref_shape, tuple)
+            assert len(ref_shape) == 2
+            self._shape = ref_shape
+
+        all_ = []
+        for image in collection.images.values():
+            for particle in image.particles:
+                if max_size is not None:
+                    w, h = particle.bbox[2:]
+                    if w > max_size or h > max_size:
+                        continue
+                template = particle.get_template(resize=ref_shape)
+                if skip_na and np.isnan(template).sum() != 0:
+                    continue
+                all_.append(particle)
+
+        self._source = all_
+
+        if collection.is_infered():
+            logger.info(
+            "Created a {} as a test set using {} particles from "
+            "GdpytImageCollection in {}".format(self.__name__, len(all_), collection.folder))
+            self._mode = 'test'
+        else:
+            logger.info(
+                "Created a {} as a prediction set (unknown targets) using {} particles from "
+                "GdpytImageCollection in {}".format(self.__name__, len(all_), collection.folder))
+            self._mode = 'predict'
+        self._compute_stats()
 
     def infer(self, model, idx):
         """
         Infere a sample in the dataset with a trained model
         """
-
         x = self.__getitem__(idx)['input']
-        target = self.__getitem__(idx)['target']
         # Force mini-batch shape
         x.unsqueeze_(0)
 
@@ -294,18 +402,67 @@ class GdpytTensorDataset(Dataset):
         model.eval()
         y = model(x)
 
-        logger.info("Predicted: {}, Target: {}".format(y.item(), target.item()))
-        return y.item(), target.item()
+        if self._mode in ['train', 'test']:
+            target = self.__getitem__(idx)['target']
+            logger.info("Predicted: {}, Target: {}".format(y.item(), target.item()))
+            return y.item(), target.item()
+        else:
+            logger.info("Predicted: {}".format(y.item()))
+            return y.item()
+
+
+    def plot(self, N):
+        assert isinstance(N, int) and N > 0
+        fig = plot_tensor_dset(self, N)
+        return fig
+
+    def return_dataloader(self, batch_size=4, shuffle=True, num_workers=4):
+        return DataLoader(self, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+
+    def set_sample_z(self, idx, z):
+        if isinstance(z, torch.Tensor):
+            z = z.item()
+        self._source[idx].set_z(z)
+
+    @property
+    def input_shape(self):
+        return
+    @property
+    def shape(self):
+        return self._shape
+
+    @property
+    def mode(self):
+        return self._mode
 
 class ToTensor(object):
     """Convert ndarrays in sample to Tensors."""
 
     def __call__(self, sample):
-        image, target = sample['input'], sample['target']
+        outp_sample = {}
+        image = sample['input']
 
         # swap color axis because
         # numpy image: H x W x C
         # torch image: C X H X W
         image = image.transpose((2, 0, 1))
-        return {'input': torch.from_numpy(image).float(),
-                'target': torch.from_numpy(target).float()}
+        outp_sample.update({'input': torch.from_numpy(image).float()})
+
+        if 'target' in sample.keys():
+            target = sample['target']
+            outp_sample.update({'target': torch.from_numpy(target).float()})
+
+        return outp_sample
+
+class RotateN90(object):
+    """ Rotate an image by a multiple of 90 degrees"""
+
+    def __init__(self, n):
+        assert isinstance(n, int)
+        self.n = n
+
+    def __call__(self, sample):
+        image = sample['input']
+        sample.update({'input': np.rot90(image, k=self.n, axes=(0,1))})
+
+        return sample

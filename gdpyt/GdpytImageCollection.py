@@ -1,5 +1,6 @@
 from .GdpytImage import GdpytImage
 from .GdpytCalibrationSet import GdpytCalibrationSet
+from .similarity_nn.gdpyt_net import GdpytTensorDataset
 from .plotting import plot_img_collection, plot_particle_trajectories, plot_particle_coordinate
 from os.path import join, isdir
 from os import listdir
@@ -150,8 +151,11 @@ class GdpytImageCollection(object):
 
         assert isinstance(calib_set, GdpytCalibrationSet)
 
-        for image in self.images.values():
-            calib_set.infer_z(image, function=function)
+        if function not in ['cnn', 'nn']:
+            for image in self.images.values():
+                calib_set.infer_z(image, function=function)
+        else:
+            calib_set.infer_z(self, function=function)
 
     def plot(self, raw=True, draw_particles=True, exclude=[], **kwargs):
         fig = plot_img_collection(self, raw=raw, draw_particles=draw_particles, exclude=exclude, **kwargs)
@@ -166,7 +170,6 @@ class GdpytImageCollection(object):
         return fig
 
     def uniformize_particle_ids(self, baseline=None, threshold=50):
-        print("uniformize")
         baseline_locations = []
         # If a calibration set is given as the baseline, the particle IDs in this collection are assigned based on
         # the location and ID of the calibration set. This should always be done when the collection contains target images

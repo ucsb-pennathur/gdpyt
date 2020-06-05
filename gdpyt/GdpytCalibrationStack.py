@@ -157,3 +157,7 @@ class GdpytCalibrationStack(object):
     @property
     def stats(self):
         return self._stats
+
+    @property
+    def particles(self):
+        return self._particles
