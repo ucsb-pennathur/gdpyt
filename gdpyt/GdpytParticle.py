@@ -4,11 +4,13 @@ import pandas as pd
 
 class GdpytParticle(object):
 
-    def __init__(self, image, id_, contour, bbox):
+    def __init__(self, image_raw, image_filt, id_, contour, bbox):
         super(GdpytParticle, self).__init__()
         self._id = id_
-        assert isinstance(image, np.ndarray)
-        self._image = image
+        assert isinstance(image_raw, np.ndarray)
+        assert isinstance(image_filt, np.ndarray)
+        self._image_raw = image_raw
+        self._image_filt = image_filt
         self._contour = contour
         self._bbox = bbox
         self._compute_center()
@@ -17,6 +19,7 @@ class GdpytParticle(object):
         self._interpolation_curve = None
         self._z = None
         self._max_sim = None
+        self._use_raw = True
 
     def __repr__(self):
         class_ = 'GdpytParticle'
@@ -32,6 +35,11 @@ class GdpytParticle(object):
         return out_str
 
     def _create_template(self, bbox=None):
+        if self.use_raw:
+            image = self._image_raw
+        else:
+            image = self._image_filt
+
         if bbox is None:
             x0, y0, w0, h0 = self._bbox
             x, y, w, h = self._bbox
@@ -39,14 +47,14 @@ class GdpytParticle(object):
             x0, y0, w0, h0 = bbox
             x, y, w, h = bbox
         pad_x_m, pad_x_p, pad_y_m, pad_y_p = 0, 0, 0, 0
-        if y + h > self._image.shape[0]:
-            pad_y_p = y + h - self._image.shape[0]
+        if y + h > image.shape[0]:
+            pad_y_p = y + h - image.shape[0]
         if y < 0:
             pad_y_m = - y
             h = y + h
             y = 0
-        if x + w > self._image.shape[1]:
-            pad_x_p = x + w - self._image.shape[1]
+        if x + w > image.shape[1]:
+            pad_x_p = x + w - image.shape[1]
         if x < 0:
             pad_x_m = - x
             w = x + w
@@ -56,9 +64,9 @@ class GdpytParticle(object):
         pad_y = (pad_y_m, pad_y_p)
 
         if (pad_x == (0, 0)) and (pad_y == (0, 0)):
-            template = self._image[y: y + h, x: x + w]
+            template = image[y: y + h, x: x + w]
         else:
-            template = np.pad(self._image[y: y + h, x: x + w].astype(np.float), (pad_y, pad_x),
+            template = np.pad(image[y: y + h, x: x + w].astype(np.float), (pad_y, pad_x),
                                     'constant', constant_values=np.nan)
         assert template.shape == (h0, w0)
         return template
@@ -152,6 +160,10 @@ class GdpytParticle(object):
 
     def set_max_sim(self, sim):
         self._max_sim = sim
+
+    def use_raw(self, use_raw):
+        assert isinstance(use_raw, bool)
+        self._use_raw = use_raw
 
     @property
     def area(self):

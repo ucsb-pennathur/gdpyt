@@ -58,6 +58,8 @@ class GdpytCalibrationSet(object):
                 for particle in image.particles:
                     if particle.id not in stacks.keys():
                         new_stack = GdpytCalibrationStack(particle.id, particle.location, dilation=dilation)
+                        # For the calibration stack that is used for the conventional method use the filtered template
+                        particle.use_raw(False)
                         new_stack.add_particle(particle)
                         stacks.update({particle.id: new_stack})
                     else:

@@ -279,6 +279,8 @@ class GdpytTensorDataset(Dataset):
     def __getitem__(self, idx):
         source_particle = self._source[idx]
 
+        # Use raw image for neural net
+        source_particle.use_raw(True)
         target = source_particle.z
         image = source_particle.get_template(resize=self._shape)
 
@@ -305,6 +307,7 @@ class GdpytTensorDataset(Dataset):
     def _compute_stats(self):
         imgs = []
         for particle in self._source:
+            particle.use_raw(True)
             imgs.append(particle.get_template(resize=self.shape))
         imgs = np.array(imgs)
         self.stats = {'mean': imgs.mean(), 'std': imgs.std()}
@@ -312,6 +315,7 @@ class GdpytTensorDataset(Dataset):
     def _load_calib_stack(self, stack, skip_na=True):
         all_ = []
         for particle in stack.particles:
+            particle.use_raw(True)
             if stack.shape == self.shape:
                 template = particle.get_template()
             else:
@@ -367,6 +371,7 @@ class GdpytTensorDataset(Dataset):
         all_ = []
         for image in collection.images.values():
             for particle in image.particles:
+                particle.use_raw(True)
                 if max_size is not None:
                     w, h = particle.bbox[2:]
                     if w > max_size or h > max_size:

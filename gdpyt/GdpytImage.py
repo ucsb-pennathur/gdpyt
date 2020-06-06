@@ -56,7 +56,7 @@ class GdpytImage(object):
         return out_str
 
     def _add_particle(self, id_, contour, bbox):
-        self._particles.append(GdpytParticle(self._raw, id_, contour, bbox))
+        self._particles.append(GdpytParticle(self._raw, self._filtered, id_, contour, bbox))
 
     def _update_processing_stats(self, names, values):
         if not isinstance(names, list):
