@@ -56,7 +56,7 @@ class GdpytImage(object):
         return out_str
 
     def _add_particle(self, id_, contour, bbox):
-        self._particles.append(GdpytParticle(self._filtered, id_, contour, bbox))
+        self._particles.append(GdpytParticle(self._raw, id_, contour, bbox))
 
     def _update_processing_stats(self, names, values):
         if not isinstance(names, list):
@@ -196,7 +196,7 @@ class GdpytImage(object):
 
     def load(self, path, mode=cv2.IMREAD_UNCHANGED):
         img = cv2.imread(self._filepath, mode)
-        self._raw = cv2.normalize(img, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+        self._raw = img # cv2.normalize(img, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
         # Calculate histogram
         self._histogram = cv2.calcHist([self._raw], [0], None, [255], [0, 255])
 
