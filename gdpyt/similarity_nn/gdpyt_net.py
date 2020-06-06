@@ -394,22 +394,36 @@ class GdpytTensorDataset(Dataset):
         """
         Infere a sample in the dataset with a trained model
         """
-        x = self.__getitem__(idx)['input']
-        # Force mini-batch shape
-        x.unsqueeze_(0)
 
-        # Evaluation mode
-        model.eval()
-        y = model(x)
+        if idx is not None:
+            x = self.__getitem__(idx)['input']
+            # Force mini-batch shape
+            x.unsqueeze_(0)
 
-        if self._mode in ['train', 'test']:
-            target = self.__getitem__(idx)['target']
-            logger.info("Predicted: {}, Target: {}".format(y.item(), target.item()))
-            return y.item(), target.item()
+            # Evaluation mode
+            model.eval()
+            y = model(x)
+
+            if self._mode in ['train', 'test']:
+                target = self.__getitem__(idx)['target']
+                logger.info("Predicted: {}, Target: {}".format(y.item(), target.item()))
+                return y.item(), target.item()
+            else:
+                logger.info("Predicted: {}".format(y.item()))
+                return y.item()
         else:
-            logger.info("Predicted: {}".format(y.item()))
-            return y.item()
+            inputs = [self.__getitem__(i)['input'].unsqueeze_(0) for i in range(len(self))]
+            inputs = torch.cat(inputs, 0)
 
+            # Evaluation mode
+            model.eval()
+            y = model(inputs)
+
+            if self._mode in ['train', 'test']:
+                targets = [self.__getitem__(i)['target'] for i in range(len(self))]
+                return y, targets
+            else:
+                return y
 
     def plot(self, N):
         assert isinstance(N, int) and N > 0
@@ -421,8 +435,12 @@ class GdpytTensorDataset(Dataset):
 
     def set_sample_z(self, idx, z):
         if isinstance(z, torch.Tensor):
-            z = z.item()
-        self._source[idx].set_z(z)
+            if len(z) == 1:
+                z = z.item()
+                self._source[idx].set_z(z)
+            else:
+                for idx, z_ in enumerate(z):
+                    self._source[idx].set_z(z_.item())
 
     @property
     def input_shape(self):

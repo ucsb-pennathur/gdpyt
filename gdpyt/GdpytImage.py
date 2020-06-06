@@ -276,7 +276,6 @@ class GdpytImage(object):
         else:
             return unique_ids
 
-
     @property
     def filename(self):
         return self._filename

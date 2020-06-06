@@ -90,9 +90,8 @@ class GdpytCalibrationSet(object):
                                                max_size=self._cnn_data_params['max_size'],
                                                skip_na=self._cnn_data_params['skip_na'])
 
-            for idx in range(len(predict_dset)):
-                pred = predict_dset.infer(self.cnn, idx)
-                predict_dset.set_sample_z(idx, pred)
+            pred = predict_dset.infer(self.cnn, None)
+            predict_dset.set_sample_z(None, pred)
 
     def train_cnn(self, epochs, normalize_inputs=True, max_sample_size=50, skip_na=True, min_stack_len=10,
                   lr=1e-5, lambda_=1e-3, reg_type=None, batch_size=64, shuffle_batches=True):
