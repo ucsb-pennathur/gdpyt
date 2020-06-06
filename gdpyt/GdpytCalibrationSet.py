@@ -1,5 +1,5 @@
 from .GdpytCalibrationStack import GdpytCalibrationStack
-from gdpyt.similarity_nn.gdpyt_net import GdpytNet, GdpytTensorDataset, train_net
+from gdpyt.similarity.nn import GdpytNet, GdpytTensorDataset, train_net
 import pandas as pd
 import torch
 import torch.nn as nn

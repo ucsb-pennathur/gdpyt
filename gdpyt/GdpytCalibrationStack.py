@@ -1,7 +1,7 @@
 from .GdpytParticle import GdpytParticle
 from collections import OrderedDict
 from .plotting import plot_calib_stack
-from .similarity import *
+from gdpyt.similarity.correlation import *
 import numpy as np
 import logging
 
