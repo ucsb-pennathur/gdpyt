@@ -142,6 +142,35 @@ def plot_particle_coordinate(collection, coordinate='z', sort_images=None, parti
 
     return fig
 
+def plot_tensor_dset(dset, N):
+    n_images = N
+    n_cols = min(10, n_images)
+    n_rows = int(n_images / n_cols) + 1
+    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(2 * n_cols, n_rows * 2))
+
+    if not isinstance(axes, np.ndarray):
+        axes = np.array([axes]).reshape(-1,1)
+
+    idx_list = np.random.randint(0, len(dset), size=N)
+
+    for i in range(n_rows):
+        for j in range(n_cols):
+            n = i * n_cols + j
+            if n > n_images - 1:
+                axes[i, j].imshow(np.zeros_like(sample['input'].numpy().squeeze()), cmap='gray')
+                axes[i, j].set_title('None', fontsize=5)
+            else:
+                sample = dset[idx_list[n]]
+                axes[i, j].imshow(sample['input'].numpy().squeeze(), cmap='gray')
+                axes[i, j].set_title('z = {}'.format(sample['target']), fontsize=5)
+            axes[i, j].get_xaxis().set_visible(False)
+            axes[i, j].get_yaxis().set_visible(False)
+
+    # fig.suptitle('Tensor dataset (Particle ID {})'.format(stack.id))
+    fig.subplots_adjust(wspace=0.05, hspace=0.25)
+
+    return fig
+
 def plot_image(img, cmap='gray'):
     fig = plt.figure()
     ax = fig.add_subplot(1,1,1)

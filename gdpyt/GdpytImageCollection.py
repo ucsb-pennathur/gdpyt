@@ -94,26 +94,26 @@ class GdpytImageCollection(object):
         logger.warning(
             "Found {} files with filetype {} in folder {}".format(len(save_files), self.filetype, self.folder))
         # Save all the files of the right filetype in this attribute
-
-        img_index = []
-        for i in save_files:
-            # "calib_20.tif"
-            ii = re.search('_(.*).tif', i).group(1)
-            if "_" in ii:
-                # "chip1test1_....run_20.tif"
-                ii = ii[-3:]
-                if "_" in ii:
-                    iii = re.search('_(.*)', ii).group(1)
-                    ii = iii
-            ii = int(ii)
-
-            img_index.append(ii)
-
-        zipped_lists = zip(img_index, save_files)
-        sorted_pairs = sorted(zipped_lists)
-        tuples = zip(*sorted_pairs)
-        list1, list2 = [ list(tuple) for tuple in tuples]
-        self._files = list2
+        self._files = save_files
+        # img_index = []
+        # for i in save_files:
+        #     # "calib_20.tif"
+        #     ii = re.search('_(.*).tif', i).group(1)
+        #     if "_" in ii:
+        #         # "chip1test1_....run_20.tif"
+        #         ii = ii[-3:]
+        #         if "_" in ii:
+        #             iii = re.search('_(.*)', ii).group(1)
+        #             ii = iii
+        #     ii = int(ii)
+        #
+        #     img_index.append(ii)
+        #
+        # zipped_lists = zip(img_index, save_files)
+        # sorted_pairs = sorted(zipped_lists)
+        # tuples = zip(*sorted_pairs)
+        # list1, list2 = [ list(tuple) for tuple in tuples]
+        # self._files = list2
 
 
     def create_calibration(self, name_to_z, exclude=[], dilate=True):
@@ -150,8 +150,11 @@ class GdpytImageCollection(object):
 
         assert isinstance(calib_set, GdpytCalibrationSet)
 
-        for image in self.images.values():
-            calib_set.infer_z(image, function=function)
+        if function not in ['cnn', 'nn']:
+            for image in self.images.values():
+                calib_set.infer_z(image, function=function)
+        else:
+            calib_set.infer_z(self, function=function)
 
     def plot(self, raw=True, draw_particles=True, exclude=[], **kwargs):
         fig = plot_img_collection(self, raw=raw, draw_particles=draw_particles, exclude=exclude, **kwargs)
@@ -166,7 +169,6 @@ class GdpytImageCollection(object):
         return fig
 
     def uniformize_particle_ids(self, baseline=None, threshold=50):
-
         baseline_locations = []
         # If a calibration set is given as the baseline, the particle IDs in this collection are assigned based on
         # the location and ID of the calibration set. This should always be done when the collection contains target images

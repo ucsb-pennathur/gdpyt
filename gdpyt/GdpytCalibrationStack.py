@@ -1,7 +1,7 @@
 from .GdpytParticle import GdpytParticle
 from collections import OrderedDict
 from .plotting import plot_calib_stack
-from .similarity import *
+from gdpyt.similarity.correlation import *
 import numpy as np
 import logging
 
@@ -17,6 +17,8 @@ class GdpytCalibrationStack(object):
         self._particles = []
         self._shape = None
         self._template_dilation = dilation
+        self._stats = None
+
 
     def __len__(self):
         return len(self._layers)
@@ -71,6 +73,8 @@ class GdpytCalibrationStack(object):
         for particle in self._particles:
             z.append(particle.z)
             templates.append(particle.get_template(dilation=self._template_dilation))
+
+        self._stats = {'mean': np.array(templates).mean(), 'std': np.array(templates).std()}
 
         layers = OrderedDict()
         for z, template in sorted(zip(z, templates), key=lambda k: k[0]):
@@ -149,3 +153,11 @@ class GdpytCalibrationStack(object):
     @property
     def shape(self):
         return self._shape
+
+    @property
+    def stats(self):
+        return self._stats
+
+    @property
+    def particles(self):
+        return self._particles

@@ -56,7 +56,7 @@ class GdpytImage(object):
         return out_str
 
     def _add_particle(self, id_, contour, bbox):
-        self._particles.append(GdpytParticle(self._filtered, id_, contour, bbox))
+        self._particles.append(GdpytParticle(self._raw, self._filtered, id_, contour, bbox))
 
     def _update_processing_stats(self, names, values):
         if not isinstance(names, list):
@@ -196,7 +196,7 @@ class GdpytImage(object):
 
     def load(self, path, mode=cv2.IMREAD_UNCHANGED):
         img = cv2.imread(self._filepath, mode)
-        self._raw = cv2.normalize(img, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+        self._raw = img # cv2.normalize(img, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
         # Calculate histogram
         self._histogram = cv2.calcHist([self._raw], [0], None, [255], [0, 255])
 
@@ -227,10 +227,10 @@ class GdpytImage(object):
             x, y = particle.location
             if particle.z is None:
                 no_z_count += 1
-                coords.append(pd.DataFrame({'id': [particle.id], 'x': [x], 'y': [y]}))
+                coords.append(pd.DataFrame({'id': [int(particle.id)], 'x': [x], 'y': [y]}))
             else:
                 z = particle.z
-                coords.append(pd.DataFrame({'id': [particle.id], 'x': [x], 'y': [y], 'z': [z]}))
+                coords.append(pd.DataFrame({'id': [int(particle.id)], 'x': [x], 'y': [y], 'z': [z]}))
         if no_z_count > 0:
             if id_ is not None:
                 total_particles = len(id_)
@@ -250,7 +250,7 @@ class GdpytImage(object):
                 if particle.id not in id_:
                     continue
             cm = particle.max_sim
-            cms.append(pd.DataFrame({'id': [particle.id], 'Cm': [cm]}))
+            cms.append(pd.DataFrame({'id': [int(particle.id)], 'Cm': [cm]}))
         cms = pd.concat(cms).sort_values(by='id')
 
         return cms
@@ -275,7 +275,6 @@ class GdpytImage(object):
             return unique_ids.index.tolist()
         else:
             return unique_ids
-
 
     @property
     def filename(self):
