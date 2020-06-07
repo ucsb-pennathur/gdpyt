@@ -1,5 +1,6 @@
 from .GdpytCalibrationStack import GdpytCalibrationStack
-from gdpyt.similarity.nn import GdpytNet, GdpytTensorDataset, train_net
+from gdpyt.similarity.nn import GdpytNet, train_net
+from gdpyt.utils.nn import GdpytTensorDataset
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -92,10 +93,15 @@ class GdpytCalibrationSet(object):
                                                max_size=self._cnn_data_params['max_size'],
                                                skip_na=self._cnn_data_params['skip_na'])
 
-            pred = predict_dset.infer(self.cnn, None)
+            if torch.cuda.is_available():
+                device = torch.device('cuda')
+            else:
+                device = torch.device('cpu')
+
+            pred = predict_dset.infer(self.cnn, None,  device=device)
             predict_dset.set_sample_z(None, pred)
 
-    def train_cnn(self, epochs, normalize_inputs=True, max_sample_size=50, skip_na=True, min_stack_len=10,
+    def train_cnn(self, epochs, normalize_inputs=True, transforms=None, max_sample_size=50, skip_na=True, min_stack_len=10,
                   lr=1e-5, lambda_=1e-3, reg_type=None, batch_size=64, shuffle_batches=True):
         assert isinstance(epochs, int) and epochs > 0
 
@@ -103,7 +109,7 @@ class GdpytCalibrationSet(object):
             if reg_type.lower() not in ['l2', 'l1']:
                 raise ValueError("Regularization can only be L2, L1 or None")
 
-        dataset = GdpytTensorDataset(normalize=normalize_inputs)
+        dataset = GdpytTensorDataset(transforms_=transforms, normalize=normalize_inputs)
         dataset.from_calib_set(self, max_size=max_sample_size, skip_na=skip_na, min_stack_len=min_stack_len)
 
         # Save parameters of train data so that the same processing is applied on test data
@@ -115,7 +121,14 @@ class GdpytCalibrationSet(object):
 
         # Set up training input data and parameters
         dataloader = dataset.return_dataloader(batch_size=batch_size, shuffle=shuffle_batches)
-        device = torch.device('cpu')
+
+        if torch.cuda.is_available():
+            device = torch.device('cuda')
+            logger.info("Using CUDA for training. Device: {}".format(torch.cuda.get_device_name(device)))
+        else:
+            device = torch.device('cpu')
+            logger.info("Using CPU for training")
+
         model = self.cnn
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         criterion = nn.L1Loss()

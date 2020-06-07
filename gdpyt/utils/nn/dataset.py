@@ -19,13 +19,14 @@ class GdpytTensorDataset(Dataset):
         """
         self.normalize = normalize
         self._source = None
-        transform = []
+        sample_transforms = []
         if transforms_ is not None:
-            raise NotImplementedError
-            # for transf in transforms:
-            #     transforms.append(transf)
-        transform.append(ToTensor())
-        self.transform = transforms.Compose(transform)
+            for transf in transforms_:
+                sample_transforms.append(transf)
+
+        # Tensor transformation is done in every case
+        sample_transforms.append(ToTensor())
+        self.transform = transforms.Compose(sample_transforms)
         self._shape = None
         self.stats = None
         self._mode = None
@@ -41,14 +42,6 @@ class GdpytTensorDataset(Dataset):
         target = source_particle.z
         image = source_particle.get_template(resize=self._shape)
 
-        if self.normalize:
-            image = (image - self.stats['mean']) / self.stats['std']
-
-        # Add channel dimension if array is only a 2D image
-        if len(image.shape) == 2:
-            image = np.nan_to_num(image[:, :, np.newaxis])
-        else:
-            image = np.nan_to_num(image)
         target = np.array([target])
 
         if self._mode in ['train', 'test']:
@@ -59,15 +52,22 @@ class GdpytTensorDataset(Dataset):
         if self.transform:
             sample = self.transform(sample)
 
+        if self.normalize:
+            image = sample['input']
+            image = (image - self.stats['mean']) / self.stats['std']
+            sample.update({'input': image})
+
         return sample
 
     def _compute_stats(self):
         imgs = []
-        for particle in self._source:
-            particle.use_raw(True)
-            imgs.append(particle.get_template(resize=self.shape))
-        imgs = np.array(imgs)
-        self.stats = {'mean': imgs.mean(), 'std': imgs.std()}
+        self.stats = {'mean': 0, 'std': 1}
+        inputs = []
+        for idx in range(len(self)):
+            x = self.__getitem__(idx)['input']
+            inputs.append(x)
+        all_inputs = torch.cat(inputs, 0)
+        self.stats = {'mean': all_inputs.mean(), 'std': all_inputs.std()}
 
     def _load_calib_stack(self, stack, skip_na=True):
         all_ = []
@@ -152,13 +152,16 @@ class GdpytTensorDataset(Dataset):
             self._mode = 'predict'
         self._compute_stats()
 
-    def infer(self, model, idx):
+    def infer(self, model, idx, device=None):
         """
-        Infere a sample in the dataset with a trained model
+        Infer a sample in the dataset with a trained model
         """
 
+        if device is None:
+            device = torch.device('cpu')
+
         if idx is not None:
-            x = self.__getitem__(idx)['input']
+            x = self.__getitem__(idx)['input'].to(device)
             # Force mini-batch shape
             x.unsqueeze_(0)
 
@@ -175,7 +178,7 @@ class GdpytTensorDataset(Dataset):
                 return y.item()
         else:
             inputs = [self.__getitem__(i)['input'].unsqueeze_(0) for i in range(len(self))]
-            inputs = torch.cat(inputs, 0)
+            inputs = torch.cat(inputs, 0).to(device)
 
             # Evaluation mode
             model.eval()
