@@ -1,4 +1,5 @@
 from scipy.signal import correlate2d
+from scipy.interpolate import Akima1DInterpolator
 from skimage.feature import match_template
 import numpy as np
 
@@ -49,15 +50,13 @@ def interpolation(z_calib, sim, max_idx):
     interp_maxy = sim[max_idx - 1:max_idx + 2]                  # grab three neighboring values
     interp_maxx = z_calib[max_idx - 1:max_idx + 2]              # grab three neighboring values
 
-    # fit 3rd order polynomial
-    z = np.polyfit(interp_maxx, interp_maxy, 3)                 # 3rd order polynomial fit
-    p = np.poly1d(z)                                            # create polynomial function
+    # fit Akima cubic polynomial
+    xp = np.linspace(z_calib[max_idx - 1], z_calib[max_idx + 1], 50)    # create linear space for fitting function
+    z = Akima1DInterpolator(interp_maxx, interp_maxy)(xp)               #
 
     # find z best
-    xp = np.linspace(z_calib[max_idx-1],z_calib[max_idx+1],50)  # create linear space for fitting function
-    poly = p(xp)                                                # eval fitting function over linear space
-    zbest_index = np.argmax(poly)                               # eval fitted polynomial max value
+    zbest_index = np.argmax(z)                                  # eval fitted polynomial max value
     zbest = xp[zbest_index]                                     # eval image index @ max value
 
-    return(xp, poly)
+    return(xp, z)
 
