@@ -173,15 +173,31 @@ class GdpytImageCollection(object):
         # If a calibration set is given as the baseline, the particle IDs in this collection are assigned based on
         # the location and ID of the calibration set. This should always be done when the collection contains target images
         if baseline is not None:
-            assert isinstance(baseline, GdpytCalibrationSet)
-            for stack in baseline.calibration_stacks.values():
-                baseline_locations.append(pd.DataFrame({'x': stack.location[0], 'y': stack.location[1]},
-                                                       index=[stack.id]))
-            skip_first_img = False
+            if isinstance(baseline, GdpytCalibrationSet):
+                for stack in baseline.calibration_stacks.values():
+                    baseline_locations.append(pd.DataFrame({'x': stack.location[0], 'y': stack.location[1]},
+                                                           index=[stack.id]))
+                skip_first_img = False
+
+            elif isinstance(baseline, GdpytImage):
+                baseline_img = baseline
+
+                for particle in baseline_img.particles:
+                    baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'y': particle.location[1]},
+                                                           index=[particle.id]))
+                skip_first_img = False
+            elif isinstance(baseline, str):
+                baseline_img = self.images[baseline]
+                for particle in baseline_img.particles:
+                    baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'y': particle.location[1]},
+                                                           index=[particle.id]))
+                skip_first_img = False
+            else:
+                raise TypeError("Invalid type for baseline")
         # If no baseline is given, the particle IDs are assigned based on the IDs and location of the particles in the
         # first image
         else:
-            baseline_img = self._files[10]
+            baseline_img = self._files[0]
             baseline_img = self.images[baseline_img]
 
             for particle in baseline_img.particles:
