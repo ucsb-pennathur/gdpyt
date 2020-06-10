@@ -1,13 +1,12 @@
 from .GdpytImage import GdpytImage
 from .GdpytCalibrationSet import GdpytCalibrationSet
-from .plotting import plot_img_collection, plot_particle_trajectories, plot_particle_coordinate
+from gdpyt.utils.plotting import *
 from os.path import join, isdir
 from os import listdir
 from collections import OrderedDict
 from sklearn.neighbors import NearestNeighbors
 import pandas as pd
 import numpy as np
-import re
 import logging
 
 logger = logging.getLogger()
@@ -167,6 +166,9 @@ class GdpytImageCollection(object):
     def plot_particle_coordinate(self, coordinate='z', sort_images=None, particle_ids=None):
         fig = plot_particle_coordinate(self, coordinate=coordinate, sort_images=sort_images, particle_id=particle_ids)
         return fig
+
+    def plot_animated_surface(self, sort_images=None, fps=10, save_as=None):
+        fig = plot_animated_surface(self, sort_images=sort_images, fps=fps, save_as=save_as)
 
     def uniformize_particle_ids(self, baseline=None, threshold=50):
         baseline_locations = []

@@ -1,9 +1,5 @@
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms
-from torch.autograd import Variable
-from gdpyt.plotting import plot_tensor_dset
 import numpy as np
 import time
 import logging

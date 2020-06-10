@@ -100,7 +100,7 @@ class GdpytImage(object):
 
         This method should assign self._processed and self._processing_stats
         """
-        img = self._raw.copy()
+        img = self._raw.copy().astype(np.uint8)
         for process_func in filterspecs.keys():
             func = eval(process_func)
             args = filterspecs[process_func]['args']
@@ -111,7 +111,6 @@ class GdpytImage(object):
 
             img = apply_filter(img, func, *args, **kwargs)
 
-        self._filtered = img.astype(np.uint8)
         self._histogram_preprocessed = cv2.calcHist([img], [0], None, [256], [0, 256])
 
     def get_particle(self, id_):
