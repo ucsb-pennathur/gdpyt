@@ -1,9 +1,13 @@
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+import mpl_toolkits.mplot3d.axes3d as p3
+import matplotlib.animation as animation
 import numpy as np
 import pandas as pd
-# from gdpyt import GdpytCalibratioStack
-# from gdpyt import GdpytImageCollection
+from os.path import splitext
+import logging
+
+logger = logging.getLogger(__name__)
 
 def plot_calib_stack(stack, z=None, draw_contours=False):
     # assert isinstance(stack, GdpytCalibratioStack)
@@ -82,7 +86,7 @@ def plot_img_collection(collection, raw=True, draw_particles=True, exclude=[], *
 
     return fig
 
-def plot_particle_trajectories(collection, sort_images=None, create_gif=False):
+def plot_particle_trajectories(collection, sort_images=None):
     coords = []
     if sort_images is None:
         for image in collection.images.values():
@@ -96,15 +100,59 @@ def plot_particle_trajectories(collection, sort_images=None, create_gif=False):
             coords.append(collection.images[file].particle_coordinates())
 
     coords = pd.concat(coords)
-    if not create_gif:
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
-        for id_ in coords['id'].unique():
-            thisid = coords[coords['id'] == id_]
-            ax.scatter(thisid['x'], thisid['y'], thisid['z'], label='ID_{}'.format(id_))
-        ax.legend()
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    for id_ in coords['id'].unique():
+        thisid = coords[coords['id'] == id_]
+        ax.scatter(thisid['x'], thisid['y'], thisid['z'], label='ID_{}'.format(id_))
+    ax.legend()
 
-        return fig
+    return fig
+
+
+def plot_animated_surface(collection, sort_images=None, fps=10, save_as=None):
+    coords = []
+
+    # Get all the coordinates from all the images in a specific order
+    if sort_images is None:
+        for image in collection.images.values():
+            coords.append(image.particle_coordinates())
+    else:
+        if not callable(sort_images):
+            raise TypeError("sort_images must be a function that takes an image name as an argument and returns a value"
+                            "that can be used to sort the images")
+        # Get the particle coordinates from all the images
+        for file in sorted(collection.files, key=sort_images):
+            coords.append(collection.images[file].particle_coordinates())
+
+    # Total number of images is the number of frames, get min and max z for axis limits
+    n_frames = len(coords)
+    coords_all = pd.concat(coords)
+    max_z, min_z = coords_all['z'].max(), coords_all['z'].min()
+
+    coords_0 = coords[0]
+    fig = plt.figure()
+    ax = p3.Axes3D(fig)
+    surf = ax.plot_trisurf(coords_0['x'].values, coords_0['y'].values,
+                           coords_0['z'].values, cmap='magma', antialiased=False)
+    ax.set_zlim([min_z, max_z])
+
+    def update_surf(frame_idx):
+        ax.clear()
+        coord = coords[frame_idx]
+        surf = ax.plot_trisurf(coord['x'].values, coord['y'].values, coord['z'].values, cmap='magma', antialiased=False)
+        ax.set_zlim([min_z, max_z])
+
+    ani = animation.FuncAnimation(fig, update_surf, n_frames, interval=1000 / fps, blit=False)
+    if save_as is not None:
+        root, ext = splitext(save_as)
+        if ext not in ['.gif']:
+            logger.error("In the current version animations can only be saves as a .gif. Received {}".format(ext))
+        else:
+            ani.save(save_as, writer='imagemagick', fps=fps)
+
+    return fig
+
 
 def plot_particle_coordinate(collection, coordinate='z', sort_images=None, particle_id=None):
     if particle_id is None:

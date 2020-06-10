@@ -83,6 +83,8 @@ class GdpytCalibrationSet(object):
         if function not in ['nn', 'cnn']:
             for particle in image.particles:
                 stack = self.calibration_stacks[particle.id]
+                # Filtered templates are used for correlation calculations
+                particle.use_raw(False)
                 stack.infer_z(particle, function=function)
         else:
             if self.train_summary is None:

@@ -3,15 +3,16 @@ import matplotlib.pyplot as plt
 import cv2
 import numpy as np
 
-folder = r'C:\Users\silus\UCSB\master_thesis\python_stuff\gdpyt\tests\test_data\chip2test1\50X\calib'
+folder = r'C:\Users\silus\UCSB\master_thesis\python_stuff\gdpyt\tests\test_synthetic\DS_Grid_Gaussian_N50_Sigma20\calibration_images'
 filetype = '.tif'
 processing = {
-    'cv2.medianBlur': {'args': [9]},
-    'cv2.bilateralFilter': {'args': [9, 13, 15]}}
+    'cv2.GaussianBlur': {'args': [(11, 11), 5]}}
+   # 'cv2.medianBlur': {'args': [9]},
+   # 'cv2.bilateralFilter': {'args': [9, 13, 15]}}
 
 collection = GdpytImageCollection(folder, filetype, processing_specs=processing,
-                                  min_particle_size=500)
-collection.uniformize_particle_ids()
+                                  min_particle_size=20)
+collection.uniformize_particle_ids(threshold=20)
 
 name_to_z = {}
 for image in collection.images.values():

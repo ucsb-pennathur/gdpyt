@@ -1,13 +1,12 @@
 from .GdpytImage import GdpytImage
 from .GdpytCalibrationSet import GdpytCalibrationSet
-from .plotting import plot_img_collection, plot_particle_trajectories, plot_particle_coordinate
+from gdpyt.utils.plotting import *
 from os.path import join, isdir
 from os import listdir
 from collections import OrderedDict
 from sklearn.neighbors import NearestNeighbors
 import pandas as pd
 import numpy as np
-import re
 import logging
 
 logger = logging.getLogger()
@@ -168,20 +167,39 @@ class GdpytImageCollection(object):
         fig = plot_particle_coordinate(self, coordinate=coordinate, sort_images=sort_images, particle_id=particle_ids)
         return fig
 
+    def plot_animated_surface(self, sort_images=None, fps=10, save_as=None):
+        fig = plot_animated_surface(self, sort_images=sort_images, fps=fps, save_as=save_as)
+
     def uniformize_particle_ids(self, baseline=None, threshold=50):
         baseline_locations = []
         # If a calibration set is given as the baseline, the particle IDs in this collection are assigned based on
         # the location and ID of the calibration set. This should always be done when the collection contains target images
         if baseline is not None:
-            assert isinstance(baseline, GdpytCalibrationSet)
-            for stack in baseline.calibration_stacks.values():
-                baseline_locations.append(pd.DataFrame({'x': stack.location[0], 'y': stack.location[1]},
-                                                       index=[stack.id]))
-            skip_first_img = False
+            if isinstance(baseline, GdpytCalibrationSet):
+                for stack in baseline.calibration_stacks.values():
+                    baseline_locations.append(pd.DataFrame({'x': stack.location[0], 'y': stack.location[1]},
+                                                           index=[stack.id]))
+                skip_first_img = False
+
+            elif isinstance(baseline, GdpytImage):
+                baseline_img = baseline
+
+                for particle in baseline_img.particles:
+                    baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'y': particle.location[1]},
+                                                           index=[particle.id]))
+                skip_first_img = False
+            elif isinstance(baseline, str):
+                baseline_img = self.images[baseline]
+                for particle in baseline_img.particles:
+                    baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'y': particle.location[1]},
+                                                           index=[particle.id]))
+                skip_first_img = False
+            else:
+                raise TypeError("Invalid type for baseline")
         # If no baseline is given, the particle IDs are assigned based on the IDs and location of the particles in the
         # first image
         else:
-            baseline_img = self._files[10]
+            baseline_img = self._files[0]
             baseline_img = self.images[baseline_img]
 
             for particle in baseline_img.particles:

@@ -19,18 +19,13 @@ DEFAULTS = dict(
     cyl_focal_length = 0
 )
 
-def generate_sig_settings(background_noise=0, img_shape=(1000, 1000), particle_density=0.1, particle_diameter=2,
+def generate_sig_settings(background_noise=0, img_shape=(1000, 1000), particle_diameter=2,
                           folder=None):
     assert isinstance(background_noise, int) or isinstance(background_noise, float)
     assert isinstance(img_shape, tuple)
-    assert isinstance(particle_density, float) or isinstance(particle_density, tuple)
     assert isinstance(particle_diameter, int) or isinstance(particle_diameter, tuple)
     assert folder is not None
 
-    if isinstance(particle_density, float):
-        assert 0 < particle_density < 1
-    else:
-        assert len(particle_density) == 2
     if isinstance(particle_diameter, int):
         assert particle_diameter > 0
     else:
@@ -38,7 +33,6 @@ def generate_sig_settings(background_noise=0, img_shape=(1000, 1000), particle_d
 
     settings_dict = {}
     settings_dict.update(DEFAULTS)
-    settings_dict.update({'particle_density': particle_density})
     settings_dict.update({'particle_diameter': particle_diameter})
     settings_dict.update({'background_noise': background_noise})
     settings_dict.update({'pixel_dim_x': int(img_shape[0])})
@@ -54,54 +48,16 @@ def generate_sig_settings(background_noise=0, img_shape=(1000, 1000), particle_d
 
     return settings_dict
 
-def generate_sig_image_source(fname, settings=None, range_z=None, folder=None):
-    assert folder is not None
-
-    d_per_px = settings['pixel_size']
-    a_total = settings['pixel_dim_x'] * settings['pixel_dim_y'] * d_per_px ** 2
-    a_particle = (settings['particle_diameter'] / 2) ** 2 * np.pi
-
-    if isinstance(settings['particle_density'], float):
-        n_particles = int(a_total * settings['particle_density'] / a_particle)
-        xy_coords = np.hstack([np.random.randint(0, settings['pixel_dim_x'], size=(n_particles, 1)),
-                            np.random.randint(0, settings['pixel_dim_y'], size=(n_particles, 1))])
-    else:
-        n_x = settings['particle_density'][0]
-        n_y = settings['particle_density'][1]
-        n_particles = n_x * n_y
-        edge_x = settings['pixel_dim_x']/ (n_x + 1)
-        edge_y = settings['pixel_dim_y'] / (n_y + 1)
-
-        xy_coords = np.mgrid[edge_x:settings['pixel_dim_x'] - edge_x:np.complex(0, n_x),
-                            edge_y:settings['pixel_dim_y'] - edge_y:np.complex(0, n_y)].reshape(2, -1).T
-
-    if isinstance(range_z, int) or isinstance(range_z, float):
-        z_coords = range_z * np.ones((n_particles, 1))
-    else:
-        z_coords = np.random.uniform(range_z[0], range_z[1], size=(n_particles, 1))
-
-    coords = np.hstack([xy_coords, z_coords])
-    # Add the particle diameter column
-    if isinstance(settings['particle_diameter'], int):
-        out = np.append(coords, np.array(n_particles * [settings['particle_diameter']]).reshape(-1, 1), axis=1)
-    else:
-        out = np.append(coords,  np.random.randint(settings['particle_diameter'][0],
-                                                   settings['particle_diameter'][1], size=(n_particles, 1)),
-                        axis=1)
-    savepath = join(folder, fname + '.txt')
-    np.savetxt(savepath, out, fmt='%.6f', delimiter=' ')
-
-
-def generate_sig_input(n_images=100, background_noise=0, particle_density=0.1, range_z=(-43, 43),
+def generate_grid_input(n_images, grid, range_z=(-43, 43), background_noise=0,
                         img_shape=(1000, 1000), particle_diameter=2, folder=None):
-
+    """ Generates input images with particles arranged in a grid"""
     if isdir(folder):
         raise ValueError('Folder {} already exists. Specify a new one'.format(folder))
     else:
         mkdir(folder)
 
-    settings_dict = generate_sig_settings(background_noise=background_noise, particle_density=particle_density,
-                                          particle_diameter=particle_diameter, img_shape=img_shape, folder=folder)
+    settings_dict = generate_sig_settings(background_noise=background_noise, particle_diameter=particle_diameter,
+                                          img_shape=img_shape, folder=folder)
 
     # In folder, create a subfolder for the raw txts
     txtfolder = join(folder, 'input')
@@ -109,15 +65,41 @@ def generate_sig_input(n_images=100, background_noise=0, particle_density=0.1, r
 
     for i in range(n_images):
         fname = 'B{0:04d}'.format(i)
-        generate_sig_image_source(fname, settings=settings_dict, range_z=range_z, folder=txtfolder)
+        coordinates = _generate_grid_coordinates(grid, img_shape, z=range_z)
+        output = _append_particle_diam(coordinates, particle_diameter)
+        savepath = join(txtfolder, fname + '.txt')
+        np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
 
-
-def generate_sig_calibration(settings_file, z_levels, folder=None):
-    if folder is None:
-        settings_path = Path(settings_file)
-        calib_path = join(settings_path.parent, 'calibration_input')
+def generate_grid_input_from_function(n_images, grid, function_z=None, background_noise=0, img_shape=(1000, 1000),
+                                      particle_diameter=2, folder=None):
+    assert callable(function_z)
+    if isdir(folder):
+        raise ValueError('Folder {} already exists. Specify a new one'.format(folder))
     else:
-        calib_path = folder
+        mkdir(folder)
+
+    settings_dict = generate_sig_settings(background_noise=background_noise, particle_diameter=particle_diameter,
+                                          img_shape=img_shape, folder=folder)
+
+    # In folder, create a subfolder for the raw txts
+    txtfolder = join(folder, 'input')
+    mkdir(txtfolder)
+
+    for i in range(n_images):
+        fname = 'F{0:04d}'.format(i)
+        xy_coords = _generate_grid_coordinates(grid, img_shape, z=None)
+        z_coords = function_z(xy_coords, i)
+        coordinates = np.hstack([xy_coords.reshape(-1, 2), z_coords.reshape(-1, 1)])
+        output = _append_particle_diam(coordinates, particle_diameter)
+        savepath = join(txtfolder, fname + '.txt')
+        np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+def generate_grid_calibration(settings_file, grid, z_levels, particle_diameter=2):
+    """ Generates calibration images with particles arranged in a grid. The difference between an input image is that
+    all the particles in a calibration image are at the same height """
+
+    settings_path = Path(settings_file)
+    calib_path = join(settings_path.parent, 'calibration_input')
 
     if isdir(calib_path):
         raise ValueError('Folder {} already exists. Specify a new one'.format(calib_path))
@@ -130,8 +112,66 @@ def generate_sig_calibration(settings_file, z_levels, folder=None):
             thisline = line.split('=')
             settings_dict.update({thisline[0].strip(): eval(thisline[1].strip())})
 
+    img_shape = (settings_dict['pixel_dim_x'], settings_dict['pixel_dim_y'])
+
     for z in z_levels:
-        generate_sig_image_source('calib_{}'.format(z), settings=settings_dict, range_z=z, folder=calib_path)
+        fname = 'calib_{}'.format(z)
+        coordinates = _generate_grid_coordinates(grid, img_shape, z=z)
+        output = _append_particle_diam(coordinates, particle_diameter)
+        savepath = join(calib_path, fname + '.txt')
+        np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+def _generate_grid_coordinates(grid, imshape, z=None):
+    assert len(imshape) == 2
+
+    # Particle gird
+    xtot, ytot = imshape
+    n_x, n_y = grid
+    n_particles = n_x * n_y
+    edge_x = xtot / (n_x + 1)
+    edge_y = ytot / (n_y + 1)
+
+    # Make particle coordinates
+    xy_coords = np.mgrid[edge_x:xtot - edge_x:np.complex(0, n_x),
+                edge_y:ytot - edge_y:np.complex(0, n_y)].reshape(2, -1).T
+
+    if z is None:
+        return xy_coords
+
+    if isinstance(z, int) or isinstance(z, float):
+        z_coords = z * np.ones((n_particles, 1))
+    else:
+        z_coords = np.random.uniform(z[0], z[1], size=(n_particles, 1))
+    coords = np.hstack([xy_coords, z_coords])
+
+    return coords
+
+def _generate_random_coordinates(density, imshape, particle_d, dpm, z=None):
+    m_per_px = 1 / dpm
+    a_total = imshape[0] * imshape[1] * m_per_px** 2
+    a_particle = (particle_d / 2) ** 2 * np.pi
+
+    n_particles = int(a_total * density / a_particle)
+    xy_coords = np.hstack([np.random.randint(0, imshape[0], size=(n_particles, 1)),
+                           np.random.randint(0, imshape[1], size=(n_particles, 1))])
+    if isinstance(z, int) or isinstance(z, float):
+        z_coords = z * np.ones((n_particles, 1))
+    else:
+        z_coords = np.random.uniform(z[0], z[1], size=(n_particles, 1))
+
+    coords = np.hstack([xy_coords, z_coords])
+
+    return coords
+
+def _append_particle_diam(coords, particle_diameter):
+    n_particles = len(coords)
+
+    if isinstance(particle_diameter, int) or isinstance(particle_diameter, float):
+        out = np.append(coords, np.array(n_particles * [particle_diameter]).reshape(-1, 1), axis=1)
+    else:
+        out = np.append(coords, np.random.randint(particle_diameter[0],
+                                                  particle_diameter[1], size=(n_particles, 1)), axis=1)
+    return out
 
 if __name__ == '__main__':
    pass

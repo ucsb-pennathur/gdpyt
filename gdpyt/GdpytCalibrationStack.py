@@ -1,6 +1,6 @@
 from .GdpytParticle import GdpytParticle
 from collections import OrderedDict
-from .plotting import plot_calib_stack
+from gdpyt.utils.plotting import plot_calib_stack
 from gdpyt.similarity.correlation import *
 import numpy as np
 import logging

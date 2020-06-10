@@ -1,6 +1,6 @@
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-from gdpyt.plotting import plot_tensor_dset
+from gdpyt.utils.plotting import plot_tensor_dset
 from .transforms import ToTensor
 import torch
 import numpy as np
@@ -128,6 +128,7 @@ class GdpytTensorDataset(Dataset):
         all_ = []
         for image in collection.images.values():
             for particle in image.particles:
+                # Raw templates are used in neural net
                 particle.use_raw(True)
                 if max_size is not None:
                     w, h = particle.bbox[2:]

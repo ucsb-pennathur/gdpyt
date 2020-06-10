@@ -100,7 +100,7 @@ class GdpytImage(object):
 
         This method should assign self._processed and self._processing_stats
         """
-        img = self._raw.copy()
+        img = self._raw.copy().astype(np.uint8)
         for process_func in filterspecs.keys():
             func = eval(process_func)
             args = filterspecs[process_func]['args']
@@ -111,7 +111,6 @@ class GdpytImage(object):
 
             img = apply_filter(img, func, *args, **kwargs)
 
-        self._filtered = img.astype(np.uint8)
         self._histogram_preprocessed = cv2.calcHist([img], [0], None, [256], [0, 256])
 
     def get_particle(self, id_):
@@ -133,6 +132,7 @@ class GdpytImage(object):
         # Identify particles
 
         contours, bboxes = identify_contours(particle_mask)
+        contours, bboxes = self.merge_overlapping_particles(contours, bboxes)
 
         id_ = 0
         # Sort contours and bboxes by x-coordinate:
@@ -215,6 +215,39 @@ class GdpytImage(object):
 
             # Add the merged particle
             self._add_particle(dup_id, merged_contour, merged_bbox)
+
+    def merge_overlapping_particles(self, cnts, bboxes, overlap_thresh=0.3):
+        grp = 0
+        grp_info = {}
+        for bbox, cnt in zip(bboxes, cnts):
+            if len(grp_info) == 0:
+                grp_info.update({grp: (bbox, cnt)})
+                grp += 1
+            else:
+                # Compute relative overlap with other bboxes and assign to group if overlap exceeds threshold
+                new_contour = None
+                new_bbox = None
+                for grp_nr, grp_bbox_cnt in grp_info.items():
+                    grp_bbox, grp_cnt = grp_bbox_cnt
+                    rel_overlap = _compute_rel_bbox_overlap(bbox, grp_bbox)
+                    if rel_overlap > overlap_thresh:
+                        new_contour = cv2.convexHull(np.vstack([grp_cnt, cnt]))
+                        new_bbox = cv2.boundingRect(new_contour)
+                        break
+
+                # If an overlapping contour was found, merge and update bounding box
+                if (new_contour is not None) and (new_bbox is not None):
+                    grp_info.update({grp_nr: (new_bbox, new_contour)})
+                # If not overlapping bounding box was found, create a new group from this bounding box and contour
+                else:
+                    grp_info.update({grp: (bbox, cnt)})
+                    grp += 1
+
+        merged_bboxes = [el[0] for el in grp_info.values()]
+        merged_cnts = [el[1] for el in grp_info.values()]
+
+        return merged_cnts, merged_bboxes
+
 
     def particle_coordinates(self, id_=None):
         coords = []
@@ -308,3 +341,18 @@ class GdpytImage(object):
     def stats(self):
         return self._processing_stats
 
+
+def _compute_rel_bbox_overlap(bbox1, bbox2):
+    # Convert bounding box (x, y, w, h) into rectangle (x0, y0, x1, y1)
+    a_rect1 = bbox1[2] * bbox1[3]
+    a_rect2 = bbox2[2] * bbox2[3]
+    rect1 = bbox1[:2] + (bbox1[0] + bbox1[2], bbox1[1] + bbox1[3])
+    rect2 = bbox2[:2] + (bbox2[0] + bbox2[2], bbox2[1] + bbox2[3])
+
+    dx = min(rect1[2], rect2[2]) - max(rect1[0], rect2[0])
+    dy = min(rect1[3], rect2[3]) - max(rect1[1], rect2[1])
+    if (dx >= 0) and (dy >= 0):
+
+        return dx * dy / min(a_rect1, a_rect2)
+    else:
+        return 0
