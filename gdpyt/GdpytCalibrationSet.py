@@ -80,6 +80,7 @@ class GdpytCalibrationSet(object):
                              max_pool_params=max_pool_params, batch_norm=batch_norm)
 
     def infer_z(self, image, function='ccorr'):
+        logger.info("Infering image {}".format(image.filename))
         if function not in ['nn', 'cnn']:
             for particle in image.particles:
                 stack = self.calibration_stacks[particle.id]

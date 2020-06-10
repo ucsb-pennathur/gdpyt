@@ -169,6 +169,7 @@ class GdpytImageCollection(object):
 
     def plot_animated_surface(self, sort_images=None, fps=10, save_as=None):
         fig = plot_animated_surface(self, sort_images=sort_images, fps=fps, save_as=save_as)
+        return fig
 
     def uniformize_particle_ids(self, baseline=None, threshold=50):
         baseline_locations = []
