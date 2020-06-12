@@ -12,7 +12,7 @@ class GdpytTensorDataset(Dataset):
 
     __name__ = 'GdpytTensorDataset'
 
-    def __init__(self, transforms_=None, normalize=False):
+    def __init__(self, transforms_=None, normalize=False, tset_stats=None):
 
         """
         dataloader class
@@ -28,7 +28,11 @@ class GdpytTensorDataset(Dataset):
         sample_transforms.append(ToTensor())
         self.transform = transforms.Compose(sample_transforms)
         self._shape = None
+        # Statistics, mean and variance
         self.stats = None
+        # Statistics from train set. These are applies if this set is a test or prediction set
+        if tset_stats is not None:
+            self._stats_from_tset = tset_stats
         self._mode = None
 
     def __len__(self):
@@ -60,14 +64,19 @@ class GdpytTensorDataset(Dataset):
         return sample
 
     def _compute_stats(self):
-        imgs = []
-        self.stats = {'mean': 0, 'std': 1}
-        inputs = []
-        for idx in range(len(self)):
-            x = self.__getitem__(idx)['input']
-            inputs.append(x)
-        all_inputs = torch.cat(inputs, 0)
-        self.stats = {'mean': all_inputs.mean(), 'std': all_inputs.std()}
+        if self._mode in ['test', 'predict'] and self._stats_from_tset is not None:
+            logger.info("Using user-defined normalization statistics (e.g. values from train set): {}".format(self._stats_from_tset))
+            assert 'mean' in self._stats_from_tset.keys() and 'std' in self._stats_from_tset.keys()
+            self.stats = self._stats_from_tset
+        else:
+            imgs = []
+            self.stats = {'mean': 0, 'std': 1}
+            inputs = []
+            for idx in range(len(self)):
+                x = self.__getitem__(idx)['input']
+                inputs.append(x)
+            all_inputs = torch.cat(inputs, 0)
+            self.stats = {'mean': all_inputs.mean(), 'std': all_inputs.std()}
 
     def _load_calib_stack(self, stack, skip_na=True):
         all_ = []

@@ -49,8 +49,9 @@ class GdpytNet(nn.Module):
                 raise ValueError("Too many convolutional or pooling layers for images with shape {}".format(self.input_shape))
             self.blocks.append(conv_block)
 
-            if i in self.batch_norm:
-                self.blocks.append(nn.BatchNorm2d(out_channels))
+            if self.batch_norm is not None:
+                if i in self.batch_norm:
+                    self.blocks.append(nn.BatchNorm2d(out_channels))
 
         # Linear layers
         for i in range(self.n_linear_layers):

@@ -166,6 +166,7 @@ class GdpytImage(object):
                     continue
                 # Check if circle by calculating thinness ratio
                 tr = 4 * np.pi * contour_area / contour_perim**2
+                logging.debug("bbox_ar: {}, circ {}".format(bbox_ar, tr))
                 if abs(np.maximum(tr, 1 / tr) - 1) > shape_tol:
                     skipped_cnts.append(contour)
                     continue

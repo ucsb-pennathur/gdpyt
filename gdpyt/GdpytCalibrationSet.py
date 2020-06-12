@@ -80,8 +80,8 @@ class GdpytCalibrationSet(object):
                              max_pool_params=max_pool_params, batch_norm=batch_norm)
 
     def infer_z(self, image, function='ccorr'):
-        logger.info("Infering image {}".format(image.filename))
         if function not in ['nn', 'cnn']:
+            logger.info("Infering image {}".format(image.filename))
             for particle in image.particles:
                 stack = self.calibration_stacks[particle.id]
                 # Filtered templates are used for correlation calculations
@@ -91,7 +91,8 @@ class GdpytCalibrationSet(object):
             if self.train_summary is None:
                 raise RuntimeError("Calibration set does not have a trained neural net. Use create_cnn and train_cnn "
                                    "before infering using a deep learning model")
-            predict_dset = GdpytTensorDataset(normalize=self._cnn_data_params['normalize'])
+            predict_dset = GdpytTensorDataset(normalize=self._cnn_data_params['normalize'],
+                                              tset_stats=self._cnn_data_params['stats'])
             predict_dset.from_image_collection(image, ref_shape=self._cnn_data_params['shape'],
                                                max_size=self._cnn_data_params['max_size'],
                                                skip_na=self._cnn_data_params['skip_na'])
@@ -117,7 +118,7 @@ class GdpytCalibrationSet(object):
 
         # Save parameters of train data so that the same processing is applied on test data
         self._cnn_data_params = {'normalize': normalize_inputs, 'max_size': max_sample_size, 'skip_na': skip_na,
-                                 'shape': dataset.shape}
+                                 'shape': dataset.shape, 'stats': dataset.stats}
 
         # Create the Pytoch model
         self._create_cnn_model((1,) + dataset.shape)
@@ -139,6 +140,7 @@ class GdpytCalibrationSet(object):
                                                             epochs=epochs, lambda_=lambda_, reg_type=reg_type)
         self._train_summary = pd.DataFrame({'Epoch': [i for i in range(epochs)], 'Avg_loss': avg_epoch_loss,
                                             'Sigma_loss': std_epoch_loss})
+
 
     @property
     def collection(self):
