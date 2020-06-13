@@ -102,7 +102,8 @@ class GdpytImage(object):
         """
 
         # Convert to 8 byte uint for filter operations
-        img = cv2.convertScaleAbs(self._raw.copy(), alpha=100*(255.0/65535.0))
+        img = self._raw.copy()
+        #img = cv2.convertScaleAbs(self._raw.copy(), alpha=100*(255.0/65535.0))
         for process_func in filterspecs.keys():
             func = eval(process_func)
             args = filterspecs[process_func]['args']
@@ -135,7 +136,9 @@ class GdpytImage(object):
         # Identify particles
 
         contours, bboxes = identify_contours(particle_mask)
+        logger.debug("{} contours in thresholded image".format(len(contours)))
         contours, bboxes = self.merge_overlapping_particles(contours, bboxes)
+        logger.debug("{} contours in thresholded image after merging of overlapping".format(len(contours)))
 
         id_ = 0
         # Sort contours and bboxes by x-coordinate:
@@ -188,12 +191,13 @@ class GdpytImage(object):
         # Calculate SNR + Particle image density
         sigma_bckgr = self.raw[inv_mask].std()
         sigma_bckgr_f = self.filtered[inv_mask].std()
+        mean_bckgr_r = self.raw[inv_mask].mean()
         snr_filt = self.filtered[particle_mask].mean() / self.filtered[inv_mask].std()
         snr_raw = self.raw[particle_mask].mean() / self.raw[inv_mask].std()
         p_density = particle_mask.sum() / particle_mask.size
 
-        self._update_processing_stats(['sigma_bckgr_r', 'sigma_bckgr_f', 'snr_r', 'snr_f', 'rho_p'],
-                                      [sigma_bckgr, sigma_bckgr_f, snr_raw, snr_filt, p_density])
+        self._update_processing_stats(['mean_bckgr_r', 'sigma_bckgr_r', 'sigma_bckgr_f', 'snr_r', 'snr_f', 'rho_p'],
+                                      [mean_bckgr_r, sigma_bckgr, sigma_bckgr_f, snr_raw, snr_filt, p_density])
 
     def is_infered(self):
         return all([particle.z is not None for particle in self.particles])

@@ -56,11 +56,24 @@ def plot_img_collection(collection, raw=True, draw_particles=True, exclude=[], *
     if not isinstance(axes, np.ndarray):
         axes = np.array([axes]).reshape(-1, 1)
 
+    vmin = []
+    vmax = []
+    for image in images_to_plot:
+        if raw:
+            img = image.raw
+        else:
+            img = image.filtered
+        vmin.append(img.min())
+        vmax.append(img.max())
+
+    vmin = min(vmin)
+    vmax = max(vmax)
+
     for i in range(n_rows):
         for j in range(n_cols):
             n = i * n_cols + j
             if n > len(images_to_plot) - 1:
-                axes[i, j].imshow(np.zeros_like(canvas), cmap='gray')
+                im = axes[i, j].imshow(np.zeros_like(canvas), cmap='gray', vmin=vmin, vmax=vmax)
                 axes[i, j].set_title('None', fontsize=5)
             else:
                 image = images_to_plot[n]
@@ -71,10 +84,14 @@ def plot_img_collection(collection, raw=True, draw_particles=True, exclude=[], *
                         canvas = image.raw
                     else:
                         canvas = image.filtered
-                axes[i, j].imshow(canvas, cmap='gray')
+                im = axes[i, j].imshow(canvas, cmap='gray', vmin=vmin, vmax=vmax)
                 axes[i, j].set_title('{}'.format(image.filename), fontsize=5)
             axes[i, j].get_xaxis().set_visible(False)
             axes[i, j].get_yaxis().set_visible(False)
+
+    fig.subplots_adjust(right=0.93)
+    cbar_ax = fig.add_axes([0.95, 0.15, 0.03, 0.7])
+    fig.colorbar(im, cax=cbar_ax)
 
     if raw:
         img_type = 'raw'

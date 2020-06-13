@@ -127,12 +127,14 @@ class GdpytImageCollection(object):
     def filter_images(self):
         for image in self.images.values():
             image.filter_image(self._processing_specs)
+            logger.info("Filtered image {}".format(image.filename))
 
     def identify_particles(self):
         for image in self.images.values():
             image.identify_particles(self._thresholding_specs,
                                      min_size=self._min_particle_size, max_size=self._max_particle_size,
                                      shape_tol=self._shape_tol)
+            logger.info("Identified {} particles on image {}".format(len(image.particles), image.filename))
     def is_infered(self):
         """ Checks if the z coordinate has been infered for the images in this collection. Only returns true if that's
         true for all the images. """
