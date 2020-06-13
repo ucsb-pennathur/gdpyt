@@ -192,12 +192,13 @@ class GdpytImage(object):
         sigma_bckgr = self.raw[inv_mask].std()
         sigma_bckgr_f = self.filtered[inv_mask].std()
         mean_bckgr_r = self.raw[inv_mask].mean()
-        snr_filt = self.filtered[particle_mask].mean() / self.filtered[inv_mask].std()
-        snr_raw = self.raw[particle_mask].mean() / self.raw[inv_mask].std()
+        mean_bckgr_filt = self.filtered[inv_mask].mean()
+        snr_filt = (self.filtered[particle_mask].mean() - mean_bckgr_filt)/ self.filtered[inv_mask].std()
+        snr_raw = (self.raw[particle_mask].mean() - mean_bckgr_r) / self.raw[inv_mask].std()
         p_density = particle_mask.sum() / particle_mask.size
 
-        self._update_processing_stats(['mean_bckgr_r', 'sigma_bckgr_r', 'sigma_bckgr_f', 'snr_r', 'snr_f', 'rho_p'],
-                                      [mean_bckgr_r, sigma_bckgr, sigma_bckgr_f, snr_raw, snr_filt, p_density])
+        self._update_processing_stats(['mean_bckgr_r', 'mean_bckgr_f', 'sigma_bckgr_r', 'sigma_bckgr_f', 'snr_r', 'snr_f', 'rho_p'],
+                                      [mean_bckgr_r, mean_bckgr_filt, sigma_bckgr, sigma_bckgr_f, snr_raw, snr_filt, p_density])
 
     def is_infered(self):
         return all([particle.z is not None for particle in self.particles])
