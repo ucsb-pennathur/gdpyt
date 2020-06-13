@@ -36,6 +36,18 @@ class RotateN90(object):
 
         return sample
 
+class BCAdjust(object):
+    """ Random brightness and a contrast adjustment"""
+
+    def __init__(self, alpha, beta):
+        self.alpha = alpha
+        self.beta  = beta
+
+    def __call__(self, sample):
+        image = sample['input']
+        sample.update({'input': np.clip((image * self.alpha) + self.beta, 0, None)})
+
+        return sample
 class RandomBCGAdjust(object):
     """ Random brightness and a contrast adjustment"""
 
