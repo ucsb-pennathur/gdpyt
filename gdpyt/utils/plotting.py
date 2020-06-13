@@ -187,15 +187,26 @@ def plot_particle_coordinate(collection, coordinate='z', sort_images=None, parti
 
     coords = []
     if sort_images is None:
-        for image in collection.images.values():
-            coords.append(image.particle_coordinates(id_=particle_id).set_index('id')[[coordinate]])
+        iter_images = collection.images.files
     else:
         if not callable(sort_images):
             raise TypeError("sort_images must be a function that takes an image name as an argument and returns a value"
                             "that can be used to sort the images")
-        # Get the particle coordinates from all the images
-        for file in sorted(collection.files, key=sort_images):
-            coords.append(collection.images[file].particle_coordinates(id_=particle_id).set_index('id')[[coordinate]])
+        iter_images = sorted(collection.files, key=sort_images)
+
+    # Get the particle coordinates from all the images
+    for file in iter_images:
+        coords_thisfile = collection.images[file].particle_coordinates(id_=particle_id)
+        if coords_thisfile.empty:
+            coords_thisfile = pd.DataFrame({'id': particle_id, coordinate: len(particle_id) * [np.nan]})
+            coords_thisfile = coords_thisfile.set_index('id')[[coordinate]]
+        elif not all([id_ in coords_thisfile['id'].tolist() for id_ in particle_id]):
+            missing_ids = [id_ for id_ in particle_id if id_ not in coords_thisfile['id'].tolist()]
+            coords_thisfile = coords_thisfile.set_index('id')[[coordinate]]
+            coords_thisfile = coords_thisfile.append(pd.DataFrame({coordinate: len(missing_ids)*[np.nan]}, index=missing_ids))
+        else:
+            coords_thisfile = coords_thisfile.set_index('id')[[coordinate]]
+        coords.append(coords_thisfile)
 
     coords = pd.concat(coords)
     fig, ax = plt.subplots(figsize=(11, 7))
