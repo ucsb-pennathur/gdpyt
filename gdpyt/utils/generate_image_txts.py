@@ -1,11 +1,11 @@
 import numpy as np
-from os.path import isdir, join
+from os.path import isdir, join, dirname
 from os import mkdir
 from pathlib import Path
 
 DEFAULTS = dict(
-    magnification = 10,
-    numerical_aperture = 0.3,
+    magnification = 50,
+    numerical_aperture = 0.5,
     focal_length = 350,
     ri_medium = 1,
     ri_lens = 1.5,
@@ -19,24 +19,16 @@ DEFAULTS = dict(
     cyl_focal_length = 0
 )
 
-def generate_sig_settings(background_noise=0, img_shape=(1000, 1000), particle_diameter=2,
-                          folder=None):
-    assert isinstance(background_noise, int) or isinstance(background_noise, float)
-    assert isinstance(img_shape, tuple)
-    assert isinstance(particle_diameter, int) or isinstance(particle_diameter, tuple)
+def generate_sig_settings(settings, folder=None):
+    assert isinstance(settings, dict)
     assert folder is not None
-
-    if isinstance(particle_diameter, int):
-        assert particle_diameter > 0
-    else:
-        assert len(particle_diameter) == 2
 
     settings_dict = {}
     settings_dict.update(DEFAULTS)
-    settings_dict.update({'particle_diameter': particle_diameter})
-    settings_dict.update({'background_noise': background_noise})
-    settings_dict.update({'pixel_dim_x': int(img_shape[0])})
-    settings_dict.update({'pixel_dim_y': int(img_shape[1])})
+    settings_dict.update(settings)
+
+    if not isdir(folder):
+        mkdir(folder)
 
     # Generate settings.txt
     settings = ''
@@ -46,22 +38,26 @@ def generate_sig_settings(background_noise=0, img_shape=(1000, 1000), particle_d
     with open(join(folder, 'settings.txt'), 'w') as file:
         file.write(settings)
 
-    return settings_dict
+    return settings_dict, join(folder, 'settings.txt')
 
-def generate_grid_input(n_images, grid, range_z=(-43, 43), background_noise=0,
+def generate_grid_input(settings_file, n_images, grid, range_z=(-43, 43), background_noise=0,
                         img_shape=(1000, 1000), particle_diameter=2, folder=None):
     """ Generates input images with particles arranged in a grid"""
-    if isdir(folder):
-        raise ValueError('Folder {} already exists. Specify a new one'.format(folder))
+    settings_path = Path(settings_file)
+    txtfolder = join(settings_path.parent, 'input')
+
+    if isdir(txtfolder):
+        raise ValueError('Folder {} already exists. Specify a new one'.format(txt))
     else:
-        mkdir(folder)
+        mkdir(txtfolder)
 
-    settings_dict = generate_sig_settings(background_noise=background_noise, particle_diameter=particle_diameter,
-                                          img_shape=img_shape, folder=folder)
+    settings_dict = {}
+    with open(settings_file) as file:
+        for line in file:
+            thisline = line.split('=')
+            settings_dict.update({thisline[0].strip(): eval(thisline[1].strip())})
 
-    # In folder, create a subfolder for the raw txts
-    txtfolder = join(folder, 'input')
-    mkdir(txtfolder)
+    img_shape = (settings_dict['pixel_dim_x'], settings_dict['pixel_dim_y'])
 
     for i in range(n_images):
         fname = 'B{0:04d}'.format(i)
@@ -70,20 +66,24 @@ def generate_grid_input(n_images, grid, range_z=(-43, 43), background_noise=0,
         savepath = join(txtfolder, fname + '.txt')
         np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
 
-def generate_grid_input_from_function(n_images, grid, function_z=None, background_noise=0, img_shape=(1000, 1000),
-                                      particle_diameter=2, folder=None):
+def generate_grid_input_from_function(settings_file, n_images, grid, function_z=None, particle_diameter=2, folder=None):
     assert callable(function_z)
-    if isdir(folder):
-        raise ValueError('Folder {} already exists. Specify a new one'.format(folder))
+
+    settings_path = Path(settings_file)
+    txtfolder = join(settings_path.parent, 'input')
+
+    if isdir(txtfolder):
+        raise ValueError('Folder {} already exists. Specify a new one'.format(txt))
     else:
-        mkdir(folder)
+        mkdir(txtfolder)
 
-    settings_dict = generate_sig_settings(background_noise=background_noise, particle_diameter=particle_diameter,
-                                          img_shape=img_shape, folder=folder)
+    settings_dict = {}
+    with open(settings_file) as file:
+        for line in file:
+            thisline = line.split('=')
+            settings_dict.update({thisline[0].strip(): eval(thisline[1].strip())})
 
-    # In folder, create a subfolder for the raw txts
-    txtfolder = join(folder, 'input')
-    mkdir(txtfolder)
+    img_shape = (settings_dict['pixel_dim_x'], settings_dict['pixel_dim_y'])
 
     for i in range(n_images):
         fname = 'F{0:04d}'.format(i)
@@ -94,7 +94,7 @@ def generate_grid_input_from_function(n_images, grid, function_z=None, backgroun
         savepath = join(txtfolder, fname + '.txt')
         np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
 
-def generate_grid_calibration(settings_file, grid, z_levels, particle_diameter=2):
+def generate_grid_calibration(settings_file, grid, z_levels, particle_diameter=2, create_multiple=None):
     """ Generates calibration images with particles arranged in a grid. The difference between an input image is that
     all the particles in a calibration image are at the same height """
 
@@ -115,11 +115,18 @@ def generate_grid_calibration(settings_file, grid, z_levels, particle_diameter=2
     img_shape = (settings_dict['pixel_dim_x'], settings_dict['pixel_dim_y'])
 
     for z in z_levels:
-        fname = 'calib_{}'.format(z)
         coordinates = _generate_grid_coordinates(grid, img_shape, z=z)
         output = _append_particle_diam(coordinates, particle_diameter)
-        savepath = join(calib_path, fname + '.txt')
-        np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+        if create_multiple is None:
+            fname = 'calib_{}'.format(z)
+            savepath = join(calib_path, fname + '.txt')
+            np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+        else:
+            assert isinstance(create_multiple, int)
+            for i in range(create_multiple):
+                fname = 'calib{}_{}'.format(i, z)
+                savepath = join(calib_path, fname + '.txt')
+                np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
 
 def _generate_grid_coordinates(grid, imshape, z=None):
     assert len(imshape) == 2
