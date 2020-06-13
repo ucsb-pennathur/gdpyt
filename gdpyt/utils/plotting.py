@@ -218,18 +218,35 @@ def plot_tensor_dset(dset, N):
 
     idx_list = np.random.randint(0, len(dset), size=N)
 
+    vmin = []
+    vmax = []
+    for idx in idx_list:
+        img = dset[idx]['input']
+        vmin.append(img.min())
+        vmax.append(img.max())
+
+    vmin = min(vmin)
+    vmax = max(vmax)
+
     for i in range(n_rows):
         for j in range(n_cols):
             n = i * n_cols + j
             if n > n_images - 1:
-                axes[i, j].imshow(np.zeros_like(sample['input'].numpy().squeeze()), cmap='gray')
+                im = axes[i, j].imshow(np.zeros_like(sample['input'].numpy().squeeze()), cmap='gray',
+                                       vmin=vmin, vmax=vmax)
                 axes[i, j].set_title('None', fontsize=5)
             else:
                 sample = dset[idx_list[n]]
-                axes[i, j].imshow(sample['input'].numpy().squeeze(), cmap='gray')
-                axes[i, j].set_title('z = {}'.format(sample['target']), fontsize=5)
+                im = axes[i, j].imshow(sample['input'].numpy().squeeze(), cmap='gray',
+                                       vmin=vmin, vmax=vmax)
+                if dset.mode == 'train':
+                    axes[i, j].set_title('z = {}'.format(sample['target']), fontsize=5)
             axes[i, j].get_xaxis().set_visible(False)
             axes[i, j].get_yaxis().set_visible(False)
+
+    fig.subplots_adjust(right=0.91)
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+    fig.colorbar(im, cax=cbar_ax)
 
     # fig.suptitle('Tensor dataset (Particle ID {})'.format(stack.id))
     fig.subplots_adjust(wspace=0.05, hspace=0.25)
