@@ -269,7 +269,7 @@ class GdpytImage(object):
             x, y = particle.location
             if particle.z is None:
                 no_z_count += 1
-                coords.append(pd.DataFrame({'id': [int(particle.id)], 'x': [x], 'y': [y]}))
+                coords.append(pd.DataFrame({'id': [int(particle.id)], 'x': [x], 'y': [y], 'z': [np.nan]}))
             else:
                 z = particle.z
                 coords.append(pd.DataFrame({'id': [int(particle.id)], 'x': [x], 'y': [y], 'z': [z]}))
@@ -280,7 +280,10 @@ class GdpytImage(object):
                 total_particles = len(self.particles)
             logger.warning("Image {}: {} out of {} particles have no z coordinate".format(self.filename, no_z_count,
                                                                                           total_particles))
-        coords = pd.concat(coords).sort_values(by='id')
+        if len(coords) != 0:
+            coords = pd.concat(coords).sort_values(by='id')
+        else:
+            coords = pd.DataFrame()
 
         return coords
 
