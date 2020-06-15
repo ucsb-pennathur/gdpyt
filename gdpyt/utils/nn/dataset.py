@@ -23,6 +23,7 @@ class GdpytTensorDataset(Dataset):
         if transforms_ is not None:
             for transf in transforms_:
                 sample_transforms.append(transf)
+            self.n_transf = len(sample_transforms)
             self.transform = transforms.Compose(sample_transforms)
         else:
             self.transform = None
@@ -37,7 +38,7 @@ class GdpytTensorDataset(Dataset):
         if self.transform is None:
             return len(self._source)
         else:
-            return len(self._source) * len(self.transform)
+            return len(self._source) * self.n_transf
 
     def __getitem__(self, idx):
         if self.transform is not None:
