@@ -79,7 +79,7 @@ class GdpytCalibrationSet(object):
                              kernel_size=kernel_size, n_filters_init=n_filters_init,
                              max_pool_params=max_pool_params, batch_norm=batch_norm)
 
-    def infer_z(self, image, function='ccorr'):
+    def infer_z(self, image, function='ccorr', transforms_=None):
         if function not in ['nn', 'cnn']:
             logger.info("Infering image {}".format(image.filename))
             for particle in image.particles:
@@ -91,7 +91,7 @@ class GdpytCalibrationSet(object):
             if self.train_summary is None:
                 raise RuntimeError("Calibration set does not have a trained neural net. Use create_cnn and train_cnn "
                                    "before infering using a deep learning model")
-            predict_dset = GdpytTensorDataset(normalize=self._cnn_data_params['normalize'],
+            predict_dset = GdpytTensorDataset(normalize=self._cnn_data_params['normalize'], transforms_=transforms_,
                                               tset_stats=self._cnn_data_params['stats'])
             predict_dset.from_image_collection(image, ref_shape=self._cnn_data_params['shape'],
                                                max_size=self._cnn_data_params['max_size'],

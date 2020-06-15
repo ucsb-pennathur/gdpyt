@@ -5,6 +5,7 @@ from .preprocessing import apply_filter
 from .particle_identification import apply_threshold, identify_contours, identify_circles, merge_particles
 from .GdpytParticle import GdpytParticle
 from os.path import isfile, basename
+import time
 import logging
 
 logger = logging.getLogger()
@@ -225,10 +226,13 @@ class GdpytImage(object):
             # Add the merged particle
             self._add_particle(dup_id, merged_contour, merged_bbox)
 
-    def merge_overlapping_particles(self, cnts, bboxes, overlap_thresh=0.3):
+    def merge_overlapping_particles(self, cnts, bboxes, overlap_thresh=0.3, timeout=10):
         grp = 0
         grp_info = {}
-        for bbox, cnt in zip(bboxes, cnts):
+        t0 = time.time()
+        for bbox_cnt in sorted(zip(cnts, bboxes), key=lambda b: b[1][2] * b[1][3], reverse=True):
+            cnt = bbox_cnt[0]
+            bbox = bbox_cnt[1]
             if len(grp_info) == 0:
                 grp_info.update({grp: (bbox, cnt)})
                 grp += 1
@@ -251,6 +255,12 @@ class GdpytImage(object):
                 else:
                     grp_info.update({grp: (bbox, cnt)})
                     grp += 1
+            if timeout is not None:
+                t_elapsed = time.time() - t0
+                if t_elapsed > timeout:
+                    logger.warning("Merging of overlapping particles reached timeout after {} s. "
+                                   "Returning whatever was merged so far.".format(timeout))
+                    break
 
         merged_bboxes = [el[0] for el in grp_info.values()]
         merged_cnts = [el[1] for el in grp_info.values()]

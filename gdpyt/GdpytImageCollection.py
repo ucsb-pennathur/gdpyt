@@ -140,7 +140,7 @@ class GdpytImageCollection(object):
         true for all the images. """
         return all([image.is_infered() for image in self.images.values()])
 
-    def infer_z(self, calib_set, function='nccorr'):
+    def infer_z(self, calib_set, function='nccorr', transforms_=None):
         """ Infers the z coordinate of each image in this collection using the passed calibration set and function to
         compute the similarity.
         :param calib_set:   GdpytCalibrationSet object
@@ -155,7 +155,7 @@ class GdpytImageCollection(object):
             for image in self.images.values():
                 calib_set.infer_z(image, function=function)
         else:
-            calib_set.infer_z(self, function=function)
+            calib_set.infer_z(self, function=function, transforms_=transforms_)
 
     def plot(self, raw=True, draw_particles=True, exclude=[], **kwargs):
         fig = plot_img_collection(self, raw=raw, draw_particles=draw_particles, exclude=exclude, **kwargs)

@@ -31,8 +31,7 @@ class GdpytTensorDataset(Dataset):
         # Statistics, mean and variance
         self.stats = None
         # Statistics from train set. These are applies if this set is a test or prediction set
-        if tset_stats is not None:
-            self._stats_from_tset = tset_stats
+        self._stats_from_tset = tset_stats
         self._mode = None
 
     def __len__(self):
