@@ -99,8 +99,9 @@ class GdpytCalibrationSet(object):
 
             if torch.cuda.is_available():
                 device = torch.device('cuda')
-                logger.info("Using CUDA with device {}".format(torch.cuda.get_device_name(device)))
+                logger.info("Using CUDA for training (Device {})".format(torch.cuda.get_device_name(device)))
             else:
+                logger.info("Using CPU for training")
                 device = torch.device('cpu')
 
             pred = predict_dset.infer(self.cnn, None,  device=device)
