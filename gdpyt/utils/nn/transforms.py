@@ -48,7 +48,7 @@ class BCAdjust(object):
         sample.update({'input': np.clip((image * self.alpha) + self.beta, 0, None)})
 
         return sample
-    
+
 class RandomBCGAdjust(object):
     """ Random brightness and a contrast adjustment"""
 

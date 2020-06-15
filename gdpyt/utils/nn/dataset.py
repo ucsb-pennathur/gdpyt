@@ -34,7 +34,7 @@ class GdpytTensorDataset(Dataset):
         self._mode = None
 
     def __len__(self):
-        if self.transform is not None:
+        if self.transform is None:
             return len(self._source)
         else:
             return len(self._source) * len(self.transform)
