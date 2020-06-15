@@ -107,7 +107,7 @@ class GdpytCalibrationSet(object):
             pred = predict_dset.infer(self.cnn, None,  device=device)
             predict_dset.set_sample_z(None, pred)
 
-    def train_cnn(self, epochs, normalize_inputs=True, transforms=None, max_sample_size=50, skip_na=True, min_stack_len=10,
+    def train_cnn(self, epochs, cost_func, normalize_inputs=True, transforms=None, max_sample_size=50, skip_na=True, min_stack_len=10,
                   lr=1e-5, lambda_=1e-3, reg_type=None, batch_size=64, shuffle_batches=True):
         assert isinstance(epochs, int) and epochs > 0
 
@@ -122,12 +122,6 @@ class GdpytCalibrationSet(object):
         self._cnn_data_params = {'normalize': normalize_inputs, 'max_size': max_sample_size, 'skip_na': skip_na,
                                  'shape': dataset.shape, 'stats': dataset.stats}
 
-        # Create the Pytoch model
-        self._create_cnn_model((1,) + dataset.shape)
-
-        # Set up training input data and parameters
-        dataloader = dataset.return_dataloader(batch_size=batch_size, shuffle=shuffle_batches)
-
         if torch.cuda.is_available():
             device = torch.device('cuda')
             logger.info("Using CUDA for training (Device {})".format(torch.cuda.get_device_name(device)))
@@ -135,9 +129,22 @@ class GdpytCalibrationSet(object):
             logger.info("Using CPU for training")
             device = torch.device('cpu')
 
+        # Create the Pytoch model
+        self._create_cnn_model((1,) + dataset.shape)
+
+        # Set up training input data and parameters
+        dataloader = dataset.return_dataloader(batch_size=batch_size, shuffle=shuffle_batches)
+
         model = self.cnn
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-        criterion = nn.L1Loss()
+        if reg_type.lower == 'l2':
+            weight_decay = lambda_
+        else:
+            weight_decay = 0
+        optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=weight_decay)
+        if cost_func is not None:
+            criterion = eval(cost_func)
+        else:
+            criterion = nn.L1Loss()
         avg_epoch_loss, std_epoch_loss, model = train_net(model, device, optimizer, criterion, dataloader,
                                                             epochs=epochs, lambda_=lambda_, reg_type=reg_type)
         self._train_summary = pd.DataFrame({'Epoch': [i for i in range(epochs)], 'Avg_loss': avg_epoch_loss,

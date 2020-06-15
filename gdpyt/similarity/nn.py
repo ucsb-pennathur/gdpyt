@@ -218,19 +218,6 @@ def train_net(model, device, optimizer, criterion, dataloader,
             #logger.info("Prediction: {}, Target: {}".format(prediction, y))
             loss = criterion(prediction, y)
 
-            # L1 or L2 regularization
-            if reg_type is not None:
-                assert reg_type in ['l2', 'l1']
-                if reg_type == 'l2':
-                    for p in model.parameters():
-                        loss += lambda_ * p.pow(2).sum()
-                elif reg_type == 'l1':
-                    with torch.no_grad():
-                        for p in model.parameters():
-                            p.sub_(p.sign() * p.abs().clamp(max=lambda_))
-                else:
-                    raise NotImplementedError
-
             loss_batch.append(loss.item())
 
             optimizer.zero_grad()
