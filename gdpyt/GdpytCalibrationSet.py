@@ -130,10 +130,10 @@ class GdpytCalibrationSet(object):
 
         if torch.cuda.is_available():
             device = torch.device('cuda')
-            logger.info("Using CUDA for training. Device: {}".format(torch.cuda.get_device_name(device)))
+            logger.info("Using CUDA for training (Device {})".format(torch.cuda.get_device_name(device)))
         else:
-            device = torch.device('cpu')
             logger.info("Using CPU for training")
+            device = torch.device('cpu')
 
         model = self.cnn
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
