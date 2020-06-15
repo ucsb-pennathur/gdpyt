@@ -23,10 +23,9 @@ class GdpytTensorDataset(Dataset):
         if transforms_ is not None:
             for transf in transforms_:
                 sample_transforms.append(transf)
-
-        # Tensor transformation is done in every case
-        sample_transforms.append(ToTensor())
-        self.transform = transforms.Compose(sample_transforms)
+            self.transform = transforms.Compose(sample_transforms)
+        else:
+            self.transform = None
         self._shape = None
         # Statistics, mean and variance
         self.stats = None
@@ -35,10 +34,16 @@ class GdpytTensorDataset(Dataset):
         self._mode = None
 
     def __len__(self):
-        return len(self._source)
+        if self.transform is not None:
+            return len(self._source)
+        else:
+            return len(self._source) * len(self.transform)
 
     def __getitem__(self, idx):
-        source_particle = self._source[idx]
+        if self.transform is not None:
+            source_particle = self._source[idx % len(self._source)]
+        else:
+            source_particle = self._source[idx]
 
         # Use raw image for neural net
         source_particle.use_raw(True)
@@ -52,8 +57,12 @@ class GdpytTensorDataset(Dataset):
         else:
             sample = {'input': image}
 
-        if self.transform:
+        if self.transform is not None:
             sample = self.transform(sample)
+
+        # Tensor transform
+        tens_transf = ToTensor()
+        sample = tens_transf(sample)
 
         if self.normalize:
             image = sample['input']
