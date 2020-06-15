@@ -31,8 +31,13 @@ class RotateN90(object):
 
     def __call__(self, sample):
         image = sample['input']
-        n = np.random.randint(0, 4)
-        sample.update({'input': np.rot90(image, k=n, axes=(0, 1))})
+        n = np.random.randint(0, 3)
+        if n == 0:
+            sample.update({'input': np.flip(image, axis=0)})
+        elif n == 1:
+            sample.update({'input': np.flip(image, axis=1)})
+        else:
+            pass
 
         return sample
 
