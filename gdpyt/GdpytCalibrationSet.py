@@ -99,6 +99,7 @@ class GdpytCalibrationSet(object):
 
             if torch.cuda.is_available():
                 device = torch.device('cuda')
+                logger.info("Using CUDA with device {}".format(torch.cuda.get_device_name(device)))
             else:
                 device = torch.device('cpu')
 
