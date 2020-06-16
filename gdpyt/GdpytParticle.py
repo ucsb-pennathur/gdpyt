@@ -18,6 +18,7 @@ class GdpytParticle(object):
         self._similarity_curve = None
         self._interpolation_curve = None
         self._z = None
+        self._z_default = None
         self._max_sim = None
         self._use_raw = True
 
@@ -132,6 +133,11 @@ class GdpytParticle(object):
             dil_bbox = self._dilated_bbox(dilation=dilation, dims=resized_bbox[2:])
             return self._create_template(bbox=dil_bbox)
 
+    def reset_id(self, new_id):
+        assert isinstance(new_id, int)
+        #logger.warning("Particle ID {}: Reset ID to {}".format(self.id, new_id))
+        self._id = new_id
+
     def resize_bbox(self, w, h):
         """
         Adjust bounding box to size w x h and adjust the center to the center of the contour
@@ -154,6 +160,10 @@ class GdpytParticle(object):
     def set_z(self, z):
         assert isinstance(z, float)
         self._z = z
+
+        # The value originally received is stored in a separate argument
+        if self._z_default is None:
+            self._z_default = z
 
     def set_id(self, id_):
         self._id = id_

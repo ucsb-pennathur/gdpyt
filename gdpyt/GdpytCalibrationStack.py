@@ -2,6 +2,7 @@ from .GdpytParticle import GdpytParticle
 from collections import OrderedDict
 from gdpyt.utils.plotting import plot_calib_stack
 from gdpyt.similarity.correlation import *
+from scipy.interpolate import Akima1DInterpolator
 import numpy as np
 import logging
 
@@ -18,6 +19,7 @@ class GdpytCalibrationStack(object):
         self._shape = None
         self._template_dilation = dilation
         self._stats = None
+        self._zero = None
 
 
     def __len__(self):
@@ -140,6 +142,39 @@ class GdpytCalibrationStack(object):
         fig = plot_calib_stack(self, z=z, draw_contours=draw_contours)
         return fig
 
+    def reset_id(self, new_id):
+        assert isinstance(new_id, int)
+        self._id = new_id
+
+        for particle in self.particles:
+            particle.reset_id(new_id)
+    def set_zero(self):
+        areas = []
+        zs = []
+        for particle in sorted(self.particles, key=lambda p: p.z):
+            areas.append(particle.area)
+            zs.append(particle.z)
+
+        zl, zh = (min(zs), max(zs))
+        if len(zs) > 3 and len(areas) > 3:
+            akima_poly = Akima1DInterpolator(zs, areas)
+            z_interp = np.linspace(zl, zh, 200)
+            z_zero = z_interp[np.argmin(akima_poly(z_interp))]
+        else:
+            z_zero = zs[np.argmin(areas)]
+
+        # Add offset to layers and particles:
+        for p in self.particles:
+            p.set_z(p.z - z_zero)
+
+        new_layers = OrderedDict()
+        for z_key, templ in self.layers.items():
+            new_layers.update({z_key - z_zero: templ})
+
+        self._layers = new_layers
+        self._zero = z_zero
+        logger.info("Zeroing calibration stack {}. Found in-focus z position at {}".format(self.id, z_zero))
+
     @property
     def id(self):
         return self._id
@@ -163,3 +198,7 @@ class GdpytCalibrationStack(object):
     @property
     def particles(self):
         return self._particles
+
+    @property
+    def zero(self):
+        return self._zero
