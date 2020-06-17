@@ -227,6 +227,8 @@ class GdpytTensorDataset(Dataset):
             else:
                 for idx, z_ in enumerate(z):
                     self._source[idx].set_z(z_.item())
+        else:
+            print(z)
 
     @property
     def input_shape(self):
