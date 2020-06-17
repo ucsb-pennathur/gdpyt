@@ -192,7 +192,7 @@ def conv2d_out_shape(shape, out_channels, kernel_size=3, padding=0, stride=1, di
     return [int(s.item()) for s in out_shape]
 
 def train_net(model, device, optimizer, criterion, dataloader,
-              epochs=10, lambda_=1e-3, reg_type=None):
+              epochs=10):
 
     # Initialize model weights
     model.apply(init_weights)

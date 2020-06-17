@@ -124,7 +124,7 @@ class GdpytCalibrationSet(object):
             else:
                 logger.info("Using CPU for training")
                 device = torch.device('cpu')
-
+            print('calib set infer z')
             pred = predict_dset.infer(self.cnn, None,  device=device)
             predict_dset.set_sample_z(None, pred)
 
@@ -170,7 +170,7 @@ class GdpytCalibrationSet(object):
         else:
             criterion = nn.L1Loss()
         avg_epoch_loss, std_epoch_loss, model = train_net(model, device, optimizer, criterion, dataloader,
-                                                            epochs=epochs, lambda_=lambda_, reg_type=reg_type)
+                                                            epochs=epochs)
         self._train_summary = pd.DataFrame({'Epoch': [i for i in range(epochs)], 'Avg_loss': avg_epoch_loss,
                                             'Sigma_loss': std_epoch_loss})
 
