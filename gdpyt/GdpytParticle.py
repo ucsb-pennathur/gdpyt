@@ -160,7 +160,7 @@ class GdpytParticle(object):
     def set_z(self, z):
         assert isinstance(z, float)
         self._z = z
-
+        print('ID {} set z'.format(self.id))
         # The value originally received is stored in a separate argument
         if self._z_default is None:
             self._z_default = z
