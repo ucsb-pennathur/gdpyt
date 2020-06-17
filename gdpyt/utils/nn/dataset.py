@@ -196,7 +196,6 @@ class GdpytTensorDataset(Dataset):
                 logger.info("Predicted: {}".format(y.item()))
                 return y.item()
         else:
-            print('Dataset infer')
             inputs = [self.__getitem__(i)['input'].unsqueeze_(0) for i in range(len(self))]
             inputs = torch.cat(inputs, 0).to(device)
 
@@ -219,7 +218,6 @@ class GdpytTensorDataset(Dataset):
         return DataLoader(self, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
 
     def set_sample_z(self, idx, z):
-        print('Dataset set sample z')
         if isinstance(z, torch.Tensor):
             if len(z) == 1:
                 z = z.item()
@@ -227,8 +225,6 @@ class GdpytTensorDataset(Dataset):
             else:
                 for idx, z_ in enumerate(z):
                     self._source[idx].set_z(z_.item())
-        else:
-            print(z)
 
     @property
     def input_shape(self):

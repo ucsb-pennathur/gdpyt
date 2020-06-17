@@ -124,8 +124,9 @@ class GdpytCalibrationSet(object):
             else:
                 logger.info("Using CPU for training")
                 device = torch.device('cpu')
-            print('calib set infer z')
             pred = predict_dset.infer(self.cnn, None,  device=device)
+            if isinstance(pred, tuple):
+                pred = pred[0]
             predict_dset.set_sample_z(None, pred)
 
     def train_cnn(self, epochs, cost_func, normalize_inputs=True, transforms=None, max_sample_size=50, skip_na=True, min_stack_len=10,
