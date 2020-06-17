@@ -157,8 +157,11 @@ class GdpytCalibrationSet(object):
         dataloader = dataset.return_dataloader(batch_size=batch_size, shuffle=shuffle_batches)
 
         model = self.cnn
-        if reg_type.lower == 'l2':
-            weight_decay = lambda_
+        if reg_type is not None:
+            if reg_type.lower == 'l2':
+                weight_decay = lambda_
+            else:
+                weight_decay = 0
         else:
             weight_decay = 0
         optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=weight_decay)
