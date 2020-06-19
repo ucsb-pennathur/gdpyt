@@ -6,9 +6,9 @@ from torchvision.models.inception import Inception3
 class GdpytInceptionv3(nn.Module):
 
 
-    def __init__(self):
+    def __init__(self, inception_classes):
         super(GdpytInceptionv3, self).__init__()
-        inception_out = 1000
+        inception_out = inception_classes
         self.inception = Inception3(num_classes=inception_out, aux_logits=False, transform_input=False,
                                     init_weights=True)
         self.fc1 = nn.Linear(inception_out, 1024, bias=True)
