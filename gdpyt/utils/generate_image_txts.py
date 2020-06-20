@@ -40,14 +40,13 @@ def generate_sig_settings(settings, folder=None):
 
     return settings_dict, join(folder, 'settings.txt')
 
-def generate_grid_input(settings_file, n_images, grid, range_z=(-43, 43), background_noise=0,
-                        img_shape=(1000, 1000), particle_diameter=2, folder=None):
+def generate_grid_input(settings_file, n_images, grid, range_z=(-43, 43), particle_diameter=2):
     """ Generates input images with particles arranged in a grid"""
     settings_path = Path(settings_file)
     txtfolder = join(settings_path.parent, 'input')
 
     if isdir(txtfolder):
-        raise ValueError('Folder {} already exists. Specify a new one'.format(txt))
+        raise ValueError('Folder {} already exists. Specify a new one'.format(txtfolder))
     else:
         mkdir(txtfolder)
 
@@ -66,14 +65,14 @@ def generate_grid_input(settings_file, n_images, grid, range_z=(-43, 43), backgr
         savepath = join(txtfolder, fname + '.txt')
         np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
 
-def generate_grid_input_from_function(settings_file, n_images, grid, function_z=None, particle_diameter=2, folder=None):
+def generate_grid_input_from_function(settings_file, n_images, grid, function_z=None, particle_diameter=2):
     assert callable(function_z)
 
     settings_path = Path(settings_file)
     txtfolder = join(settings_path.parent, 'input')
 
     if isdir(txtfolder):
-        raise ValueError('Folder {} already exists. Specify a new one'.format(txt))
+        raise ValueError('Folder {} already exists. Specify a new one'.format(txtfolder))
     else:
         mkdir(txtfolder)
 

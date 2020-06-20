@@ -1,39 +1,65 @@
 from gdpyt.utils import generate_grid_input, generate_grid_calibration, generate_synthetic_images, \
-    generate_grid_input_from_function
+    generate_grid_input_from_function, generate_sig_settings
 import numpy as np
 from os.path import join
 
 # Properties of the synthetic images
+setup_params = dict(
+    magnification = 50,
+    numerical_aperture = 0.5,
+    focal_length = 365,
+    ri_medium = 1,
+    ri_lens = 1.5,
+    pixel_size = 16,
+    pixel_dim_x = 512,
+    pixel_dim_y = 512,
+    background_mean = 200,
+    background_noise = 1,
+    points_per_pixel = 18,
+    n_rays = 100,
+    gain = 1,
+    cyl_focal_length = 0
+)
+
 n_images = 50
-background_noise = 20
-grid = (15, 15)
-particle_diameter = 2
-range_z = (-40, 40)
-shape = (512, 512)
-folder = r'C:\Users\silus\UCSB\master_thesis\python_stuff\gdpyt\tests\test_synthetic\DS_Grid_Gaussian_N50_Sigma20'
+n_calib = 50
+grid = (7, 7)
+range_z = (-20, 20)
+particle_diameter = 5
+folder = r'C:\Users\silus\UCSB\master_thesis\python_stuff\gdpyt\tests\test_synthetic\DS_Grid_N50_Nc{}_5um_Sigma1_f365'.format(n_calib)
 
-setting_file = join(folder, 'settings.txt')
-testtxt_folder = join(folder, 'input')
-calibtxt_folder = join(folder, 'calibration_input')
-testimg_folder = join(folder, 'images')
-calibimg_folder = join(folder, 'calibration_images')
+# Generate settings file
+settings_dict, settings_path = generate_sig_settings(setup_params, folder=folder)
 
-# Generate input files for synthetic image generator
 
+# Test images ##########################################################################################################
+########################################################################################################################
 # Particles in a grid, random Z coordinate in specified range
-#generate_grid_input(n_images, grid, background_noise=background_noise,  img_shape=shape,
-#                   range_z=range_z, particle_diameter=particle_diameter, folder=folder)
+generate_grid_input(settings_path, n_images, grid, range_z=range_z, particle_diameter=particle_diameter)
 
 # Particles in a grid, Z coordinate given by function
-def gauss_z(xy, i):
-    """ Simulates deflection in the shape of a gaussian"""
-    return 0.5 * i * np.exp(-(np.linalg.norm(xy - np.array(shape)/2, axis=1) / (0.2*(shape[0] + shape[1]))))
-generate_grid_input_from_function(n_images, grid, gauss_z, background_noise=background_noise,  img_shape=shape,
-                   particle_diameter=particle_diameter, folder=folder)
-
-# Calibration images. Particles are always in a grid for those and at the same height for the same image
-generate_grid_calibration(setting_file, grid, np.linspace(-40, 40, 20))
+#def gauss_z(xy, i):
+#    """ Simulates deflection in the shape of a gaussian"""
+#    return 0.5 * i * np.exp(-(np.linalg.norm(xy - np.array(shap)/2, axis=1) / (0.2*(shape[0] + shape[1]))))
+#generate_grid_input_from_function(settings_path, n_images, grid, function_z=gauss_z, particle_diameter=5, folder=None)
 
 # Generate .tif
-generate_synthetic_images(setting_file, testtxt_folder, testimg_folder)
-generate_synthetic_images(setting_file, calibtxt_folder, calibimg_folder)
+testtxt_folder = join(folder, 'input')
+testimg_folder = join(folder, 'images')
+generate_synthetic_images(settings_path, testtxt_folder, testimg_folder)
+
+# Calibration images ###################################################################################################
+########################################################################################################################
+
+# Particles are always in a grid for those and at the same height for the same image
+
+# Generate .txt
+generate_grid_calibration(settings_path, grid, np.linspace(range_z[0], range_z[1], n_calib),
+                          particle_diameter=particle_diameter)
+
+# Generate .tif
+calibtxt_folder = join(folder, 'calibration_input')
+calibimg_folder = join(folder, 'calibration_images')
+
+# Generate images
+generate_synthetic_images(settings_path, calibtxt_folder, calibimg_folder)
