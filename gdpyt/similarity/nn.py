@@ -195,7 +195,6 @@ def train_net(model, device, optimizer, criterion, dataloader,
               epochs=10):
 
     # Initialize model weights
-    model.apply(init_weights)
     model.train()
     model.to(device)
 
