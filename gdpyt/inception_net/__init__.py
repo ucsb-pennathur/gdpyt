@@ -1,2 +1,2 @@
 from .dataset import GdpytInceptionDataset
-from .net import GdpytInceptionv3
+from .net import GdpytInception3, GdpytInceptionRegressionNet
