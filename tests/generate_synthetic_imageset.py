@@ -5,28 +5,28 @@ from os.path import join
 
 # Properties of the synthetic images
 setup_params = dict(
-    magnification = 50,
-    numerical_aperture = 0.5,
-    focal_length = 365,
+    magnification = 10,
+    numerical_aperture = 0.3,
+    focal_length = 350,
     ri_medium = 1,
     ri_lens = 1.5,
-    pixel_size = 16,
+    pixel_size = 6.5,
     pixel_dim_x = 512,
     pixel_dim_y = 512,
     background_mean = 200,
-    background_noise = 1,
+    background_noise = 0,
     points_per_pixel = 18,
-    n_rays = 100,
-    gain = 1,
+    n_rays = 500,
+    gain = 3.2,
     cyl_focal_length = 0
 )
 
 n_images = 50
 n_calib = 50
-grid = (7, 7)
-range_z = (-20, 20)
-particle_diameter = 5
-folder = r'C:\Users\silus\UCSB\master_thesis\python_stuff\gdpyt\tests\test_synthetic\DS_Grid_N50_Nc{}_5um_Sigma1_f365'.format(n_calib)
+grid = (10, 10)
+range_z = (-40, 40)
+particle_diameter = 2
+folder = r'C:\Users\silus\UCSB\master_thesis\python_stuff\gdpyt\tests\test_synthetic\Rossi_DS1_Nc50_Sigma0'.format(n_calib)
 
 # Generate settings file
 settings_dict, settings_path = generate_sig_settings(setup_params, folder=folder)
