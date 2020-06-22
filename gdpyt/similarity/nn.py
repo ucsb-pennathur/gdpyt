@@ -196,6 +196,7 @@ def train_net(model, device, optimizer, criterion, dataloader,
 
     # Initialize model weights
     model.train()
+    model.double()
     model.to(device)
 
     avg_epoch_loss_train = []
@@ -212,7 +213,7 @@ def train_net(model, device, optimizer, criterion, dataloader,
             logger.info("Epoch {}, Batch {}".format(e, i))
             # Data in minibatch format N x C x H x H
             X = batch['input'].to(device)
-            y = batch['target'].double().to(device)
+            y = batch['target'].to(device)
             prediction = model(X)  # [N, 1]
             #logger.info("Prediction: {}, Target: {}".format(prediction, y))
             loss = criterion(prediction, y)
