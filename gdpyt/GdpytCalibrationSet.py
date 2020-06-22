@@ -159,7 +159,7 @@ class GdpytCalibrationSet(object):
                 weight_decay = 0
         else:
             weight_decay = 0
-        optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=weight_decay)
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
         if cost_func is not None:
             criterion = eval(cost_func)
         else:

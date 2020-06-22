@@ -145,7 +145,7 @@ class GdpytInceptionDataset(Dataset):
             self._mode = 'eval'
         self._compute_stats()
 
-    def infer(self, model, idx, device=None):
+    def infer(self, model, idx, device=None, batch_size=64):
         """
         Infer a sample in the dataset with a trained model
         """
@@ -170,12 +170,22 @@ class GdpytInceptionDataset(Dataset):
                 logger.info("Predicted: {}".format(y.item()))
                 return y.item()
         else:
-            inputs = [self.__getitem__(i)['input'].unsqueeze_(0) for i in range(len(self))]
-            inputs = torch.cat(inputs, 0).to(device)
-
             # Evaluation mode
             model.eval()
-            y = model(inputs)
+
+            ys = []
+            infer_idx = [()]
+            for j in range(0, len(self), batch_size):
+                end_idx = j + batch_size
+                if end_idx > len(self):
+                    end_idx = len(self)
+                inputs = [self.__getitem__(i)['input'].unsqueeze_(0) for i in range(j, end_idx)]
+                inputs = torch.cat(inputs, 0).to(device)
+
+                y = model(inputs)
+                ys.append(y)
+
+            y = torch.cat(ys, 0)
 
             if self._mode in ['train', 'test']:
                 targets = [self.__getitem__(i)['target'] for i in range(len(self))]
