@@ -104,6 +104,7 @@ class GdpytCalibrationSet(object):
                     raise RuntimeError("Calibration set does not have a trained neural net. Use train_cnn "
                                        "before infering using a deep learning model")
                 if self._cnn_data_params['normalize']:
+                    logger.info("Setting normalization parameters of prediction set to {}".format(self._cnn_data_params['stats']))
                     transforms_.append(Normalize(**self._cnn_data_params['stats']))
                 predict_dset = GdpytInceptionDataset(transforms=Compose(transforms_))
                 predict_dset.from_image_collections(image, max_size=self._cnn_data_params['max_size'],

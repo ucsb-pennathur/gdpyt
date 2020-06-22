@@ -53,10 +53,11 @@ class GdpytInceptionDataset(Dataset):
         all_inputs = torch.cat(inputs, 0)
         self.stats = {'mean': all_inputs.mean().repeat(3),
                       'std': all_inputs.std().repeat(3)}
-        logger.info("Computed normalization parameters. \n"
+        logger.info("Computed statistics. \n"
                     "Mean: {}\n"
                     "Std: {}".format(self.stats['mean'], self.stats['std']))
         if self.normalize and self._mode == 'train':
+            logger.info("Setting computed statistics as normalization parameters")
             self.transforms = Compose([self.transforms, Normalize(**self.stats)])
 
     def _load_calib_stack(self, stack, skip_na=True):
