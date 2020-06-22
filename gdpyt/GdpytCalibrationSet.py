@@ -103,10 +103,12 @@ class GdpytCalibrationSet(object):
                 if self.train_summary is None:
                     raise RuntimeError("Calibration set does not have a trained neural net. Use train_cnn "
                                        "before infering using a deep learning model")
-                if self._cnn_data_params['normalize']:
+                if self._cnn_data_params['normalize_dataset']:
                     logger.info("Setting normalization parameters of prediction set to {}".format(self._cnn_data_params['stats']))
                     transforms_.append(Normalize(**self._cnn_data_params['stats']))
-                predict_dset = GdpytInceptionDataset(transforms=Compose(transforms_))
+                predict_dset = GdpytInceptionDataset(transforms=Compose(transforms_),
+                                                     normalize_per_sample=self._cnn_data_params['normalize_per_sample'],
+                                                     normalize_dataset=self._cnn_data_params['normalize_dataset'])
                 predict_dset.from_image_collections(image, max_size=self._cnn_data_params['max_size'],
                                                     skip_na=self._cnn_data_params['skip_na'])
 
@@ -122,7 +124,8 @@ class GdpytCalibrationSet(object):
                     pred = pred[0]
                 predict_dset.set_sample_z(None, pred)
 
-    def train_cnn(self, epochs, cost_func, normalize_inputs=True, transforms=[Resize(180), ToTensor()],
+    def train_cnn(self, epochs, cost_func, normalize_dataset=True, normalize_per_sample=False,
+                  transforms=[Resize(180), ToTensor()],
                   max_sample_size=50, skip_na=True, min_stack_len=10,
                   lr=1e-5, lambda_=1e-3, reg_type=None, batch_size=64, shuffle_batches=True):
         assert isinstance(epochs, int) and epochs > 0
@@ -131,13 +134,16 @@ class GdpytCalibrationSet(object):
             if reg_type.lower() not in ['l2', 'l1']:
                 raise ValueError("Regularization can only be L2, L1 or None")
 
-        dataset = GdpytInceptionDataset(transforms=Compose(transforms), normalize=normalize_inputs)
+        dataset = GdpytInceptionDataset(transforms=Compose(transforms),
+                                        normalize_dataset=normalize_dataset,
+                                        normalize_per_sample=normalize_per_sample)
         dataset.from_calib_set(self, max_size=max_sample_size, min_stack_len=min_stack_len, skip_na=skip_na)
         #dataset = GdpytTensorDataset(transforms_=transforms, normalize=normalize_inputs)
         #dataset.from_calib_set(self, max_size=max_sample_size, skip_na=skip_na, min_stack_len=min_stack_len)
 
         # Save parameters of train data so that the same processing is applied on test data
-        self._cnn_data_params = {'normalize': normalize_inputs, 'max_size': max_sample_size, 'skip_na': skip_na,
+        self._cnn_data_params = {'normalize_dataset': normalize_dataset, 'normalize_per_sample': normalize_per_sample,
+                                 'max_size': max_sample_size, 'skip_na': skip_na,
                                  'shape': dataset.shape, 'stats': dataset.stats}
 
         if torch.cuda.is_available():

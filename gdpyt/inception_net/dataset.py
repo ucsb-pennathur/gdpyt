@@ -11,12 +11,18 @@ class GdpytInceptionDataset(Dataset):
 
     __name__ = 'GdpytInceptionDataset'
 
-    def __init__(self, transforms=None, normalize=True):
+    def __init__(self, transforms=None, normalize_dataset=True, normalize_per_sample=False):
         if transforms is None:
             logger.warning("No transforms specified. Consider specifying at least the transformation ToTensor")
         else:
             self.transforms = transforms
-        self.normalize = normalize
+
+        if normalize_dataset and normalize_per_sample:
+            logger.info("Normalize dataset and normalize per sample are both set to true. Normalizing per sample...")
+            self.normalize_dataset = False
+        else:
+            self.normalize_dataset = normalize_dataset
+        self.normalize_per_sample = normalize_per_sample
 
     def __getitem__(self, item):
         source_particle = self._source[item]
@@ -30,6 +36,9 @@ class GdpytInceptionDataset(Dataset):
 
         if self.transforms:
             image = self.transforms(image)
+
+        if self.normalize_per_sample:
+            image = (image - image.mean()) / image.std()
 
         if self._mode == 'train':
             sample = {'input': image, 'target': torch.from_numpy(target)}
@@ -53,7 +62,7 @@ class GdpytInceptionDataset(Dataset):
         logger.info("Computed statistics. \n"
                     "Mean: {}\n"
                     "Std: {}".format(self.stats['mean'], self.stats['std']))
-        if self.normalize and self._mode == 'train':
+        if self.normalize_dataset and self._mode == 'train':
             logger.info("Setting computed statistics as normalization parameters")
             self.transforms = Compose([self.transforms, Normalize(**self.stats)])
 
