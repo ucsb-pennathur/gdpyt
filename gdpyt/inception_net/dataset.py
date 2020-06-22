@@ -35,7 +35,7 @@ class GdpytInceptionDataset(Dataset):
             image = self.transforms(image)
 
         if self._mode == 'train':
-            sample = {'input': image, 'target': target}
+            sample = {'input': image, 'target': torch.from_numpy(target)}
         else:
             sample = {'input': image}
 
