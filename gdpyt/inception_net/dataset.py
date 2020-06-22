@@ -189,9 +189,9 @@ class GdpytInceptionDataset(Dataset):
 
             if self._mode in ['train', 'test']:
                 targets = [self.__getitem__(i)['target'] for i in range(len(self))]
-                return y.item(), targets.item()
+                return y, targets
             else:
-                return y.item()
+                return y
 
     def set_sample_z(self, idx, z):
         if isinstance(z, torch.Tensor):
