@@ -36,7 +36,7 @@ class GdpytInceptionRegressionNet(nn.Module):
 
 class GdpytInception3(nn.Module):
 
-    def __init__(self, num_classes=1000, aux_logits=True, transform_input=False,
+    def __init__(self, num_classes=1000, aux_logits=True,
                  inception_blocks=None, init_weights=True):
         super(GdpytInception3, self).__init__()
         if inception_blocks is None:
@@ -54,8 +54,7 @@ class GdpytInception3(nn.Module):
         inception_aux = inception_blocks[6]
 
         self.aux_logits = aux_logits
-        self.transform_input = transform_input
-        self.Conv2d_1a_3x3 = conv_block(3, 32, kernel_size=3, stride=2)
+        self.Conv2d_1a_3x3 = conv_block(1, 32, kernel_size=3, stride=2)
         self.Conv2d_2a_3x3 = conv_block(32, 32, kernel_size=3)
         self.Conv2d_2b_3x3 = conv_block(32, 64, kernel_size=3, padding=1)
         self.Conv2d_3b_1x1 = conv_block(64, 80, kernel_size=1)
@@ -88,14 +87,6 @@ class GdpytInception3(nn.Module):
                 elif isinstance(m, nn.BatchNorm2d):
                     nn.init.constant_(m.weight, 1)
                     nn.init.constant_(m.bias, 0)
-
-    def _transform_input(self, x):
-        if self.transform_input:
-            x_ch0 = torch.unsqueeze(x[:, 0], 1) * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
-            x_ch1 = torch.unsqueeze(x[:, 1], 1) * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
-            x_ch2 = torch.unsqueeze(x[:, 2], 1) * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
-            x = torch.cat((x_ch0, x_ch1, x_ch2), 1)
-        return x
 
     def _forward(self, x):
         # N x 3 x 299 x 299
@@ -163,7 +154,6 @@ class GdpytInception3(nn.Module):
             return x
 
     def forward(self, x):
-        x = self._transform_input(x)
         x, aux = self._forward(x)
         aux_defined = self.training and self.aux_logits
         if torch.jit.is_scripting():

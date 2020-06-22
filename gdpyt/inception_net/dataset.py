@@ -25,10 +25,7 @@ class GdpytInceptionDataset(Dataset):
         target = source_particle.z
         image = source_particle.get_template(resize=self._shape)
 
-        # Extend to three channels
-        image = np.repeat(image[np.newaxis, :], 3, axis=0).transpose(1, 2, 0)
-
-        image = Image.fromarray(image.copy(), mode='RGB')
+        image = Image.fromarray(image.copy(), mode='L')
         target = np.array([target])
 
         if self.transforms:
@@ -49,10 +46,10 @@ class GdpytInceptionDataset(Dataset):
         inputs = []
         for idx in range(len(self)):
             x = self.__getitem__(idx)['input']
-            inputs.append(x[0])
+            inputs.append(x)
         all_inputs = torch.cat(inputs, 0)
-        self.stats = {'mean': all_inputs.mean().repeat(3),
-                      'std': all_inputs.std().repeat(3)}
+        self.stats = {'mean': all_inputs.mean().item(),
+                      'std': all_inputs.std().item()}
         logger.info("Computed statistics. \n"
                     "Mean: {}\n"
                     "Std: {}".format(self.stats['mean'], self.stats['std']))
