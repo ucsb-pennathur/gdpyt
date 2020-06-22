@@ -99,26 +99,27 @@ class GdpytCalibrationSet(object):
                 particle.use_raw(False)
                 stack.infer_z(particle, function=function)
         else:
-            if self.train_summary is None:
-                raise RuntimeError("Calibration set does not have a trained neural net. Use train_cnn "
-                                   "before infering using a deep learning model")
-            if self._cnn_data_params['normalize']:
-                transforms_.append(Normalize(**self._cnn_data_params['stats']))
-            predict_dset = GdpytInceptionDataset(transforms=Compose(transforms_))
-            predict_dset.from_image_collections(image, max_size=self._cnn_data_params['max_size'],
-                                                skip_na=self._cnn_data_params['skip_na'])
+            with torch.no_grad():
+                if self.train_summary is None:
+                    raise RuntimeError("Calibration set does not have a trained neural net. Use train_cnn "
+                                       "before infering using a deep learning model")
+                if self._cnn_data_params['normalize']:
+                    transforms_.append(Normalize(**self._cnn_data_params['stats']))
+                predict_dset = GdpytInceptionDataset(transforms=Compose(transforms_))
+                predict_dset.from_image_collections(image, max_size=self._cnn_data_params['max_size'],
+                                                    skip_na=self._cnn_data_params['skip_na'])
 
-            if torch.cuda.is_available():
-                device = torch.device('cuda')
-                logger.info("Using CUDA for training (Device {})".format(torch.cuda.get_device_name(device)))
-            else:
-                logger.info("Using CPU for training")
-                device = torch.device('cpu')
+                if torch.cuda.is_available():
+                    device = torch.device('cuda')
+                    logger.info("Using CUDA for training (Device {})".format(torch.cuda.get_device_name(device)))
+                else:
+                    logger.info("Using CPU for training")
+                    device = torch.device('cpu')
 
-            pred = predict_dset.infer(self.cnn, None,  device=device)
-            if isinstance(pred, tuple):
-                pred = pred[0]
-            predict_dset.set_sample_z(None, pred)
+                pred = predict_dset.infer(self.cnn, None,  device=device)
+                if isinstance(pred, tuple):
+                    pred = pred[0]
+                predict_dset.set_sample_z(None, pred)
 
     def train_cnn(self, epochs, cost_func, normalize_inputs=True, transforms=[Resize(180), ToTensor()],
                   max_sample_size=50, skip_na=True, min_stack_len=10,

@@ -154,7 +154,7 @@ class GdpytInceptionDataset(Dataset):
             device = torch.device('cpu')
 
         if idx is not None:
-            x = self.__getitem__(idx)['input'].to(device)
+            x = self.__getitem__(idx)['input'].float().to(device)
             # Force mini-batch shape
             x.unsqueeze_(0)
 
@@ -179,7 +179,7 @@ class GdpytInceptionDataset(Dataset):
                 end_idx = j + batch_size
                 if end_idx > len(self):
                     end_idx = len(self)
-                inputs = [self.__getitem__(i)['input'].unsqueeze_(0) for i in range(j, end_idx)]
+                inputs = [self.__getitem__(i)['input'].float().unsqueeze_(0) for i in range(j, end_idx)]
                 inputs = torch.cat(inputs, 0).to(device)
 
                 y = model(inputs)
@@ -189,9 +189,9 @@ class GdpytInceptionDataset(Dataset):
 
             if self._mode in ['train', 'test']:
                 targets = [self.__getitem__(i)['target'] for i in range(len(self))]
-                return y, targets
+                return y.item(), targets.item()
             else:
-                return y
+                return y.item()
 
     def set_sample_z(self, idx, z):
         if isinstance(z, torch.Tensor):
