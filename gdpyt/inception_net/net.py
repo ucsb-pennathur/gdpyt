@@ -19,7 +19,7 @@ class GdpytInceptionRegressionNet(nn.Module):
     def __init__(self, inception_classes):
         super(GdpytInceptionRegressionNet, self).__init__()
         inception_out = inception_classes
-        self.inception = GdpytInception3(num_classes=inception_out, aux_logits=False, transform_input=False,
+        self.inception = GdpytInception3(num_classes=inception_out, aux_logits=False,
                                     init_weights=True)
         self.fc1 = nn.Linear(inception_out, 1024, bias=True)
         self.fc2 = nn.Linear(1024, 1, bias=True)
