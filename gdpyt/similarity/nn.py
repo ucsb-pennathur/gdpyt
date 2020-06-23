@@ -233,3 +233,16 @@ def train_net(model, device, optimizer, criterion, dataloader,
                 e, end, avg_epoch_loss_train[e]))
 
     return avg_epoch_loss_train, std_epoch_loss_train, model
+
+
+class WeightedMSELoss(nn.MSELoss):
+
+    def __init__(self, weight_z, **kwargs):
+        super(WeightedMSELoss, self).__init__(**kwargs)
+        self.weight_func = weight_z
+
+    def forward(self, y, target):
+        weight = self.weight_func(target)
+        ret = weight * (y - target) ** 2
+        ret = torch.mean(ret) if self.reduction == 'mean' else torch.sum(ret)
+        return ret

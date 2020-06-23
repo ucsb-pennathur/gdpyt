@@ -170,7 +170,7 @@ class GdpytCalibrationSet(object):
             weight_decay = 0
         optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
         if cost_func is not None:
-            criterion = eval(cost_func)
+            criterion = cost_func
         else:
             criterion = nn.L1Loss()
         avg_epoch_loss, std_epoch_loss, model = train_net(model, device, optimizer, criterion, dataloader, epochs=epochs)

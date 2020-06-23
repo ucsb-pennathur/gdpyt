@@ -1,2 +1,2 @@
-from .nn import GdpytNet
+from .nn import GdpytNet, WeightedMSELoss
 from .correlation import *
