@@ -109,30 +109,30 @@ class GdpytInceptionDataset(Dataset):
         self._mode = 'train'
         self._compute_stats()
 
-    def from_image_collections(self, collections, max_size=None, skip_na=True):
-
-        if not isinstance(collections, list):
-            collections = [collections]
+    def from_image_collections(self, collection, template_shape=None, max_size=None, skip_na=True):
 
         all_ = []
-        templ_dim = 0
-        col_imgs = []
-        for collection in collections:
-            col_imgs += list(collection.images.values())
-        for image in col_imgs:
-            for particle in image.particles:
-                # Raw templates are used in neural net
-                if max_size is not None:
-                    if max(particle.bbox[2:]) > max_size:
-                        continue
-                if max(particle.bbox[2:]) > templ_dim:
-                    templ_dim = max(particle.bbox[2:])
 
-        self._shape = (templ_dim, templ_dim)
+        if template_shape is None:
+            templ_dim = 0
+            for image in collection.images.values():
+                for particle in image.particles:
+                    # Raw templates are used in neural net
+                    if max_size is not None:
+                        if max(particle.bbox[2:]) > max_size:
+                            continue
+                    if max(particle.bbox[2:]) > templ_dim:
+                        templ_dim = max(particle.bbox[2:])
+            self._shape = (templ_dim, templ_dim)
+        else:
+            assert isinstance(template_shape, tuple)
+            self._shape = template_shape
 
         for image in collection.images.values():
             for particle in image.particles:
                 particle.use_raw(True)
+                if max(particle.bbox[2:]) > max_size:
+                    continue
                 template = particle.get_template(resize=self.shape)
                 if skip_na and np.isnan(template).sum() != 0:
                     continue
@@ -142,13 +142,13 @@ class GdpytInceptionDataset(Dataset):
 
         if collection.is_infered():
             logger.info(
-            "Created a {} as a test set using {} particles from "
-            "GdpytImageCollection in {}".format(self.__name__, len(all_), collection.folder))
+            "Created a {} as a test set with shape {} using {} particles from "
+            "GdpytImageCollection in {}".format(self.__name__, self.shape, len(all_), collection.folder))
             self._mode = 'train'
         else:
             logger.info(
-                "Created a {} as a prediction set (unknown targets) using {} particles from "
-                "GdpytImageCollection in {}".format(self.__name__, len(all_), collection.folder))
+                "Created a {} as a prediction set (unknown targets) with shape {} using {} particles from "
+                "GdpytImageCollection in {}".format(self.__name__, self.shape, len(all_), collection.folder))
             self._mode = 'eval'
         self._compute_stats()
 

@@ -109,12 +109,13 @@ class GdpytCalibrationSet(object):
                 predict_dset = GdpytInceptionDataset(transforms=Compose(transforms_),
                                                      normalize_per_sample=self._cnn_data_params['normalize_per_sample'],
                                                      normalize_dataset=self._cnn_data_params['normalize_dataset'])
-                predict_dset.from_image_collections(image, max_size=self._cnn_data_params['max_size'],
+                predict_dset.from_image_collections(image, template_shape=self._cnn_data_params['shape'],
+                                                    max_size=self._cnn_data_params['max_size'],
                                                     skip_na=self._cnn_data_params['skip_na'])
 
                 if torch.cuda.is_available():
                     device = torch.device('cuda')
-                    logger.info("Using CUDA for training (Device {})".format(torch.cuda.get_device_name(device)))
+                    logger.info("Using CUDA for inference (Device {})".format(torch.cuda.get_device_name(device)))
                 else:
                     logger.info("Using CPU for training")
                     device = torch.device('cpu')
