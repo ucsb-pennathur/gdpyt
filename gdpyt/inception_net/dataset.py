@@ -212,3 +212,7 @@ class GdpytInceptionDataset(Dataset):
     @property
     def shape(self):
         return self._shape
+
+    @property
+    def mode(self):
+        return self._mode
