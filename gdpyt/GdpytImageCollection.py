@@ -239,6 +239,7 @@ class GdpytImageCollection(object):
             nneigh = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(baseline_locations.values)
             distances, indices = nneigh.kneighbors(np.array(locations))
 
+            remove_p_not_in_calib = []
             for distance, idx, particle in zip(distances, indices, particles):
                 # If the particle is close enough to a particle of the baseline, give that particle the same ID as the
                 # particle in the baseline
@@ -247,13 +248,17 @@ class GdpytImageCollection(object):
                 else:
                     # If the particle is not in the baseline, assign it a new, non-existent id and add it to the baseline
                     # for the subsequent images
+                    if isinstance(baseline, GdpytCalibrationSet):
+                        remove_p_not_in_calib.append(particle)
+                        continue
                     logger.warning("File {}: New IDs: {}".format(file, next_id))
                     particle.set_id(next_id)
                     assert (next_id not in baseline_locations.index)
                     baseline_locations = baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'y': particle.location[1]},
                                                            index=[particle.id]))
                     next_id += 1
-
+            for p in remove_p_not_in_calib:
+                image.particles.remove(p)
             # The nearest neighbor mapping creates particles with dupliate IDs under some circumstances
             # These need to be merged to one giant particle
             image.merge_duplicate_particles()
