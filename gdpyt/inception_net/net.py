@@ -120,6 +120,7 @@ class GdpytInception3(nn.Module):
         # N x 768 x 17 x 17
         x = self.Mixed_6e(x)
         # N x 768 x 17 x 17
+        print(x.shape)
         aux_defined = self.training and self.aux_logits
         if aux_defined:
             aux = self.AuxLogits(x)

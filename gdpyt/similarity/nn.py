@@ -247,9 +247,14 @@ def train_net(model, device, optimizer, criterion, dataloader,
             avg_epoch_aux_loss_train.append(np.array(aux_loss_batch).sum() / (len(dataloader) * len(X)))
 
         end = time.time() - start
-        logger.info(
-            "Epoch {}: Duration: {:.02f}s, Train Loss: {:.02e}".format(
-                e, end, avg_epoch_loss_train[e]))
+        if aux_loss is None:
+            logger.info(
+                "Epoch {}: Duration: {:.02f}s, Train Loss: {:.02e}".format(
+                    e, end, avg_epoch_loss_train[e]))
+        else:
+            logger.info(
+                "Epoch {}: Duration: {:.02f}s, Train Loss: {:.02e}, Aux. train loss: {:.02e}".format(
+                    e, end, avg_epoch_loss_train[e], avg_epoch_aux_loss_train[e]))
 
     return avg_epoch_loss_train, std_epoch_loss_train, model
 
