@@ -200,12 +200,16 @@ def train_net(model, device, optimizer, criterion, dataloader,
     model.to(device)
 
     avg_epoch_loss_train = []
+    avg_epoch_aux_loss_train = []
     std_epoch_loss_train = []
+
+    aux_criterion = nn.CrossEntropyLoss()
 
     for e in range(epochs):
         start = time.time()
         logger.info("Epoch {}: Start".format(e))
         loss_batch = []
+        aux_loss_batch = []
 
         model.train()  # Set model to training mode
 
@@ -214,18 +218,33 @@ def train_net(model, device, optimizer, criterion, dataloader,
             # Data in minibatch format N x C x H x H
             X = batch['input'].float().to(device)
             y = batch['target'].float().to(device)
+
+            if 'aux_target' in batch.keys():
+                y_aux = batch['aux_target'].to(device)
+            else:
+                y_aux = None
+
             prediction = model(X)  # [N, 1]
-            #logger.info("Prediction: {}, Target: {}".format(prediction, y))
-            loss = criterion(prediction, y)
+            if y_aux is None:
+                loss = criterion(prediction, y)
+                aux_loss = None
+            else:
+                loss = criterion(prediction.target, y)
+                aux_loss = aux_criterion(prediction.aux_logits, y_aux)
+                aux_loss_batch.append(aux_loss.item())
 
             loss_batch.append(loss.item())
 
             optimizer.zero_grad()
             loss.backward()
+            if aux_loss is not None:
+                aux_loss.backward()
             optimizer.step()
 
         avg_epoch_loss_train.append(np.array(loss_batch).sum() / (len(dataloader) * len(X)))
         std_epoch_loss_train.append(np.array(loss_batch).std())
+        if len(aux_loss_batch) > 0:
+            avg_epoch_aux_loss_train.append(np.array(aux_loss_batch).sum() / (len(dataloader) * len(X)))
 
         end = time.time() - start
         logger.info(

@@ -28,6 +28,7 @@ class GdpytInceptionDataset(Dataset):
             assert isinstance(aux_logits, list) or isinstance(aux_logits, np.ndarray)
             if not all(np.diff(aux_logits) > 0):
                 raise ValueError("Auxiliary logits classes must be defined with a strictly increasing vector")
+            self.n_aux_classes = len(aux_logits) + 1
 
         self.aux_class_encoding = aux_logits
 
@@ -99,7 +100,7 @@ class GdpytInceptionDataset(Dataset):
         return all_
 
     def _one_hot_class(self, y):
-        n_cls = len(self.aux_class_encoding) + 1
+        n_cls = self.n_aux_classes
         if all(y < self.aux_class_encoding):
             cls = 0
         elif all(y > self.aux_class_encoding):
