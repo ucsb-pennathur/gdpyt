@@ -30,7 +30,7 @@ class GdpytInceptionRegressionNet(nn.Module):
     def _forward(self, x):
         aux_defined = self.aux_logits and self.training
         incep_out = self.inception(x)
-        if self.aux_defined:
+        if aux_defined:
             x, aux = incep_out
         else:
             x = incep_out
