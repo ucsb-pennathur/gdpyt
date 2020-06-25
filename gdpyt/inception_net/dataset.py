@@ -39,7 +39,7 @@ class GdpytInceptionDataset(Dataset):
         target = source_particle.z
         image = source_particle.get_template(resize=self._shape)
 
-        image = Image.fromarray(image.copy(), mode='I')
+        image = Image.fromarray(image.copy(), mode='I;16')
 
         # Target as a class where each class is an interval
         if self.aux_class_encoding is not None:
