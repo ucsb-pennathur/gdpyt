@@ -38,8 +38,10 @@ class GdpytInceptionDataset(Dataset):
         source_particle.use_raw(True)
         target = source_particle.z
         image = source_particle.get_template(resize=self._shape)
+        # Convert to float 0 to 1 range
+        image = (image - image.min()) / (image.max() - image.min())
 
-        image = Image.fromarray(image.copy(), mode='I;16')
+        image = Image.fromarray(image.copy())
 
         # Target as a class where each class is an interval
         if self.aux_class_encoding is not None:
@@ -52,9 +54,6 @@ class GdpytInceptionDataset(Dataset):
 
         if self.transforms:
             image = self.transforms(image)
-
-        # Float transform for mean calculation
-        image = image.float()
 
         if self.normalize_per_sample:
             image = (image - image.mean()) / image.std()
