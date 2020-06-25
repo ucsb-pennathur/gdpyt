@@ -15,10 +15,10 @@ _InceptionOutputs = InceptionOutputs
 
 class GdpytInceptionRegressionNet(nn.Module):
 
-
     def __init__(self, inception_classes, aux_logits=False):
         super(GdpytInceptionRegressionNet, self).__init__()
         inception_out = inception_classes
+        self.aux_logits = aux_logits
         self.inception = GdpytInception3(num_classes=inception_out, aux_logits=aux_logits,
                                     init_weights=True)
         self.fc1 = nn.Linear(inception_out, 1024, bias=True)
@@ -27,12 +27,37 @@ class GdpytInceptionRegressionNet(nn.Module):
         nn.init.kaiming_normal_(self.fc1.weight.data, nonlinearity='relu')
         nn.init.kaiming_normal_(self.fc2.weight.data, nonlinearity='relu')
 
-    def forward(self, x):
-        x = self.inception(x)
-        x = self.fc1(x)
+    def _forward(self, x):
+        aux_defined = self.aux_logits and self.training
+        incep_out = self.inception(x)
+        if self.aux_defined:
+            x, aux = incep_out
+        else:
+            x = incep_out
+            aux = None
+
+        self.fc1(x)
         x = F.relu(x)
         x = self.fc2(x)
-        return x
+        return x, aux
+
+    @torch.jit.unused
+    def eager_outputs(self, x, aux):
+        # type: (Tensor, Optional[Tensor]) -> InceptionOutputs
+        if self.training and self.aux_logits:
+            return InceptionOutputs(x, aux)
+        else:
+            return x
+
+    def forward(self, x):
+        x, aux = self._forward(x)
+        aux_defined = self.training and self.aux_logits
+        if torch.jit.is_scripting():
+            if not aux_defined:
+                warnings.warn("Scripted Inception3 always returns Inception3 Tuple")
+            return InceptionOutputs(x, aux)
+        else:
+            return self.eager_outputs(x, aux)
 
 class GdpytInception3(nn.Module):
 
