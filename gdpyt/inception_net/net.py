@@ -119,8 +119,7 @@ class GdpytInception3(nn.Module):
         x = self.Mixed_6d(x)
         # N x 768 x 17 x 17
         x = self.Mixed_6e(x)
-        # N x 768 x 17 x 17
-        print(x.shape)
+        # N x 768 x 17 x 17 # Reduced version: N x 768 x 9 x 9 with 180 x 180 inputs
         aux_defined = self.training and self.aux_logits
         if aux_defined:
             aux = self.AuxLogits(x)
@@ -370,8 +369,8 @@ class InceptionAux(nn.Module):
         self.fc.stddev = 0.001
 
     def forward(self, x):
-        # N x 768 x 17 x 17
-        x = F.avg_pool2d(x, kernel_size=5, stride=3)
+        # N x 768 x 17 x 17 # Reduced version: N x 768 x 9 x 9
+        x = F.avg_pool2d(x, kernel_size=5, stride=1) # Full version: stride = 3
         # N x 768 x 5 x 5
         x = self.conv0(x)
         # N x 128 x 5 x 5
