@@ -53,6 +53,9 @@ class GdpytInceptionDataset(Dataset):
         if self.transforms:
             image = self.transforms(image)
 
+        # Float transform for mean calculation
+        image = image.float()
+
         if self.normalize_per_sample:
             image = (image - image.mean()) / image.std()
 
