@@ -7,7 +7,7 @@ from torch.jit.annotations import Optional
 from torch import Tensor
 
 __all__ = ['GdpytInceptionRegressionNet', 'GdpytInception3', 'InceptionOutputs']
-InceptionOutputs = namedtuple('InceptionOutputs', ['logits', 'aux_logits'])
+InceptionOutputs = namedtuple('InceptionOutputs', ['target', 'aux_logits'])
 
 # Script annotations failed with _GoogleNetOutputs = namedtuple ...
 # _InceptionOutputs set here for backwards compat
@@ -16,10 +16,10 @@ _InceptionOutputs = InceptionOutputs
 class GdpytInceptionRegressionNet(nn.Module):
 
 
-    def __init__(self, inception_classes):
+    def __init__(self, inception_classes, aux_logits=False):
         super(GdpytInceptionRegressionNet, self).__init__()
         inception_out = inception_classes
-        self.inception = GdpytInception3(num_classes=inception_out, aux_logits=False,
+        self.inception = GdpytInception3(num_classes=inception_out, aux_logits=aux_logits,
                                     init_weights=True)
         self.fc1 = nn.Linear(inception_out, 1024, bias=True)
         self.fc2 = nn.Linear(1024, 1, bias=True)

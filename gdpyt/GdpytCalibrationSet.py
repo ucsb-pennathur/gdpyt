@@ -126,7 +126,7 @@ class GdpytCalibrationSet(object):
                 predict_dset.set_sample_z(None, pred)
 
     def train_cnn(self, epochs, cost_func, normalize_dataset=True, normalize_per_sample=False,
-                  transforms=[Resize(180), ToTensor()],
+                  transforms=[Resize(180), ToTensor()], aux_logits=None,
                   max_sample_size=50, skip_na=True, min_stack_len=10,
                   lr=1e-5, lambda_=1e-3, reg_type=None, batch_size=64, shuffle_batches=True):
         assert isinstance(epochs, int) and epochs > 0
@@ -135,7 +135,7 @@ class GdpytCalibrationSet(object):
             if reg_type.lower() not in ['l2', 'l1']:
                 raise ValueError("Regularization can only be L2, L1 or None")
 
-        dataset = GdpytInceptionDataset(transforms=Compose(transforms),
+        dataset = GdpytInceptionDataset(transforms=Compose(transforms), aux_logits=aux_logits,
                                         normalize_dataset=normalize_dataset,
                                         normalize_per_sample=normalize_per_sample)
         dataset.from_calib_set(self, max_size=max_sample_size, min_stack_len=min_stack_len, skip_na=skip_na)
@@ -155,7 +155,11 @@ class GdpytCalibrationSet(object):
             device = torch.device('cpu')
 
         # Create the Pytoch model
-        self._cnn = GdpytInceptionRegressionNet(1000)
+        if aux_logits is None:
+            # Without auxiliary loss always make 1000 classes
+            self._cnn = GdpytInceptionRegressionNet(1000)
+        else:
+            self._cnn = GdpytInceptionRegressionNet(len(aux_logits), aux_logits=True)
 
         # Set up training input data and parameters
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle_batches)

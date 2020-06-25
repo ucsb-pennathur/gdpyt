@@ -11,7 +11,7 @@ class GdpytInceptionDataset(Dataset):
 
     __name__ = 'GdpytInceptionDataset'
 
-    def __init__(self, transforms=None, normalize_dataset=True, normalize_per_sample=False):
+    def __init__(self, transforms=None, aux_logits=None, normalize_dataset=True, normalize_per_sample=False):
         if transforms is None:
             logger.warning("No transforms specified. Consider specifying at least the transformation ToTensor")
         else:
@@ -24,6 +24,14 @@ class GdpytInceptionDataset(Dataset):
             self.normalize_dataset = normalize_dataset
         self.normalize_per_sample = normalize_per_sample
 
+        if aux_logits is not None:
+            assert isinstance(aux_logits, list) or isinstance(aux_logits, np.ndarray)
+            if not all(np.diff(aux_logits) > 0):
+                raise ValueError("Auxiliary logits classes must be defined with a strictly increasing vector")
+            self.n_aux_classes = len(aux_logits) + 1
+
+        self.aux_class_encoding = aux_logits
+
     def __getitem__(self, item):
         source_particle = self._source[item]
         # Use raw image for neural net
@@ -32,6 +40,14 @@ class GdpytInceptionDataset(Dataset):
         image = source_particle.get_template(resize=self._shape)
 
         image = Image.fromarray(image.copy(), mode='L')
+
+        # Target as a class where each class is an interval
+        if self.aux_class_encoding is not None:
+            aux_target = self._one_hot_class(target)
+        else:
+            aux_target = None
+
+        # Normal target
         target = np.array([target])
 
         if self.transforms:
@@ -41,7 +57,11 @@ class GdpytInceptionDataset(Dataset):
             image = (image - image.mean()) / image.std()
 
         if self._mode == 'train':
-            sample = {'input': image, 'target': torch.from_numpy(target)}
+            if aux_target is None:
+                sample = {'input': image, 'target': torch.from_numpy(target)}
+            else:
+                sample = {'input': image, 'target': torch.from_numpy(target),
+                          'aux_target': torch.from_numpy(aux_target).long()}
         else:
             sample = {'input': image}
 
@@ -78,6 +98,19 @@ class GdpytInceptionDataset(Dataset):
                 continue
             all_.append(particle)
         return all_
+
+    def _one_hot_class(self, y):
+        n_cls = self.n_aux_classes
+        if all(y < self.aux_class_encoding):
+            cls = 0
+        elif all(y > self.aux_class_encoding):
+            cls = n_cls - 1
+        else:
+            cls = min(np.argwhere(y < self.aux_class_encoding))
+        ret = np.zeros(n_cls)
+        ret[cls] = 1
+
+        return ret
 
     def from_calib_set(self, calib_set, max_size=None, skip_na=True, min_stack_len=10):
         # Identify largest template in calibration set
