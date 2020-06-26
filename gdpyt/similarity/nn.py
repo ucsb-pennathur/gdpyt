@@ -220,7 +220,7 @@ def train_net(model, device, optimizer, criterion, dataloader,
             y = batch['target'].float().to(device)
 
             if 'aux_target' in batch.keys():
-                y_aux = batch['aux_target'].to(device)
+                y_aux = batch['aux_target'].long().to(device)
             else:
                 y_aux = None
 

@@ -63,7 +63,7 @@ class GdpytInceptionDataset(Dataset):
                 sample = {'input': image, 'target': torch.from_numpy(target)}
             else:
                 sample = {'input': image, 'target': torch.from_numpy(target),
-                          'aux_target': torch.from_numpy(aux_target).long()}
+                          'aux_target': aux_target}
         else:
             sample = {'input': image}
 
@@ -110,7 +110,7 @@ class GdpytInceptionDataset(Dataset):
         else:
             cls = min(np.argwhere(y < self.aux_class_encoding)).item()
 
-        return np.array([cls])
+        return cls
 
     def from_calib_set(self, calib_set, max_size=None, skip_na=True, min_stack_len=10):
         # Identify largest template in calibration set
