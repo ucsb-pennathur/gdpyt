@@ -109,10 +109,8 @@ class GdpytInceptionDataset(Dataset):
             cls = n_cls - 1
         else:
             cls = min(np.argwhere(y < self.aux_class_encoding))
-        ret = np.zeros(n_cls)
-        ret[cls] = 1
 
-        return ret
+        return np.array([cls])
 
     def from_calib_set(self, calib_set, max_size=None, skip_na=True, min_stack_len=10):
         # Identify largest template in calibration set
