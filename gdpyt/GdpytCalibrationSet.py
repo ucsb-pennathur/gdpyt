@@ -159,7 +159,8 @@ class GdpytCalibrationSet(object):
             # Without auxiliary loss always make 1000 classes
             self._cnn = GdpytInceptionRegressionNet(1000)
         else:
-            self._cnn = GdpytInceptionRegressionNet(len(aux_logits), aux_logits=True)
+            n_classes_logits = len(aux_logits) + 1
+            self._cnn = GdpytInceptionRegressionNet(n_classes_logits, aux_logits=True)
 
         # Set up training input data and parameters
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle_batches)
