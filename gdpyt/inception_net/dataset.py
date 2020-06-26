@@ -108,7 +108,7 @@ class GdpytInceptionDataset(Dataset):
         elif all(y > self.aux_class_encoding):
             cls = n_cls - 1
         else:
-            cls = min(np.argwhere(y < self.aux_class_encoding))
+            cls = min(np.argwhere(y < self.aux_class_encoding)).item()
 
         return np.array([cls])
 
