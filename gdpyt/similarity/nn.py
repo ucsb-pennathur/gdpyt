@@ -221,6 +221,7 @@ def train_net(model, device, optimizer, criterion, dataloader,
 
             if 'aux_target' in batch.keys():
                 y_aux = batch['aux_target'].long().to(device)
+                print(y_aux.shape)
             else:
                 y_aux = None
 
@@ -230,6 +231,7 @@ def train_net(model, device, optimizer, criterion, dataloader,
                 aux_loss = None
             else:
                 loss = criterion(prediction.target, y)
+                print(prediction.aux_logits.shape)
                 aux_loss = aux_criterion(prediction.aux_logits, y_aux)
                 aux_loss_batch.append(aux_loss.item())
 
