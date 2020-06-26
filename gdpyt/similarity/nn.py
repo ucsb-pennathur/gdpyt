@@ -236,7 +236,7 @@ def train_net(model, device, optimizer, criterion, dataloader,
             loss_batch.append(loss.item())
 
             optimizer.zero_grad()
-            loss.backward()
+            loss.backward(keep_graph=True)
             if aux_loss is not None:
                 aux_loss.backward()
             optimizer.step()
