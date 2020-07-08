@@ -236,9 +236,11 @@ def train_net(model, device, optimizer, criterion, dataloader,
             loss_batch.append(loss.item())
 
             optimizer.zero_grad()
-            loss.backward(retain_graph=True)
             if aux_loss is not None:
+                loss.backward(retain_graph=True)
                 aux_loss.backward()
+            else:
+                loss.backward()
             optimizer.step()
 
         avg_epoch_loss_train.append(np.array(loss_batch).sum() / (len(dataloader) * len(X)))
