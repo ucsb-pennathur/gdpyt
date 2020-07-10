@@ -1,4 +1,5 @@
 import cv2
+from skimage.filters import threshold_mean, threshold_otsu, threshold_local, threshold_minimum
 import imutils
 import numpy as np
 
@@ -8,29 +9,37 @@ def apply_threshold(img, parameter, invert=False):
                          "supplementary arguments for that function as a value")
 
     method = list(parameter.keys())[0]
-    if method not in ['otsu', 'adaptive_mean', 'adaptive_gaussian', 'manual']:
-        raise ValueError("method must be one of ['otsu','adaptive_mean', 'adaptive_gaussian', 'manual']")
-    if invert:
-        threshold_type = cv2.THRESH_BINARY_INV
-    else:
-        threshold_type = cv2.THRESH_BINARY
+    if method not in ['otsu', 'local', 'min', 'mean', 'manual']:
+        raise ValueError("method must be one of ['otsu', 'local', 'min', 'manual']")
 
     if method == 'otsu':
-        _, thresh_img = cv2.threshold(img, 0, 255, threshold_type | cv2.THRESH_OTSU)
-    elif method == 'adaptive_mean':
-        args = parameter[method]
-        thresh_img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, threshold_type, *args)
-    elif method == 'adaptive_gaussian':
-        args = parameter[method]
-        thresh_img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, threshold_type, *args)
+        thresh_val = threshold_otsu(img)
+        thresh_img = img > thresh_val
+        # _, thresh_img = cv2.threshold(img, 0, 255, threshold_type | cv2.THRESH_OTSU)
+    elif method == 'mean':
+        thresh_val = threshold_mean(img)
+        thresh_img = img > thresh_val
+    elif method == 'min':
+        thresh_val = threshold_minimum(img)
+        thresh_img = img > thresh_val
+    elif method == 'local':
+        kwargs = parameter[method]
+        assert isinstance(kwargs, dict)
+        thresh_val = threshold_local(img, **kwargs)
+        thresh_img = img > thresh_val
     elif method == 'manual':
+        args = parameter[method]
         if not isinstance(parameter[method], list):
             threshval = parameter[method]
         else:
             if not len(parameter[method]) == 1:
                 raise ValueError("For manual thresholding only one parameter (the manual threshold) must be specified")
             threshval = parameter[method][0]
-        _, thresh_img = cv2.threshold(img, threshval, 255, threshold_type)
+        thresh_img = img > threshval
+
+    if invert:
+        thresh_img = ~thresh_img
+
     return thresh_img
 
 def identify_contours(particle_mask):

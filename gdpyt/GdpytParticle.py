@@ -85,6 +85,11 @@ class GdpytParticle(object):
         cY = int(M["m01"] / M["m00"])
         self._set_location((cX, cY))
 
+    #def _compute_local_snr(self):
+    #    mask = np.zeros_like(self._image_raw)
+    #    cv2.drawContours(mask, self.contour, -1, 255, -1)
+    #    mean_p_raw = self._image_raw[mask != 0].mean()
+    #    bckr_raw = self._image_raw[self.bbox[1]:self.bbox[1] + self.bbox[3], self.bbox[0]
     def _dilated_bbox(self, dilation=None, dims=None):
         if dims is None:
             w, h = self.bbox[2], self.bbox[3]

@@ -57,13 +57,19 @@ class GdpytPerformanceEvaluation(object):
 
         self.eval_df = pd.concat(perf_df, keys=[fname.split('.txt')[0] + img_ftype for fname in listdir(self._source_folder)], names=['Image', 'id'])
 
-    def sigma_z(self):
-        dz = self.eval_df.reset_index()['delta_z'].values
+    def sigma_z(self, min_cm=None):
+        if min_cm is not None:
+            dz = self.eval_df.reset_index().query('Cm > {}'.format(min_cm))['delta_z'].values
+        else:
+            dz = self.eval_df.reset_index()['delta_z'].values
         return np.sqrt(np.power(dz, 2).sum() / len(dz))
 
-    def sigma_z_local(self, bins=20):
+    def sigma_z_local(self, bins=20, min_cm=None):
         assert bins > 1
-        z_df = self.eval_df.reset_index()[['z_true', 'delta_z']]
+        if min_cm is not None:
+            z_df = self.eval_df.reset_index().query('Cm > {}'.format(min_cm))[['z_true', 'delta_z']]
+        else:
+            z_df = self.eval_df.reset_index()[['z_true', 'delta_z']]
         delta = (z_df['z_true'].max() - z_df['z_true'].min()) / (2*bins - 2)
         z_bins = np.linspace(z_df['z_true'].min() - delta, z_df['z_true'].max() + delta, bins + 1)
         sigma_df = pd.DataFrame()

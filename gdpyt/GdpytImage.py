@@ -1,7 +1,7 @@
 import cv2
+from skimage.filters import median, gaussian
 import numpy as np
 import pandas as pd
-from .preprocessing import apply_filter
 from .particle_identification import apply_threshold, identify_contours, identify_circles, merge_particles
 from .GdpytParticle import GdpytParticle
 from os.path import isfile, basename
@@ -72,26 +72,28 @@ class GdpytImage(object):
         else:
             self._processing_stats = new_stats.combine_first(self._processing_stats)
 
-    def draw_particles(self, raw=True, contour_color=(0, 255, 0), thickness=2, draw_id=True, draw_bbox=True):
+    def draw_particles(self, raw=True, thickness=2, draw_id=True, draw_bbox=True):
         if raw:
             canvas = self._raw.copy()
         else:
             canvas = self._filtered.copy()
 
+        max_val = int(canvas.max())
+        color = (max_val, max_val, max_val)
         for particle in self.particles:
-            cv2.drawContours(canvas, [particle.contour], -1, contour_color, thickness)
+            cv2.drawContours(canvas, [particle.contour], -1, color, thickness)
             if draw_id:
                 bbox = particle.bbox
                 coords = (int(bbox[0] - 0.2 * bbox[2]), int(bbox[1] - 0.2 * bbox[3]))
                 cv2.putText(canvas, "ID: {}".format(particle.id), coords, cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5, (255, 255, 255), 2)
+                        0.5, color, 2)
             if draw_bbox:
                 x, y, w, h = particle.bbox
-                cv2.rectangle(canvas, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                cv2.rectangle(canvas, (x, y), (x + w, y + h), color, 2)
 
         return canvas
 
-    def filter_image(self, filterspecs):
+    def filter_image(self, filterspecs, force_rawdtype=True):
         """
         This is basically you image_smoothing function. The argument filterdict are similar to the arguments of the
         image_smoothing function.
@@ -101,11 +103,15 @@ class GdpytImage(object):
 
         This method should assign self._processed and self._processing_stats
         """
+        valid_filters = ['median', 'gaussian']
 
         # Convert to 8 byte uint for filter operations
         img = self._raw.copy()
-        #img = cv2.convertScaleAbs(self._raw.copy(), alpha=100*(255.0/65535.0))
+        raw_dtype = img.dtype
+
         for process_func in filterspecs.keys():
+            if process_func not in valid_filters:
+                raise ValueError("{} is not a valid filter. Implemented so far are {}".format(process_func, valid_filters))
             func = eval(process_func)
             args = filterspecs[process_func]['args']
             if 'kwargs' in filterspecs[process_func].keys():
@@ -114,9 +120,10 @@ class GdpytImage(object):
                 kwargs = {}
 
             img = apply_filter(img, func, *args, **kwargs)
+            if force_rawdtype and img.dtype != raw_dtype:
+                img = img.astype(raw_dtype)
 
         self._filtered = img
-        self._histogram_preprocessed = cv2.calcHist([img], [0], None, [256], [0, 256])
 
     def get_particle(self, id_):
         ret_particle = []
@@ -133,9 +140,8 @@ class GdpytImage(object):
     def identify_particles(self, thresh_specs, min_size=None, max_size=None, shape_tol=0.1):
         if shape_tol is not None:
             assert 0 < shape_tol < 1
-        particle_mask = apply_threshold(self.filtered, parameter=thresh_specs)
+        particle_mask = apply_threshold(self.filtered, parameter=thresh_specs).astype(np.uint8)
         # Identify particles
-
         contours, bboxes = identify_contours(particle_mask)
         logger.debug("{} contours in thresholded image".format(len(contours)))
         contours, bboxes = self.merge_overlapping_particles(contours, bboxes)
@@ -207,8 +213,6 @@ class GdpytImage(object):
     def load(self, path, mode=cv2.IMREAD_UNCHANGED):
         img = cv2.imread(self._filepath, mode)
         self._raw = img # cv2.normalize(img, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-        # Calculate histogram
-        self._histogram = cv2.calcHist([self._raw], [0], None, [255], [0, 255])
 
     def merge_duplicate_particles(self):
         unique_ids = self.unique_ids(counts=True)
@@ -378,3 +382,7 @@ def _compute_rel_bbox_overlap(bbox1, bbox2):
         return dx * dy / min(a_rect1, a_rect2)
     else:
         return 0
+
+def apply_filter(img, func, *args, **kwargs):
+    assert callable(func)
+    return func(img, *args, **kwargs)
