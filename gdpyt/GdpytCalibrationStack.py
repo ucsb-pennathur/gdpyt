@@ -120,6 +120,13 @@ class GdpytCalibrationStack(object):
                 sim_func = max_zero_norm_cross_correlation
             # Optimum for this function is the maximum
             optim = np.argmax
+        elif function.lower() == 'barnkob_ccorr':
+            if self._template_dilation is None:
+                sim_func = barnkob_cross_correlation_equal_shape
+            else:
+                sim_func = max_barnkob_cross_correlation
+            # Optimum for this function is the maximum
+            optim = np.argmax
         else:
             raise ValueError("Unknown similarity function {}".format(function))
 
@@ -134,7 +141,7 @@ class GdpytCalibrationStack(object):
         z_interp, sim_interp = akima_interpolation(z_calib, sim, max_idx)
         # Use optimization function to find optimum z and similarity
         particle.set_z(z_interp[optim(sim_interp)])
-        particle.set_max_sim(sim_interp[optim(sim_interp)])
+        particle.set_max_sim(sim[max_idx])#()sim_interp[optim(sim_interp)])
         particle.set_similarity_curve(z_calib, sim, label_suffix=function)
         particle.set_interpolation_curve(z_interp, sim_interp, label_suffix=function)
 
