@@ -175,7 +175,7 @@ def _append_particle_diam(coords, particle_diameter):
     if isinstance(particle_diameter, int) or isinstance(particle_diameter, float):
         out = np.append(coords, np.array(n_particles * [particle_diameter]).reshape(-1, 1), axis=1)
     else:
-        out = np.append(coords, np.random.randint(particle_diameter[0],
+        out = np.append(coords, np.random.uniform(particle_diameter[0],
                                                   particle_diameter[1], size=(n_particles, 1)), axis=1)
     return out
 

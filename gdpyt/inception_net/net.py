@@ -5,6 +5,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.jit.annotations import Optional
 from torch import Tensor
+import time
+import logging
+import numpy as np
+
+logger = logging.getLogger(__name__)
 
 __all__ = ['GdpytInceptionRegressionNet', 'GdpytInception3', 'InceptionOutputs']
 InceptionOutputs = namedtuple('InceptionOutputs', ['target', 'aux_logits'])
@@ -423,3 +428,85 @@ class BasicConv2d(nn.Module):
         x = self.conv(x)
         x = self.bn(x)
         return F.relu(x, inplace=True)
+
+def train_net(model, device, optimizer, criterion, dataloader,
+              epochs=10):
+
+    # Initialize model weights
+    model.train()
+    model.float()
+    model.to(device)
+
+    avg_epoch_loss_train = []
+    avg_epoch_aux_loss_train = []
+    std_epoch_loss_train = []
+
+    aux_criterion = nn.CrossEntropyLoss()
+
+    for e in range(epochs):
+        start = time.time()
+        logger.info("Epoch {}: Start".format(e))
+        loss_batch = []
+        aux_loss_batch = []
+
+        model.train()  # Set model to training mode
+
+        for i, batch in enumerate(dataloader):
+            logger.info("Epoch {}, Batch {}".format(e, i))
+            # Data in minibatch format N x C x H x H
+            X = batch['input'].float().to(device)
+            y = batch['target'].float().to(device)
+
+            if 'aux_target' in batch.keys():
+                y_aux = batch['aux_target'].long().to(device)
+            else:
+                y_aux = None
+
+            prediction = model(X)  # [N, 1]
+            if y_aux is None:
+                loss = criterion(prediction, y)
+                aux_loss = None
+            else:
+                loss = criterion(prediction.target, y)
+                aux_loss = aux_criterion(prediction.aux_logits, y_aux)
+                aux_loss_batch.append(aux_loss.item())
+
+            loss_batch.append(loss.item())
+
+            optimizer.zero_grad()
+            if aux_loss is not None:
+                loss.backward(retain_graph=True)
+                aux_loss.backward()
+            else:
+                loss.backward()
+            optimizer.step()
+
+        avg_epoch_loss_train.append(np.array(loss_batch).sum() / (len(dataloader) * len(X)))
+        std_epoch_loss_train.append(np.array(loss_batch).std())
+        if len(aux_loss_batch) > 0:
+            avg_epoch_aux_loss_train.append(np.array(aux_loss_batch).sum() / (len(dataloader) * len(X)))
+
+        end = time.time() - start
+        if aux_loss is None:
+            logger.info(
+                "Epoch {}: Duration: {:.02f}s, Train Loss: {:.02e}".format(
+                    e, end, avg_epoch_loss_train[e]))
+        else:
+            logger.info(
+                "Epoch {}: Duration: {:.02f}s, Train Loss: {:.02e}, Aux. train loss: {:.02e}".format(
+                    e, end, avg_epoch_loss_train[e], avg_epoch_aux_loss_train[e]))
+
+    return avg_epoch_loss_train, std_epoch_loss_train, model
+
+
+class WeightedMSELoss(nn.MSELoss):
+
+    def __init__(self, weight_z, **kwargs):
+        super(WeightedMSELoss, self).__init__(**kwargs)
+        self.weight_func = weight_z
+
+    def forward(self, y, target):
+        weight = self.weight_func(target)
+        ret = weight * (y - target) ** 2
+        ret = torch.mean(ret) if self.reduction == 'mean' else torch.sum(ret)
+        return ret

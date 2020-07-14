@@ -127,7 +127,7 @@ class GdpytImageCollection(object):
     def filter_images(self):
         for image in self.images.values():
             image.filter_image(self._processing_specs)
-            logger.info("Filtered image {}".format(image.filename))
+            logger.warning("Filtered image {}".format(image.filename))
 
     def identify_particles(self):
         for image in self.images.values():

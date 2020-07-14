@@ -39,7 +39,7 @@ class GdpytInceptionDataset(Dataset):
         target = source_particle.z
         image = source_particle.get_template(resize=self._shape)
         # Convert to float 0 to 1 range
-        image = (image - image.min()) / (image.max() - image.min())
+        image = image / 65535
 
         image = Image.fromarray(image.copy())
 

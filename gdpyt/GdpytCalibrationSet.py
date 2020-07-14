@@ -1,6 +1,5 @@
 from .GdpytCalibrationStack import GdpytCalibrationStack
-from gdpyt.similarity.nn import GdpytNet, train_net
-from gdpyt.inception_net import GdpytInceptionDataset, GdpytInceptionRegressionNet
+from gdpyt.inception_net import GdpytInceptionDataset, GdpytInceptionRegressionNet, train_net
 import pandas as pd
 import torch
 import torch.nn as nn
