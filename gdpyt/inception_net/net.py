@@ -9,7 +9,8 @@ import time
 import logging
 import numpy as np
 
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger()
 
 __all__ = ['GdpytInceptionRegressionNet', 'GdpytInception3', 'InceptionOutputs']
 InceptionOutputs = namedtuple('InceptionOutputs', ['target', 'aux_logits'])
