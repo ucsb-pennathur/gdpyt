@@ -97,7 +97,8 @@ class GdpytCalibrationStack(object):
                         return_layers.update({key, item})
                 return return_layers
 
-    def infer_z(self, particle, function='ccorr'):
+    def infer_z(self, particle, function='ccorr', min_cm=0):
+        assert 0 <= min_cm <= 1
         logger.info("Infering particle {}".format(particle.id))
         if function.lower() == 'ccorr':
             if self._template_dilation is None:
@@ -140,10 +141,15 @@ class GdpytCalibrationStack(object):
         max_idx = optim(sim)
         z_interp, sim_interp = akima_interpolation(z_calib, sim, max_idx)
         # Use optimization function to find optimum z and similarity
-        particle.set_z(z_interp[optim(sim_interp)])
-        particle.set_max_sim(sim[max_idx])#()sim_interp[optim(sim_interp)])
-        particle.set_similarity_curve(z_calib, sim, label_suffix=function)
-        particle.set_interpolation_curve(z_interp, sim_interp, label_suffix=function)
+
+        if sim[max_idx] > min_cm:
+            particle.set_z(z_interp[optim(sim_interp)])
+            particle.set_max_sim(sim[max_idx])#()sim_interp[optim(sim_interp)])
+            particle.set_similarity_curve(z_calib, sim, label_suffix=function)
+            particle.set_interpolation_curve(z_interp, sim_interp, label_suffix=function)
+        else:
+            logger.info("Cm of {:.2f} below thresh. of {:.2f} for particle ".format(sim[max_idx], min_cm, particle.id))
+            particle.set_z(np.nan)
 
     def plot(self, z=None, draw_contours=True):
         fig = plot_calib_stack(self, z=z, draw_contours=draw_contours)

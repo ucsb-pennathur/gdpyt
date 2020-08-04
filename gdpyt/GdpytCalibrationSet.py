@@ -36,7 +36,7 @@ class GdpytCalibrationSet(object):
         self._create_stacks(*collections, exclude=exclude, dilate=dilate)
         # Attribute that holds a Pytorch model
         self._cnn = None
-        self._cnn_data_params = None
+        self.cnn_data_params = None
         self._train_summary = None
 
     def __len__(self):
@@ -88,41 +88,23 @@ class GdpytCalibrationSet(object):
 
         self._calibration_stacks = stacks
 
-    def infer_z(self, image, function='ccorr', transforms_=(Resize(180), ToTensor())):
-        transforms_ = list(transforms_)
-        if function not in ['nn', 'cnn']:
-            logger.info("Infering image {}".format(image.filename))
-            for particle in image.particles:
-                stack = self.calibration_stacks[particle.id]
-                # Filtered templates are used for correlation calculations
-                particle.use_raw(False)
-                stack.infer_z(particle, function=function)
-        else:
-            with torch.no_grad():
-                if self.train_summary is None:
-                    raise RuntimeError("Calibration set does not have a trained neural net. Use train_cnn "
-                                       "before infering using a deep learning model")
-                if self._cnn_data_params['normalize_dataset']:
-                    logger.info("Setting normalization parameters of prediction set to {}".format(self._cnn_data_params['stats']))
-                    transforms_.append(Normalize(**self._cnn_data_params['stats']))
-                predict_dset = GdpytInceptionDataset(transforms=Compose(transforms_),
-                                                     normalize_per_sample=self._cnn_data_params['normalize_per_sample'],
-                                                     normalize_dataset=self._cnn_data_params['normalize_dataset'])
-                predict_dset.from_image_collections(image, template_shape=self._cnn_data_params['shape'],
-                                                    max_size=self._cnn_data_params['max_size'],
-                                                    skip_na=self._cnn_data_params['skip_na'])
+    # def fill_missing_levels(self, exclude_stacks=None):
+    #     logger.info("Filling missing calibration levels..")
+    #     for stack_id, stack in self.calibration_stacks.items():
+    #         if exclude_stacks is not None:
+    #             if stack_id in exclude_stacks:
+    #                 continue
+    #         else:
+    #             lvls_in_stack = list(stack.get_layers().keys())
+    #             missing_levels = OrderedDict()
+    #             for z, img_name in sorted(self.z_levels).items():
+    #                 if z not in lvls_in_stack:
+    #                     missing_levels.update({z: img_name})
+    #
+    #             stack.fill_levels(missing_levels)
 
-                if torch.cuda.is_available():
-                    device = torch.device('cuda')
-                    logger.info("Using CUDA for inference (Device {})".format(torch.cuda.get_device_name(device)))
-                else:
-                    logger.info("Using CPU for training")
-                    device = torch.device('cpu')
-
-                pred = predict_dset.infer(self.cnn, None,  device=device)
-                if isinstance(pred, tuple):
-                    pred = pred[0]
-                predict_dset.set_sample_z(None, pred)
+    def infer_z(self, infer_collection):
+        return GdpytImageInference(infer_collection, self)
 
     def train_cnn(self, epochs, cost_func, normalize_dataset=True, normalize_per_sample=False,
                   transforms=[Resize(180), ToTensor()], aux_logits=None,
@@ -142,7 +124,7 @@ class GdpytCalibrationSet(object):
         #dataset.from_calib_set(self, max_size=max_sample_size, skip_na=skip_na, min_stack_len=min_stack_len)
 
         # Save parameters of train data so that the same processing is applied on test data
-        self._cnn_data_params = {'normalize_dataset': normalize_dataset, 'normalize_per_sample': normalize_per_sample,
+        self.cnn_data_params = {'normalize_dataset': normalize_dataset, 'normalize_per_sample': normalize_per_sample,
                                  'max_size': max_sample_size, 'skip_na': skip_na,
                                  'shape': dataset.shape, 'stats': dataset.stats}
 
@@ -200,3 +182,73 @@ class GdpytCalibrationSet(object):
     @property
     def train_summary(self):
         return self._train_summary
+
+
+class GdpytImageInference(object):
+
+    def __init__(self, infer_collection, calib_set):
+        self.collection = infer_collection
+        assert isinstance(calib_set, GdpytCalibrationSet)
+        self.calib_set = calib_set
+
+    def _cross_correlation_inference(self, function, use_stack=None, min_cm=0):
+        logger.warning('cc inference min_cm {}'.format(min_cm))
+        if function.lower() not in ['ccorr', 'nccorr', 'znccorr', 'barnkob_ccorr']:
+            raise ValueError("{} is not implemented or a valid function".format(function))
+
+        for image in self.collection.images.values():
+            logger.info("Infering image {}".format(image.filename))
+            for particle in image.particles:
+                if use_stack is None:
+                    stack = self.calib_set.calibration_stacks[particle.id]
+                else:
+                    stack = self.calib_set.calibration_stacks[use_stack]
+                # Filtered templates are used for correlation calculations
+                particle.use_raw(False)
+                stack.infer_z(particle, function=function, min_cm=min_cm)
+
+    def ccorr(self, use_stack=None, min_cm=0):
+        self._cross_correlation_inference('ccorr', use_stack=use_stack, min_cm=min_cm)
+
+    def nccorr(self, use_stack=None, min_cm=0):
+        self._cross_correlation_inference('nccorr', use_stack=use_stack, min_cm=min_cm)
+
+    def znccorr(self, use_stack=None, min_cm=0):
+        self._cross_correlation_inference('znccorr', use_stack=use_stack, min_cm=min_cm)
+
+    def bccorr(self, use_stack=None, min_cm=0):
+        self._cross_correlation_inference('barnkob_ccorr', use_stack=use_stack, min_cm=min_cm)
+
+    def cnn(self, transforms_=(Resize(180), ToTensor()), pretrained=None):
+        with torch.no_grad():
+            if self.calib_set.train_summary is None:
+                raise RuntimeError("Calibration set does not have a trained neural net. Use train_cnn "
+                                   "before infering using a deep learning model")
+            if self.calib_set.cnn_data_params['normalize_dataset']:
+                logger.info(
+                    "Setting normalization parameters of prediction set to {}".format(self.calib_set.cnn_data_params['stats']))
+                transforms_.append(Normalize(**self.calib_set.cnn_data_params['stats']))
+            predict_dset = GdpytInceptionDataset(transforms=Compose(transforms_),
+                                                 normalize_per_sample=self.calib_set.cnn_data_params['normalize_per_sample'],
+                                                 normalize_dataset=self.calib_set.cnn_data_params['normalize_dataset'])
+            predict_dset.from_image_collections(self.collection, template_shape=self.calib_set.cnn_data_params['shape'],
+                                                max_size=self.calib_set.cnn_data_params['max_size'],
+                                                skip_na=self.calib_set.cnn_data_params['skip_na'])
+
+            if torch.cuda.is_available():
+                device = torch.device('cuda')
+                logger.info("Using CUDA for inference (Device {})".format(torch.cuda.get_device_name(device)))
+            else:
+                logger.info("Using CPU for training")
+                device = torch.device('cpu')
+
+            if pretrained is not None:
+                logger.warning("Use of pretrained models is not yet implemented")
+                predictor_cnn = self.calib_set.cnn
+            else:
+                predictor_cnn = self.calib_set.cnn
+
+            pred = predict_dset.infer(predictor_cnn, None, device=device)
+            if isinstance(pred, tuple):
+                pred = pred[0]
+            predict_dset.set_sample_z(None, pred)
