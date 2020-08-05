@@ -1,5 +1,5 @@
 import cv2
-from skimage.filters import threshold_mean, threshold_otsu, threshold_local, threshold_minimum
+from skimage.filters import threshold_mean, threshold_otsu, threshold_local, threshold_minimum, threshold_triangle, threshold_multiotsu
 import imutils
 import numpy as np
 
@@ -9,13 +9,17 @@ def apply_threshold(img, parameter, invert=False):
                          "supplementary arguments for that function as a value")
 
     method = list(parameter.keys())[0]
-    if method not in ['otsu', 'local', 'min', 'mean', 'manual']:
-        raise ValueError("method must be one of ['otsu', 'local', 'min', 'manual']")
+    if method not in ['otsu', 'multiotsu', 'local', 'min', 'mean', 'manual', 'triangle']:
+        raise ValueError("method must be one of ['otsu', 'multiotsu', 'local', 'min', 'manual', 'triangle]")
 
     if method == 'otsu':
         thresh_val = threshold_otsu(img)
         thresh_img = img > thresh_val
         # _, thresh_img = cv2.threshold(img, 0, 255, threshold_type | cv2.THRESH_OTSU)
+    elif method == 'multiotsu':
+        kwargs = parameter[method]
+        thresh_val = threshold_multiotsu(img, **kwargs)
+        thresh_img = img > thresh_val[-1]
     elif method == 'mean':
         thresh_val = threshold_mean(img)
         thresh_img = img > thresh_val
@@ -26,6 +30,9 @@ def apply_threshold(img, parameter, invert=False):
         kwargs = parameter[method]
         assert isinstance(kwargs, dict)
         thresh_val = threshold_local(img, **kwargs)
+        thresh_img = img > thresh_val
+    elif method == 'triangle':
+        thresh_val = threshold_triangle(img)
         thresh_img = img > thresh_val
     elif method == 'manual':
         args = parameter[method]

@@ -243,8 +243,9 @@ class GdpytImageInference(object):
                 device = torch.device('cpu')
 
             if pretrained is not None:
-                logger.warning("Use of pretrained models is not yet implemented")
-                predictor_cnn = self.calib_set.cnn
+                logger.warning("Using pretrained model to infer...")
+                assert isinstance(pretrained, torch.nn.Module)
+                predictor_cnn = pretrained
             else:
                 predictor_cnn = self.calib_set.cnn
 
