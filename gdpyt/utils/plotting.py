@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import mpl_toolkits.mplot3d.axes3d as p3
 import matplotlib.animation as animation
+import matplotlib as mpl
 import numpy as np
 import pandas as pd
 from os.path import splitext
@@ -126,7 +127,6 @@ def plot_particle_trajectories(collection, sort_images=None):
 
     return fig
 
-
 def plot_animated_surface(collection, sort_images=None, fps=10, save_as=None):
     coords = []
 
@@ -167,7 +167,6 @@ def plot_animated_surface(collection, sort_images=None, fps=10, save_as=None):
             logger.error("In the current version animations can only be saves as a .gif. Received {}".format(ext))
         else:
             ani.save(save_as, writer='imagemagick', fps=fps)
-
     return fig
 
 
