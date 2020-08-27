@@ -323,13 +323,17 @@ class GdpytImage(object):
 
     def unique_ids(self, counts=True):
         unique_ids = pd.DataFrame()
-        for particle in self.particles:
-            if particle.id not in unique_ids.index:
-                unique_ids = pd.concat([unique_ids, pd.DataFrame({'count': [1]}, index=[particle.id])])
-            else:
-                unique_ids.loc[particle.id] = unique_ids.loc[particle.id] + 1
+        if len(self.particles) > 0:
+            for particle in self.particles:
+                if particle.id not in unique_ids.index:
+                    unique_ids = pd.concat([unique_ids, pd.DataFrame({'count': [1]}, index=[particle.id])])
+                else:
+                    unique_ids.loc[particle.id] = unique_ids.loc[particle.id] + 1
 
-        unique_ids.index.name = 'particle_id'
+            unique_ids.index.name = 'particle_id'
+        else:
+            unique_ids = pd.DataFrame({}, columns=['count'])
+            unique_ids.index.name = 'particle_id'
         if not counts:
             return unique_ids.index.tolist()
         else:
