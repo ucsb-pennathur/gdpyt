@@ -5,6 +5,7 @@ from os.path import join, isdir
 from os import listdir
 from collections import OrderedDict
 from sklearn.neighbors import NearestNeighbors
+from skimage.filters.rank import median
 import pandas as pd
 import numpy as np
 import logging

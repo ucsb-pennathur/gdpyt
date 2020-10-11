@@ -1,5 +1,6 @@
 import cv2
 from skimage.filters import median, gaussian
+from skimage.morphology import disk, white_tophat
 import numpy as np
 import pandas as pd
 from .particle_identification import apply_threshold, identify_contours, identify_circles, merge_particles
@@ -95,33 +96,38 @@ class GdpytImage(object):
 
     def filter_image(self, filterspecs, force_rawdtype=True):
         """
-        This is basically you image_smoothing function. The argument filterdict are similar to the arguments of the
+        This is an image filtering function. The argument filterdict are similar to the arguments of the
         image_smoothing function.
-        e.g. filterdict: {'median': 5, 'bilateral': 4, 'gaussian': 5} or something along those lines
+        e.g. filterdict: {'median': 5, 'bilateral': 4, 'gaussian': 5}
         :param filterdict:
         :return:
 
         This method should assign self._processed and self._processing_stats
         """
-        valid_filters = ['median', 'gaussian']
+        valid_filters = ['median', 'gaussian', 'white_tophat', 'equalize_adapthist']
 
         # Convert to 8 byte uint for filter operations
-        img = self._raw.copy()
-        raw_dtype = img.dtype
+        img_copy = self._raw.copy()
+        raw_dtype = img_copy.dtype
 
         for process_func in filterspecs.keys():
             if process_func not in valid_filters:
                 raise ValueError("{} is not a valid filter. Implemented so far are {}".format(process_func, valid_filters))
-            func = eval(process_func)
-            args = filterspecs[process_func]['args']
-            if 'kwargs' in filterspecs[process_func].keys():
-                kwargs = filterspecs[process_func]['kwargs']
+            if process_func == "none":
+                img = img_copy
             else:
-                kwargs = {}
+                func = eval(process_func)
+                args = filterspecs[process_func]['args']
+                if 'kwargs' in filterspecs[process_func].keys():
+                    kwargs = filterspecs[process_func]['kwargs']
+                else:
+                    kwargs = {}
 
-            img = apply_filter(img, func, *args, **kwargs)
-            if force_rawdtype and img.dtype != raw_dtype:
-                img = img.astype(raw_dtype)
+                img = apply_filter(img_copy, func, *args, **kwargs)
+                if process_func == "equalize_adapthist":
+                    img = img*img_copy.max()
+                if force_rawdtype and img.dtype != raw_dtype:
+                    img = img.astype(raw_dtype)
 
         self._filtered = img
 
@@ -141,6 +147,7 @@ class GdpytImage(object):
         if shape_tol is not None:
             assert 0 < shape_tol < 1
         particle_mask = apply_threshold(self.filtered, parameter=thresh_specs).astype(np.uint8)
+        self.masked = particle_mask
         # Identify particles
         contours, bboxes = identify_contours(particle_mask)
         logger.debug("{} contours in thresholded image".format(len(contours)))

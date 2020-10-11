@@ -1,7 +1,14 @@
-import cv2
-from skimage.filters import threshold_mean, threshold_otsu, threshold_local, threshold_minimum, threshold_triangle, threshold_multiotsu
-import imutils
 import numpy as np
+import cv2
+from skimage.filters import threshold_mean, threshold_minimum, threshold_triangle
+from skimage.filters import threshold_otsu, threshold_multiotsu, threshold_local
+from skimage.filters import threshold_niblack, threshold_li, threshold_sauvola
+from skimage import (
+    color, feature, filters, io, measure, morphology, segmentation, util
+)
+import imutils
+from skimage.filters import gaussian, median
+from skimage.morphology import disk
 
 def apply_threshold(img, parameter, invert=False):
     if not len(parameter) == 1:
@@ -9,17 +16,26 @@ def apply_threshold(img, parameter, invert=False):
                          "supplementary arguments for that function as a value")
 
     method = list(parameter.keys())[0]
-    if method not in ['otsu', 'multiotsu', 'local', 'min', 'mean', 'manual', 'triangle']:
-        raise ValueError("method must be one of ['otsu', 'multiotsu', 'local', 'min', 'manual', 'triangle]")
+    if method not in ['none', 'otsu', 'multiotsu', 'local', 'min', 'mean', 'manual', 'triangle', 'manual_smoothing',
+                     'li', 'niblack', 'sauvola']:
+        raise ValueError("method must be one of ['none', otsu', 'multiotsu', 'local', 'min',"
+                         " 'manual', 'triangle', 'manual_smoothing', 'li', 'niblack', 'sauvola']")
 
-    if method == 'otsu':
+    if method in ['manual', 'manual_smoothing']:
+        manual_initial_guess = np.round(img.mean() + img.std() * 3, 0)
+        print("initial threshold guess: " + str(manual_initial_guess))
+
+    if method == 'none':
+        thresh_val = 0
+        thresh_img = img
+    elif method == 'otsu':
         thresh_val = threshold_otsu(img)
         thresh_img = img > thresh_val
-        # _, thresh_img = cv2.threshold(img, 0, 255, threshold_type | cv2.THRESH_OTSU)
     elif method == 'multiotsu':
         kwargs = parameter[method]
         thresh_val = threshold_multiotsu(img, **kwargs)
-        thresh_img = img > thresh_val[-1]
+        thresh_img = np.digitize(img, bins=thresh_val) # edit (10/11/20)
+        #thresh_img = img > thresh_val[-1]               # original
     elif method == 'mean':
         thresh_val = threshold_mean(img)
         thresh_img = img > thresh_val
@@ -34,6 +50,25 @@ def apply_threshold(img, parameter, invert=False):
     elif method == 'triangle':
         thresh_val = threshold_triangle(img)
         thresh_img = img > thresh_val
+    elif method == 'manual_smoothing':
+        threshval = manual_initial_guess
+        dividing = img > threshval
+        smoother_dividing = filters.rank.mean(util.img_as_ubyte(dividing), morphology.disk(parameter[method][0]))
+        thresh_img = smoother_dividing > parameter[method][1]
+    elif method == 'li':
+        threshval = threshold_li(img, initial_guess=threshold_otsu(img))
+        thresh_img = img > threshval
+    elif method == 'niblack':
+        kwargs = parameter[method]
+        assert isinstance(kwargs, dict)
+        threshval = threshold_niblack(img, **kwargs)
+        thresh_img = img > threshval
+    elif method == 'sauvola':
+        kwargs = parameter[method]
+        assert isinstance(kwargs, dict)
+        R = img.std()
+        threshval = threshold_sauvola(img, r=R, **kwargs)
+        thresh_img = img > threshval
     elif method == 'manual':
         args = parameter[method]
         if not isinstance(parameter[method], list):
@@ -41,7 +76,7 @@ def apply_threshold(img, parameter, invert=False):
         else:
             if not len(parameter[method]) == 1:
                 raise ValueError("For manual thresholding only one parameter (the manual threshold) must be specified")
-            threshval = parameter[method][0]
+            threshval = manual_initial_guess
         thresh_img = img > threshval
 
     if invert:
