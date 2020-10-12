@@ -222,10 +222,10 @@ class GdpytImage(object):
         inv_mask = particle_mask != 0
 
         # Calculate SNR + Particle image density
-        sigma_bckgr = self.raw[inv_mask].std()
-        sigma_bckgr_f = self.filtered[inv_mask].std()
         mean_bckgr_r = self.raw[inv_mask].mean()
         mean_bckgr_filt = self.filtered[inv_mask].mean()
+        sigma_bckgr = self.raw[inv_mask].std()
+        sigma_bckgr_f = self.filtered[inv_mask].std()
         snr_filt = (self.filtered[particle_mask].mean() - mean_bckgr_filt)/ self.filtered[inv_mask].std()
         snr_raw = (self.raw[particle_mask].mean() - mean_bckgr_r) / self.raw[inv_mask].std()
         p_density = particle_mask.sum() / particle_mask.size

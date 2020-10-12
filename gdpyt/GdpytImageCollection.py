@@ -31,6 +31,7 @@ class GdpytImageCollection(object):
             self._crop_specs = {}
         else:
             self._crop_specs = crop_specs
+            self.crop_images()
 
         # Define the processing done on all the images in this collection
         if processing_specs is None:
@@ -47,13 +48,13 @@ class GdpytImageCollection(object):
         # Minimum and maximum particle size for image in this collection
         self._min_particle_size = min_particle_size
         self._max_particle_size = max_particle_size
+
         # Shape tolerance
         if shape_tol is not None:
             if not 0 < shape_tol < 1:
                 raise ValueError("Shape tolerance parameter shape_tol must be between 0 and 1")
         self._shape_tol = shape_tol
 
-        self.crop_images()
         self.filter_images()
         self.identify_particles()
         #self.uniformize_particle_ids()
