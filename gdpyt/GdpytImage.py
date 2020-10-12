@@ -26,7 +26,7 @@ class GdpytImage(object):
         # in the self._particles attribute. We only want the identify_particles method in this class to modify this attribute.
         # We don't really want any other part of the program to change this attribute, since the particles in an image
         # are always going to be those that were identified with identify_particles. If this attribute isn't marked as
-        # "internal use", other parts of the program could by accident add or delete particles.
+        # "internal use", other parts of the program could by accidentally add or delete particles.
 
         if not isfile(path):
             raise ValueError("{} is not a valid file".format(path))
@@ -36,6 +36,9 @@ class GdpytImage(object):
 
         # Load the image. This sets the ._raw attribute
         self.load(path)
+
+        # Crop the image. This sets the ._original attribute
+        self._original = None
 
         # Filtered image. This attribute is assigned by using the filter_image method
         self._filtered = None
@@ -93,6 +96,22 @@ class GdpytImage(object):
                 cv2.rectangle(canvas, (x, y), (x + w, y + h), color, 2)
 
         return canvas
+
+    def crop_image(self, cropspecs):
+        """
+        This crops the image. The argument cropsize is a dictionary of xmin, xmax, ymin, ymax and values.
+        :param cropsize:
+        :return:
+        """
+
+        valid_crops = ['xmin', 'xmax', 'ymin', 'ymax']
+
+        for crop_func in cropspecs.keys():
+            if crop_func not in valid_crops:
+                raise ValueError("{} is not a valid crop dimension. Use: {}".format(crop_func, valid_crops))
+
+        self._original = self._raw.copy()
+        self._raw = self._original[cropspecs['ymin']:cropspecs['ymax'], cropspecs['xmin']:cropspecs['xmax']]
 
     def filter_image(self, filterspecs, force_rawdtype=True):
         """
@@ -219,7 +238,9 @@ class GdpytImage(object):
 
     def load(self, path, mode=cv2.IMREAD_UNCHANGED):
         img = cv2.imread(self._filepath, mode)
-        self._raw = img # cv2.normalize(img, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+        self._original = img
+        self._raw = self._original
+        # cv2.normalize(img, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
 
     def merge_duplicate_particles(self):
         unique_ids = self.unique_ids(counts=True)
@@ -357,6 +378,14 @@ class GdpytImage(object):
     @property
     def filtered(self):
         return self._filtered
+
+    #@property
+    #def masked(self):
+    #    return self._masked
+
+    @property
+    def original(self):
+        return self._original
 
     @property
     def particles(self):

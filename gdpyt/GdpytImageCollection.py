@@ -15,7 +15,7 @@ logger = logging.getLogger()
 
 class GdpytImageCollection(object):
 
-    def __init__(self, folder, filetype, processing_specs=None, thresholding_specs=None,
+    def __init__(self, folder, filetype, crop_specs=None, processing_specs=None, thresholding_specs=None,
                  min_particle_size=None, max_particle_size=None, shape_tol=0.2, exclude=[]):
         super(GdpytImageCollection, self).__init__()
         if not isdir(folder):
@@ -25,6 +25,12 @@ class GdpytImageCollection(object):
         self._filetype = filetype
         self._find_files(exclude=exclude)
         self._add_images()
+
+        # Define the cropping done on all the images in this collection
+        if crop_specs is None:
+            self._crop_specs = {}
+        else:
+            self._crop_specs = crop_specs
 
         # Define the processing done on all the images in this collection
         if processing_specs is None:
@@ -47,6 +53,7 @@ class GdpytImageCollection(object):
                 raise ValueError("Shape tolerance parameter shape_tol must be between 0 and 1")
         self._shape_tol = shape_tol
 
+        self.crop_images()
         self.filter_images()
         self.identify_particles()
         #self.uniformize_particle_ids()
@@ -126,6 +133,11 @@ class GdpytImageCollection(object):
         """
         return GdpytCalibrationSet(self, name_to_z, exclude=exclude, dilate=dilate)
 
+    def crop_images(self):
+        for image in self.images.values():
+            image.crop_image(self._crop_specs)
+            logger.warning("Cropped image {}".format(image.filename))
+
     def filter_images(self):
         for image in self.images.values():
             image.filter_image(self._processing_specs)
@@ -137,6 +149,7 @@ class GdpytImageCollection(object):
                                      min_size=self._min_particle_size, max_size=self._max_particle_size,
                                      shape_tol=self._shape_tol)
             logger.info("Identified {} particles on image {}".format(len(image.particles), image.filename))
+
     def is_infered(self):
         """ Checks if the z coordinate has been infered for the images in this collection. Only returns true if that's
         true for all the images. """
