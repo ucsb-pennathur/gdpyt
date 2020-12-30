@@ -103,7 +103,6 @@ class GdpytImage(object):
         :param cropsize:
         :return:
         """
-
         valid_crops = ['xmin', 'xmax', 'ymin', 'ymax']
 
         for crop_func in cropspecs.keys():
@@ -123,7 +122,7 @@ class GdpytImage(object):
 
         This method should assign self._processed and self._processing_stats
         """
-        valid_filters = ['median', 'gaussian', 'white_tophat', 'equalize_adapthist']
+        valid_filters = ['none', 'median', 'gaussian', 'white_tophat', 'equalize_adapthist']
 
         # Convert to 8 byte uint for filter operations
         img_copy = self._raw.copy()
