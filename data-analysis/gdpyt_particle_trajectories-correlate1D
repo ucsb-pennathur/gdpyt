@@ -1,0 +1,594 @@
+# NOTES ABOUT PROGRAM:
+# --- This program calculates:
+# ----- 1. particle deflection vs. time
+# ----- 2. cross section deflection profile at peak deflection
+# ----- 3. channel section deflection profile at peak deflection
+
+#modules
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy import signal
+from skimage.draw import line, polygon, polygon_perimeter, circle, circle_perimeter
+from skimage import (io)
+import cv2
+
+
+# ---------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+"""
+In the below section, we define scripts that are necessary for the data analysis:
+1. test_img_plot --> opens, draws on, and save images.
+2.
+3.
+4. 
+5.
+"""
+
+
+# ---------------------------------------------------------------------
+
+
+# 0 - DEFINE IMAGE LOAD, DRAW, SHOW, AND SAVE FUNCTION
+
+def test_img_plot(img_name, img_read_loc, img_read_format='.tif', img_save_loc=None, img_save_format='png',
+                  tly=123, bly=415, bry=427, trry=136,
+                  part_cx=False, part_cy=False,
+                  draw_bpe_color=None, draw_particle_color=None,
+                  draw_particle=True, draw_bpe=True, show=True, save=False,
+                  pause_time = 3, um_per_pix=1, bf=35, draw_particle_radius=10,
+                  ):
+
+    # other variables
+    lr_shift_y = 14  # angle of image
+    w = 550          # channel width
+
+    # read file path
+    img_name = img_name + '_X1'
+    image_read = img_read_loc + img_name + img_read_format
+
+    # load image
+    img = io.imread(image_read)
+
+    # calculate image shape
+    img_dims = np.shape(img)
+
+    # calculate BPE locations
+    centerline = int(np.round((np.mean([tly, bly]) + np.mean([bry, trry])) / 2, 0))
+    bpe_leadedge_centerline = int(np.round((np.mean([tly, bly]))))
+
+    # draw bpe rectangle
+    if draw_bpe == True:
+
+        # choose color
+        if draw_bpe_color == None:
+            draw_bpe_color = int(np.round(bf * np.mean(img), 0))
+
+        # draw rectangle
+        poly = np.array(((tly, 79), (bly, 70), (bry, 512), (trry, 512), (tly, 79)))
+
+        rr, cc = polygon_perimeter(poly[:, 0], poly[:, 1], img.shape)
+        img[rr, cc] = draw_bpe_color
+
+        # draw line
+        rr, cc = line(centerline, 0, centerline, 511)
+        img[rr, cc] = draw_bpe_color
+
+        # draw wall lines
+        rr, cc = line(int(np.round(centerline + (w / um_per_pix) / 2, 0) - 6), 0,
+                      int(np.round(centerline + (w / um_per_pix) / 2 + lr_shift_y, 0) - 6), 511)
+        img[rr, cc] = draw_bpe_color
+
+        rr, cc = line(int(np.round(centerline - (w / um_per_pix) / 2, 0) - 6), 0,
+                      int(np.round(centerline - (w / um_per_pix) / 2 + lr_shift_y, 0) - 6), 511)
+        img[rr, cc] = draw_bpe_color
+
+
+    # draw particle
+    if draw_particle == True:
+
+        # choose color
+        if draw_particle_color == None:
+            draw_particle_color = int(np.round(np.min(img), 0))
+
+        # organize particle data
+        xloc = int(np.round((part_cx) / um_per_pix, 0))
+        yloc = int(np.round((part_cy) / um_per_pix, 0))
+
+        # create circle perimeter
+        rr, cc = circle_perimeter(yloc, xloc, draw_particle_radius)
+        img[rr, cc] = draw_particle_color
+
+        # rescale back to micron coordinates and adjust image name
+        xloc = int(np.round(xloc * um_per_pix, 0))
+        yloc = int(np.round(yloc * um_per_pix, 0))
+        img_name = "Image-Particle_X" + str(xloc) + '.Y' + str(yloc)
+
+    # create figure
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.imshow(img * bf, cmap='gray',  extent=(0, img_dims[0]*um_per_pix, img_dims[1]*um_per_pix, 0))
+    ax.set_title(img_name)
+    plt.xlabel('Axial - Channel (um)')
+    plt.ylabel('Transverse - Channel (um)')
+    plt.grid(color='dimgray', alpha=0.25, linestyle='-', linewidth=0.25)
+
+
+    # display
+    if show == True:
+        plt.show()
+        plt.pause(pause_time)
+
+    # save
+    if save == True:
+        image_save = img_save_loc + img_name + '.' + img_save_format
+        #plt.imsave(image_save, img * bf, format=img_save_format, cmap='gray')
+        #plt_img_save = img_save_loc + img_name + '_plt.' + img_save_format
+        print(image_save)
+        plt.savefig(image_save, format=img_save_format)
+
+    plt.close(fig=None)
+
+    # return centerline
+    return centerline
+
+# ----- END OF FUNCTION -----
+
+
+# ---------------------------------------------------------------------
+
+
+# DEFINE MERGE AND INTERPOLATE DATAFRAME
+
+def df_merge_and_interpolate(df, pid, dframe, method='spline', order=2):
+    # set index
+    df = df.set_index('Frame')
+
+    # drop "t"
+    df = df.drop(columns=['t'])
+
+    # merge good data frames
+    dfm = pd.merge_ordered(dframe, df, fill_method="fillna", on='Frame')
+
+    # interpolate NaNs
+    dfm1 = dfm.interpolate(method=method, order=order)
+    #dfm2 = dfm1.interpolate(method='nearest')
+    #dfi = dfm1.fillna(dfm1.mean(), inplace=True)
+    dfi = dfm1.fillna(value=dfm1.mean(), limit=1)
+
+
+    return (dfi)
+
+# ----- END OF FUNCTION -----
+
+
+# ---------------------------------------------------------------------
+
+
+# 4.1 - DEFINE LAG FINDER FUNCTION
+
+def lag_finder(y1, y2, sr=1024):
+    # n steps = length of y1
+    n = len(y1)
+
+    # compute correlation of y2 and y1
+    corr = signal.correlate(y2, y1, mode='same') / np.sqrt(
+        signal.correlate(y1, y1, mode='same')[int(n / 2)] * signal.correlate(y2, y2, mode='same')[int(n / 2)])
+
+    # delay x-space is centered on length of y1
+    delay_arr = np.linspace(-n / (2), n / (2), n)
+
+    # delay = the shift of corr peak from n/2
+    delay = delay_arr[np.argmax(corr)]
+    # print('y2 is ' + str(delay) + ' behind y1')
+
+    return (delay, delay_arr, corr)
+
+# ----- END OF FUNCTION -----
+
+
+
+# 4.1 - DEFINE TIME LAGGED CROSS CORRELATION
+
+def crosscorr(datax, datay, lag=0, wrap=False):
+    """ Lag-N cross correlation.
+    Shifted data filled with NaNs
+
+    Parameters
+    ----------
+    lag : int, default 0
+    datax, datay : pandas.Series objects of equal length
+
+    Returns
+    ----------
+    crosscorr : float
+    """
+    if wrap:
+        shiftedy = datay.shift(lag)
+        shiftedy.iloc[:lag] = datay.iloc[-lag:].values
+        return datax.corr(shiftedy)
+    else:
+        return datax.corr(datay.shift(lag))
+
+
+# ----- END OF FUNCTION -----
+
+
+
+# 4.4 - DEFINE SORTING SCRIPT
+
+def myFunc(t):
+    # load file
+    filename = data_loc + t + '_' + data_set_type + '.csv'
+    df = pd.read_csv(filename, header=0,
+                     dtype={'Frame': int, 'id': int, 'x': float, 'y': float, 'z': float, 't': float})
+
+    # determine unique particle ids
+    return df.id.unique().size
+
+# ----- END OF FUNCTION -----
+
+# -----------------           ----------------            ---------------------
+
+
+
+
+
+"""
+The below script is what actually computes the 1D correlation and plots the data. The process flow is as follows:
+1. Determine BPE and Channel coordinates by viewing example image.
+2.
+3.
+4.
+
+"""
+
+
+# ----------------- LOAD ALL VARIABLES NECESSARY TO RUN SCRIPT  -----------------------
+
+
+# 0.0 - PHYSICAL VARIABLES
+
+# 0.1 - mechanics
+wall_height = 10    # channel depth
+# 0.2 - electronics
+f_keithley = 0.1                   # (Hz) electric field square-wave switching frequency
+displacement_period = 1/f_keithley  # the period over which particle displacement should occur
+# 0.3 - optics
+pix_per_100um = 61  # x-y scaling
+um_per_pix = np.round(100 / 61, 2)  # microns per pixel
+f = 3.4747          # (Hz) image acquisition rate (BX41)
+f_old = 8.85        # (Hz) image acquisition rate accidentally used for data processing
+frames = 220        # number of frames in experiment set
+
+# ----- ----- -----
+
+# 1.0 - DATA INPUT AND OUTPUT
+
+# 1.1 - read initial image
+img_read_loc = '/Users/mackenzie/Downloads/testing_09.18.20_analysis_10.08.20_BX41_IC10_870nmFP/tests/test_img_setup/'
+img_name = 'test8_12Vmm'
+img_read_format = '.tif'
+
+# 1.2 - read initial data
+data_loc = '/Users/mackenzie/Downloads/testing_09.18.20_analysis_10.08.20_BX41_IC10_870nmFP/results_10.13.20/'
+data_set_type = 'coords_cnn_filtered'
+tests = [
+    'test0_0Vmm',
+    'test2_1Vmm',
+    'test3_2Vmm',
+    'test4_4Vmm',
+    'test5_6Vmm',
+    'test6_8Vmm',
+    'test7_10Vmm',
+    'test8_12Vmm'
+]
+
+# 1.3 - data output locations (save)
+img_save_loc ='/Users/mackenzie/Downloads/testing_09.18.20_analysis_10.08.20_BX41_IC10_870nmFP/results_10.21.20/'
+img_save_format = 'png'
+
+# ----- ----- -----
+
+# 2.0 - IMAGE SHOW, DRAW, AND SAVE
+bf = 35
+draw_particle_color = 15000
+pause_time = 5
+draw_bpe_color = None
+draw_particle = True
+draw_bpe = True
+show = False
+save = True
+
+
+
+# ----- ----- -----
+
+# 3.0 - DATA ANALYSIS AND 1D CROSS CORRELATION
+
+# 3.1 - data analysis
+thresh = 12         # particle capture radius used for sorting general dataframes to particle specific dataframe
+flip_z = -1         # invert z-direction
+z_offset = 34 + 40      # offset to adjust z-position so z=0 is zero deflection plane (z_offset is subtracted from df.z)
+frame_ratio = frames / 3      # filter low count particles
+
+# 3.2 - 1D correlation
+corr_shift = True
+interp_method = 'spline'
+corr_method = 'time lag cross corr'
+order = 1
+
+# ----- ----- -----
+
+# 4.0 - PLOTTING TOOLS
+
+# 4.1 - figure design
+linewidth = 1
+scattersize = 3
+linestyle_raw = '-'
+linestyle_interp = '-'
+marker_raw = '.'
+marker_interp = '.'
+
+
+
+
+
+
+
+
+# ----------------- DETERMINE BPE COORDINATES -------------------------------------
+"""
+NOTES:
+* this section is a bit of a legacy. I use this to plot and adjust the BPE rectangle on the initial image. Otherwise,
+this script does not need to be included in the program. 
+"""
+
+# 1 - LOAD FIRST IMAGE AND DETERMINE CENTER LINE
+
+centerline = test_img_plot(img_name,
+                           img_read_loc=img_read_loc,
+                           img_read_format='.tif',
+                           img_save_loc=None,
+                           img_save_format='png',
+                           tly=123, bly=415, bry=427, trry=136,
+                           part_cx=False, part_cy=False,
+                           draw_bpe_color=None, draw_particle_color=None,
+                           draw_particle=False, draw_bpe=True, show=False, save=False,
+                           pause_time=pause_time, um_per_pix=um_per_pix, bf=bf, draw_particle_radius=thresh)
+
+print("BPE, Y-centroid: " + str(np.round(centerline * um_per_pix, 1)) + " (um)")
+
+
+
+
+# ------------------ RUN THE PROGRAM ----------------------------------------------
+
+
+
+# 1 - CREATE DATA "FRAME"
+
+convert_dict = {'Frame': int, 't': float}  # dictionary for column datatype
+dframe = pd.DataFrame(data=np.column_stack((np.arange(frames+1, dtype=int), np.arange(frames+1, dtype=int) / f)),
+                      columns=['Frame', 't'])
+dframe = dframe.astype(convert_dict)  # chage datatypes
+dframe = dframe.set_index('Frame')  # set index
+
+
+
+# 2 - DETERMINE DATASET WITH MOST UNIQUE PARTICLES
+
+tests_counts = tests.copy()
+tests_counts.sort(key=myFunc, reverse=True)
+filename = data_loc + tests_counts[0] + '_' + data_set_type + '.csv'
+print(tests_counts)
+
+
+
+# 3 - LOAD FIRST TEST DATASET
+
+dff = pd.read_csv(filename, header=0, dtype={'Frame': int, 'id': int, 'x': float, 'y': float, 'z': float, 't': float})
+
+
+
+# 4 - IDENTIFY AND LOCATE EACH PARTICLE
+
+# copy reduced dataset
+df_p = dff[["id", "x", "y"]]
+
+# group by and take mean
+mean_locs = df_p.groupby(['id'])['x', 'y'].mean().sort_values(by='id')
+
+# number of identified particles
+print("# Unique Particles in " + tests_counts[0] + ": " + str(mean_locs.index.size))
+
+
+
+# 5 - FOR EACH PARTICLE IDENTIFIED IN mean_locs:
+
+for p in range(mean_locs.index.size):
+
+    # initialize loop
+    i_corr = 0
+    print("----- BEGINNING LOOP -----")
+    print("Particle ID: " + str(p))
+
+
+
+    # 5.1 - initialize figure
+
+    fig_corr, (ax_raw, ax_corr) = plt.subplots(2, 1, figsize=(10,7), sharex=True, num=1)
+
+
+
+    # 5.2 - "per test" loop for 1D-correlation + plotting:
+    for t in tests:
+
+        # 5.2.1 - initialize loop
+        print("----- TEST NAME: " + str(t) + " -----")
+        lbl_start_index = t.find('_')
+        lbl_end_index = t.find('V')         # index test name to determine label
+        lbl = t[lbl_start_index+1:lbl_end_index]            # define label
+
+        # 5.2.2 - load data
+        filename = data_loc + t + '_' + data_set_type + '.csv'
+        df_test = pd.read_csv(filename, header=0,
+                              dtype={'Frame': int, 'id': int, 'x': float, 'y': float, 'z': float, 't': float})
+        print(str(t) + " Shape: " + str(df_test.shape))
+
+        # 5.2.3 - scale general dataframe to correct units
+        df_test.t = df_test.t * (f_old / f)             # apply correction factor for wrong temporal data analysis
+        df_test.z = (df_test.z - z_offset) * flip_z + wall_height    # correct for arbitrary GDPyT calibration stack
+        # The above correction does several things:
+        # 1. make z=0 the zero-deflection plane by subtracting z-offset from arbitrary calibration index.
+        # 2. make +z and -z intuitive to the physical system: +z is away from BPE, -z is towards BPE.
+        # 3. make z=0 the surface of the BPE by adding the channel height.
+
+        # 5.2.4 - filter particles by X and Y coordinates within threshold region:
+        df_plot = df_test[
+            (df_test['x'] <= mean_locs.values[p][0] + thresh)               &
+                        (df_test['x'] >= mean_locs.values[p][0] - thresh)   &
+                        (df_test['y'] <= mean_locs.values[p][1] + thresh)   &
+                        (df_test['y'] >= mean_locs.values[p][1] - thresh)
+        ]
+        print("mean locs: " + str((mean_locs.values[p][0])) + " with a thresh: " + str(thresh))
+
+
+        # 5.2.5 - filter and 1D-correlation analysis
+        print(df_plot.shape[0])
+        print(df_plot.head(-10))
+        if df_plot.shape[0] > frame_ratio:
+
+            # 5.2.4.1 - sort dataframe
+            df_plot = df_plot.sort_values(by=['id', 'Frame'])
+            print("PLOTTING DATAFRAME WITH SHAPE: " + str(df_plot.shape))
+
+            # 5.2.4.2 - calculate 1D-correlation
+            if corr_shift == True:
+
+                # 5.2.4.2.1 - if first pass through correlation loop
+                if i_corr == 0:
+
+                    # 5.2.4.2.1.1 - plot raw data
+                    #ax_raw.plot(df_plot.t, df_plot.z, linestyle=linestyle_raw, linewidth=linewidth, label=lbl)
+                    ax_raw.scatter(df_plot.t, df_plot.z, s=scattersize, marker=marker_raw)
+
+                    # 5.2.4.2.1.2 - interpolate data for 1D-CORR compare
+                    dfi_compare = df_merge_and_interpolate(df_plot, p, dframe, method=interp_method, order=order)
+
+                    # 5.2.4.2.1.3 - plot interpolated data
+                    ax_corr.plot(dfi_compare.t, dfi_compare.z, linestyle=linestyle_interp, linewidth=linewidth, label=lbl)
+                    #ax_corr.scatter(dfi_compare.t, dfi_compare.z, marker=marker_interp, linewidth=linewidth, edgecolors=None)
+
+                    # 5.2.4.2.1.4 - increment the counter
+                    i_corr = i_corr + 1
+
+
+                # 5.2.4.2.2 - if second pass through correlation loop
+                else:
+
+                    # 5.2.4.2.2.1 - interpolate data for 1D-CORR compare
+                    dfi_test = df_merge_and_interpolate(df_plot, p, dframe, method=interp_method, order=order)
+
+                    # 5.2.4.2.2.2 - compute 1D correlation
+                    if corr_method == 'time lag cross corr':
+                        j=int(displacement_period / f)
+                        rs = [crosscorr(dfi_compare.z, dfi_test.z, lag) for lag in
+                              range(-int(displacement_period / f - 1), int(displacement_period / f))]
+                        delay = np.ceil(len(rs) / 2) - np.argmax(rs)
+
+                    # 5.2.4.2.2.3 - plot raw data with delay shift
+                    #ax_raw.plot(df_plot.t - delay/f, df_plot.z, '-', linewidth=linewidth, label=lbl)
+                    ax_raw.scatter(df_plot.t - delay/f, df_plot.z, s=scattersize, marker=marker_raw, edgecolors=None)
+
+
+                    # 5.2.4.2.2.4 - plot interpolated data with delay shift
+                    ax_corr.plot(dfi_test.t - delay/f, dfi_test.z, '-', linewidth=linewidth, label=lbl)
+                    #ax_corr.scatter(dfi_test.t - delay/f, dfi_test.z, marker='.', linewidth=0.5, edgecolors=None)
+
+                    # plot correlation coefficient between two signals of each length and sampling rate
+                    """
+                    #ax_corrr.plot((rs + len(rs) / 2) / f, rs, linewidth=0.5, label=lbl)
+                    #ax_corrr.set_ylabel('Correlation coeff')
+                    # ax_corrr.set_title('#2 is delayed ' + str(np.round(delay, 3)) + ' s behind #1', fontsize=10)                  
+                    """
+
+                    # 5.2.4.2.2.5 - increment the counter
+                    i_corr = i_corr + 1
+
+            # 5.2.4.3 - if no 1D correlation
+            else:
+                # 5.2.4.3.1 - plot raw
+                ax_raw.plot(df_plot.t, df_plot.z, '-', linewidth=linewidth, label=lbl)
+                ax_raw.scatter(df_plot.t, df_plot.z, s=scattersize, marker=marker_raw)
+
+    # ----- EXIT PLOT TRAJECTORY LOOP -----
+
+    # 5.2.6 - plot image with that particular particle outlined
+    test_img_plot(img_name=t,
+                      img_read_loc=img_read_loc,
+                      img_read_format=img_read_format,
+                      img_save_loc=img_save_loc,
+                      img_save_format=img_save_format,
+                      tly=123, bly=415, bry=427, trry=136,
+                      part_cx=mean_locs.values[p][0],
+                      part_cy=mean_locs.values[p][1],
+                      draw_bpe_color=draw_bpe_color,
+                      draw_particle_color=draw_particle_color,
+                      draw_particle=draw_particle,
+                      draw_bpe=draw_bpe,
+                      show=show,
+                      save=save,
+                      um_per_pix=um_per_pix,
+                      bf=bf,
+                      draw_particle_radius=thresh,
+                      )
+
+
+    # 5.3 - add details to figure
+    savename = 'X' + str(np.round(mean_locs.values[p][0], 1)) + '_Y' + str(np.round(mean_locs.values[p][1], 1))
+    savefile = img_save_loc + savename + '.' + img_save_format
+
+    plt.figure(num=1)
+    ax_corr.hlines(y=wall_height, xmin=0, xmax=frames/f, colors='lightgrey',
+                    alpha=0.65, linestyles='dashed', label='zero deflection')
+    ax_corr.hlines(y=0, xmin=0, xmax=frames/f, colors='lightgrey',
+                   alpha=1, linestyles='solid', label='channel bottom')
+
+    ax_raw.set_title("Raw", fontsize=10)
+    ax_raw.set_ylabel('z-position (um)')
+    ax_corr.set_title("Interpolated: method=" + str(interp_method) + ", order=" + str(order), fontsize=10)
+    ax_corr.set_ylabel('z-position (um)')
+    plt.suptitle('Particle: (' + savename + ') z-displacement', fontsize=12, y=0.98)
+    plt.xlabel('Time (s)')
+
+    plt.subplots_adjust(left=None, bottom=None, right=0.75, top=0.9, wspace=None, hspace=0.25)
+    lgd = plt.legend(
+        bbox_to_anchor=(1.02, 1, 0.3, 0.2),
+        loc = 'center left',  # Position of legend
+        title = '$E_{applied}$ (V/mm) @ ' + str(f_keithley) + ' (Hz)'
+    )
+
+    # 5.4 - save figure
+    plt.savefig(savefile, format=img_save_format, bbox_extra_artists=(lgd,))
+    plt.clf()
+
+
+# ----- EXIT PARTICLE LOCATION LOOP -----
+
+
+plt.close()
+
+
+
+
+# ---------------------------------------------------------------------
