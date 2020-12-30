@@ -46,13 +46,13 @@ collection = GdpytImageCollection(folder, filetype,
                                   processing_specs=processing,
                                   thresholding_specs=threshold,
                                   min_particle_size=4, shape_tol=0.4)
-img = collection.images['test_8_X07.tif']
+img = collection.images['test_8_X01.tif']
 
 fig, ax = plt.subplots(ncols=5, figsize=(14, 7))
 ax[0].imshow(img.raw, cmap='viridis')
 ax[1].imshow(img.filtered, cmap='gray')
 ax[2].imshow(img.masked, cmap='gray')
-ax[3].imshow(img.draw_particles())
+ax[3].imshow(img.draw_particles(draw_id=False, thickness=1))
 linecolor=int(np.round(img.original.max(),0))
 cv2.rectangle(img.original, (cropping['xmin'], cropping['ymin']), (cropping['xmax'], cropping['ymax']), linecolor, 2)
 ax[4].imshow(img.original, cmap='gray')

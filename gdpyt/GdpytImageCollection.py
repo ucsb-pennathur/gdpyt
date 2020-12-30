@@ -170,8 +170,8 @@ class GdpytImageCollection(object):
         fig = plot_img_collection(self, raw=raw, draw_particles=draw_particles, exclude=exclude, **kwargs)
         return fig
 
-    def plot_particle_trajectories(self, sort_images=None, create_gif=False):
-        fig = plot_particle_trajectories(self, sort_images=sort_images, create_gif=create_gif)
+    def plot_particle_trajectories(self, sort_images=None):
+        fig = plot_particle_trajectories(self, sort_images=sort_images)
         return fig
 
     def plot_particle_coordinate(self, coordinate='z', sort_images=None, particle_ids=None):
@@ -182,7 +182,7 @@ class GdpytImageCollection(object):
         fig = plot_animated_surface(self, sort_images=sort_images, fps=fps, save_as=save_as)
         return fig
 
-    def uniformize_particle_ids(self, baseline=None, threshold=50):
+    def uniformize_particle_ids(self, baseline=None, threshold=50, uv=[[0,0]]):
         baseline_locations = []
         # If a calibration set is given as the baseline, the particle IDs in this collection are assigned based on
         # the location and ID of the calibration set. This should always be done when the collection contains target images
@@ -245,7 +245,11 @@ class GdpytImageCollection(object):
                 next_id = len(baseline_locations)
                 continue
 
-            nneigh = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(baseline_locations.values)
+            # NearestNeighbors(x+u,y+v): previous location (x,y) + displacement guess (u,v)
+            nneigh = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(baseline_locations.values+uv)
+            # NOTE: the displacement guess (u,v) could incorporate a "time" variable (image number or time data)
+            # such that [u_i,v_i] = [u(t), v(t)] in order to better match time-dependent or periodic displacements.
+
             distances, indices = nneigh.kneighbors(np.array(locations))
 
             remove_p_not_in_calib = []
@@ -254,6 +258,12 @@ class GdpytImageCollection(object):
                 # particle in the baseline
                 if distance < threshold:
                     particle.set_id(baseline_locations.index.values[idx.squeeze()])
+
+                    # assign the baseline coordinates (x,y) to the matched particle coordinates (x,y)
+                    baseline_locations.loc[particle.id, ('x','y')] = (particle.location[0],particle.location[1])
+                    # the baseline is essentially the "current" location for that particle ID and after each
+                    # successful identification, we update the "current" location of that particle ID.
+
                 else:
                     # If the particle is not in the baseline, assign it a new, non-existent id and add it to the baseline
                     # for the subsequent images
