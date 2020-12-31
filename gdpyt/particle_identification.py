@@ -22,7 +22,7 @@ def apply_threshold(img, parameter, invert=False):
                          " 'manual', 'triangle', 'manual_smoothing', 'li', 'niblack', 'sauvola']")
 
     if method in ['manual', 'manual_smoothing']:
-        manual_initial_guess = np.round(img.mean() + img.std() * 3, 0)
+        manual_initial_guess = np.round(img.mean() + img.std() * parameter[method][2], 0)
         print("initial threshold guess: " + str(manual_initial_guess))
 
     if method == 'none':
