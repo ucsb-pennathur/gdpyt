@@ -1,6 +1,7 @@
 import cv2
 from skimage.filters import median, gaussian
 from skimage.morphology import disk, white_tophat
+from skimage.filters.rank import mean_bilateral
 import numpy as np
 import pandas as pd
 from .particle_identification import apply_threshold, identify_contours, identify_circles, merge_particles
@@ -122,7 +123,7 @@ class GdpytImage(object):
 
         This method should assign self._processed and self._processing_stats
         """
-        valid_filters = ['none', 'median', 'gaussian', 'white_tophat', 'equalize_adapthist']
+        valid_filters = ['none', 'median', 'mean_bilateral', 'gaussian', 'white_tophat', 'equalize_adapthist']
 
         # Convert to 8 byte uint for filter operations
         img_copy = self._raw.copy()
