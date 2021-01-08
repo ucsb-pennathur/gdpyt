@@ -41,6 +41,9 @@ class GdpytImage(object):
         # Crop the image. This sets the ._original attribute
         self._original = None
 
+        # Background image
+        self._subbg = None
+
         # Filtered image. This attribute is assigned by using the filter_image method
         self._filtered = None
         self._processing_stats = None
@@ -112,6 +115,26 @@ class GdpytImage(object):
 
         self._original = self._raw.copy()
         self._raw = self._original[cropspecs['ymin']:cropspecs['ymax'], cropspecs['xmin']:cropspecs['xmax']]
+
+    def subtract_background(self, background_subtraction, background_img):
+        """
+        This subtracts the background image from each image in collection.
+        :param background_subtraction:
+        :return:
+
+        This method should assign self._subbg
+        """
+        valid_bs_methods = ['min']
+
+        if background_subtraction not in valid_bs_methods:
+            raise ValueError("{} is not a valid method. Implemented so far are {}".format(background_subtraction,
+                                                                                          valid_bs_methods))
+            self._subbg = None
+        else:
+            img = self._raw.copy()
+            self._subbg = img - background_img
+
+
 
     def filter_image(self, filterspecs, force_rawdtype=True):
         """
@@ -374,6 +397,10 @@ class GdpytImage(object):
     @property
     def filepath(self):
         return self._filepath
+
+    @property
+    def subbg(self):
+        return self._subbg
 
     @property
     def filtered(self):

@@ -8,6 +8,7 @@ from sklearn.neighbors import NearestNeighbors
 from skimage.filters.rank import median
 import pandas as pd
 import numpy as np
+from skimage import io
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -16,7 +17,8 @@ logger = logging.getLogger()
 class GdpytImageCollection(object):
 
     def __init__(self, folder, filetype, crop_specs=None, processing_specs=None, thresholding_specs=None,
-                 min_particle_size=None, max_particle_size=None, shape_tol=0.2, exclude=[]):
+                 background_subtraction=None, min_particle_size=None, max_particle_size=None,
+                 shape_tol=0.2, exclude=[]):
         super(GdpytImageCollection, self).__init__()
         if not isdir(folder):
             raise ValueError("Specified folder {} does not exist".format(folder))
@@ -32,6 +34,13 @@ class GdpytImageCollection(object):
         else:
             self._crop_specs = crop_specs
             self.crop_images()
+
+        # Define the background image subtraction method
+        if background_subtraction is None:
+            self._background_subtraction = {}
+        else:
+            self._background_subtraction = background_subtraction
+            self._background_subtract()
 
         # Define the processing done on all the images in this collection
         if processing_specs is None:
@@ -139,6 +148,42 @@ class GdpytImageCollection(object):
             image.crop_image(self._crop_specs)
             logger.warning("Cropped image {}".format(image.filename))
 
+    def _background_subtract(self):
+
+        sizey, sizex = np.shape((list(self.images.values())[0]._raw))
+
+        # --- compute the mean image intensity percentile across all images ---
+        background_add = np.zeros((sizey, sizex), dtype=np.uint16)
+
+        for i in self.images.values():
+            image = i._raw.copy()
+            background_add = background_add + image  # add images
+
+        # take mean
+        background_mean = np.divide(background_add, len(self.images))
+
+        # compute percentile limits
+        vmin, vmax = np.percentile(background_mean, q=(0.5, 99.95))  # clip the bottom 0.5% and top 0.05% intensities
+
+        # --- compute the minimum pixel intensity across all images ---
+        background_img = np.ones((sizey, sizex), dtype=np.uint16) * 2 ** 16
+        # loop through images
+        for i in self.images.values():
+            image = i._raw.copy()
+            if self._background_subtraction == 'min':
+                image = np.where(image < vmax, image, vmax)  # clip upper percentile
+                image = np.where(image > vmin, image, vmin)  # clip lower percentile
+                background_img = np.where(image < background_img, image, background_img)  # take min value
+
+        # store background image
+        self._background_img = background_img
+
+        # perform background subtraction
+        for image in self.images.values():
+            image.subtract_background(self._background_subtraction, self._background_img)
+            logger.warning("Background subtraction image {}".format(image.filename))
+
+
     def filter_images(self):
         for image in self.images.values():
             image.filter_image(self._processing_specs)
@@ -152,7 +197,7 @@ class GdpytImageCollection(object):
             logger.info("Identified {} particles on image {}".format(len(image.particles), image.filename))
 
     def is_infered(self):
-        """ Checks if the z coordinate has been infered for the images in this collection. Only returns true if that's
+        """ Checks if the z coordinate has been inferred for the images in this collection. Only returns true if that's
         true for all the images. """
         return all([image.is_infered() for image in self.images.values()])
 
@@ -317,6 +362,10 @@ class GdpytImageCollection(object):
     @property
     def images(self):
         return self._images
+
+    @property
+    def background_img(self):
+        return self._background_img
 
     @property
     def image_stats(self):
