@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from skimage.morphology import disk
 from skimage.filters.rank import median
 from skimage.filters import gaussian, median
+from skimage.exposure import equalize_adapthist
 from scipy import ndimage as ndi
 from skimage import (
     color, feature, filters, io, measure, morphology, segmentation, util
@@ -10,24 +11,24 @@ from skimage import (
 import cv2
 import numpy as np
 
-folder = r'/Users/mackenzie/Box Sync/2019-2020/Research/BPE/Data/Experiments/Elastic ' \
-         r'Modulus/bulgeTesting_11.16.20_Elastosil/calib/calib_5umSteps_1imgPerStep_z0at50_zfat70'
+folder = r"/Users/mackenzie/Box Sync/2019-2020/Research/BPE/Data/Experiments/Elastic " \
+         r"Modulus/bulgeTesting_11.16.20_Elastosil/calib/calib_min/"
 filetype = '.tif'
 
 
 cropping = {
-    'xmin': 100,
+    'xmin': 225,
     'xmax': 400,
-    'ymin': 100,
-    'ymax': 400
+    'ymin': 150,
+    'ymax': 512
 }
 
 processing = {
     #'none': 0
     'median': {'args': [disk(2)]},
     #'gaussian': {'args': [], 'kwargs': dict(sigma=0.65, preserve_range=True)},
-    'white_tophat': {'args': [disk(4)]}, # returns bright spots smaller than the structuring element.
-    #'equalize_adapthist': {'args': [], 'kwargs': dict(clip_limit=0.03)},
+    'white_tophat': {'args': [disk(3)]}, # returns bright spots smaller than the structuring element.
+    #'equalize_adapthist': {'args': [41], 'kwargs': dict(clip_limit=0.005)},
     }
 
 threshold = {
@@ -48,9 +49,9 @@ collection = GdpytImageCollection(folder, filetype,
                                   background_subtraction='min',
                                   processing_specs=processing,
                                   thresholding_specs=threshold,
-                                  min_particle_size=4, shape_tol=0.4)
+                                  min_particle_size=4, shape_tol=0.4, overlap_threshold=0.8)
 #img = collection.images[0]
-img = collection.images['calib_7.tif']
+img = collection.images['calib_5.tif']
 
 print(np.mean(img.subbg))
 print(np.mean(img.original))

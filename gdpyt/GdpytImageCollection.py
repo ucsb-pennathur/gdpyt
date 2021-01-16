@@ -8,7 +8,6 @@ from sklearn.neighbors import NearestNeighbors
 from skimage.filters.rank import median
 import pandas as pd
 import numpy as np
-from skimage import io
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -18,7 +17,7 @@ class GdpytImageCollection(object):
 
     def __init__(self, folder, filetype, crop_specs=None, processing_specs=None, thresholding_specs=None,
                  background_subtraction=None, min_particle_size=None, max_particle_size=None,
-                 shape_tol=0.2, exclude=[]):
+                 shape_tol=0.2, overlap_threshold=0.3, exclude=[]):
         super(GdpytImageCollection, self).__init__()
         if not isdir(folder):
             raise ValueError("Specified folder {} does not exist".format(folder))
@@ -63,6 +62,9 @@ class GdpytImageCollection(object):
             if not 0 < shape_tol < 1:
                 raise ValueError("Shape tolerance parameter shape_tol must be between 0 and 1")
         self._shape_tol = shape_tol
+
+        # Overlap threshold for merging particles
+        self._overlap_threshold = overlap_threshold
 
         self.filter_images()
         self.identify_particles()
@@ -193,7 +195,7 @@ class GdpytImageCollection(object):
         for image in self.images.values():
             image.identify_particles(self._thresholding_specs,
                                      min_size=self._min_particle_size, max_size=self._max_particle_size,
-                                     shape_tol=self._shape_tol)
+                                     shape_tol=self._shape_tol, overlap_threshold=self._overlap_threshold)
             logger.info("Identified {} particles on image {}".format(len(image.particles), image.filename))
 
     def is_infered(self):
@@ -323,7 +325,7 @@ class GdpytImageCollection(object):
                     next_id += 1
             for p in remove_p_not_in_calib:
                 image.particles.remove(p)
-            # The nearest neighbor mapping creates particles with dupliate IDs under some circumstances
+            # The nearest neighbor mapping creates particles with duplicate IDs under some circumstances
             # These need to be merged to one giant particle
             image.merge_duplicate_particles()
 
@@ -375,6 +377,10 @@ class GdpytImageCollection(object):
     @property
     def shape_tol(self):
         return self._shape_tol
+
+    @property
+    def overlap_threshold(self):
+        return self._overlap_threshold
 
 
 
