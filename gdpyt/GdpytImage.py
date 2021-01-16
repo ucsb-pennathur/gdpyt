@@ -2,6 +2,7 @@ import cv2
 from skimage.filters import median, gaussian
 from skimage.morphology import disk, white_tophat
 from skimage.filters.rank import mean_bilateral
+from skimage.exposure import equalize_adapthist
 import numpy as np
 import pandas as pd
 from .particle_identification import apply_threshold, identify_contours, identify_circles, merge_particles
@@ -185,7 +186,7 @@ class GdpytImage(object):
 
         return ret_particle
 
-    def identify_particles(self, thresh_specs, min_size=None, max_size=None, shape_tol=0.1):
+    def identify_particles(self, thresh_specs, min_size=None, max_size=None, shape_tol=0.1, overlap_threshold=0.3):
         if shape_tol is not None:
             assert 0 < shape_tol < 1
         particle_mask = apply_threshold(self.filtered, parameter=thresh_specs).astype(np.uint8)
@@ -193,7 +194,7 @@ class GdpytImage(object):
         # Identify particles
         contours, bboxes = identify_contours(particle_mask)
         logger.debug("{} contours in thresholded image".format(len(contours)))
-        contours, bboxes = self.merge_overlapping_particles(contours, bboxes)
+        contours, bboxes = self.merge_overlapping_particles(contours, bboxes, overlap_thresh=overlap_threshold)
         logger.debug("{} contours in thresholded image after merging of overlapping".format(len(contours)))
 
         id_ = 0
