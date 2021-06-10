@@ -161,6 +161,7 @@ class GdpytCalibrationStack(object):
 
         for particle in self.particles:
             particle.reset_id(new_id)
+
     def set_zero(self):
         areas = []
         zs = []
