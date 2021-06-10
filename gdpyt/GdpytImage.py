@@ -1,4 +1,5 @@
 import cv2
+from skimage import io
 from skimage.filters import median, gaussian
 from skimage.morphology import disk, white_tophat
 from skimage.filters.rank import mean_bilateral
@@ -261,7 +262,14 @@ class GdpytImage(object):
         return all([particle.z is not None for particle in self.particles])
 
     def load(self, path, mode=cv2.IMREAD_UNCHANGED):
-        img = cv2.imread(self._filepath, mode)
+        # load using skimage
+        img = io.imread(self._filepath, plugin='tifffile')
+        # Deprecated load:        img = cv2.imread(self._filepath, mode)
+
+        # check if image is a stack
+        if len(np.shape(img)) > 2:   # image is a stack
+            img = np.rint(np.mean(img, axis=0, dtype=float)).astype(np.int16)
+
         self._original = img
         self._raw = self._original
         # cv2.normalize(img, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
