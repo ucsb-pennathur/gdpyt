@@ -1,3 +1,5 @@
+from matplotlib import pyplot as plt
+
 from .GdpytCalibrationStack import GdpytCalibrationStack
 from gdpyt.inception_net import GdpytInceptionDataset, GdpytInceptionRegressionNet, train_net
 import pandas as pd
@@ -135,7 +137,7 @@ class GdpytCalibrationSet(object):
             logger.info("Using CPU for training")
             device = torch.device('cpu')
 
-        # Create the Pytoch model
+        # Create the Pytorch model
         if aux_logits is None:
             # Without auxiliary loss always make 1000 classes
             self._cnn = GdpytInceptionRegressionNet(1000)
@@ -162,6 +164,14 @@ class GdpytCalibrationSet(object):
         avg_epoch_loss, std_epoch_loss, model = train_net(model, device, optimizer, criterion, dataloader, epochs=epochs)
         self._train_summary = pd.DataFrame({'Epoch': [i for i in range(epochs)], 'Avg_loss': avg_epoch_loss,
                                             'Sigma_loss': std_epoch_loss})
+
+    def plot_train_summary(self):
+        fig, axes = plt.subplots(nrows=2)
+        ax = axes.ravel()
+        ax[0].plot(self.train_summary['Epoch'], self.train_summary['Avg_loss'], label='Avg loss')
+        ax[1].plot(self.train_summary['Epoch'], self.train_summary['Sigma_loss'], label=r'$\sigma$ loss')
+        plt.tight_layout()
+        plt.show()
 
     def zero_stacks(self, exclude_ids=None):
         for id_, stack in self.calibration_stacks.items():
