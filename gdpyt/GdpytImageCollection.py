@@ -25,7 +25,8 @@ class GdpytImageCollection(object):
         
         self._folder = folder
         self._filetype = filetype
-        self._get_exclusion_subset(exclude=exclude, subset=subset)
+        if len(subset) > 0:
+            self._get_exclusion_subset(exclude=exclude, subset=subset)
         self._find_files(exclude=exclude)
         self._add_images()
 
