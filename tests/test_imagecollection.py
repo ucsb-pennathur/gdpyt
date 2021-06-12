@@ -11,9 +11,9 @@ from skimage import (
 import cv2
 import numpy as np
 
-folder = r"/Users/mackenzie/Box Sync/2019-2020/Research/BPE/Data/Experiments/Elastic " \
-         r"Modulus/bulgeTesting_11.16.20_Elastosil/calib/calib_min/"
+folder = r"/Users/mackenzie/Desktop/BPE-ICEO/06.08.21 - BPE-ICEO actuator/calibration/1um_step_1imageperstep_50X/"
 filetype = '.tif'
+base_string = 'calib_'
 
 
 cropping = {
@@ -49,7 +49,8 @@ collection = GdpytImageCollection(folder, filetype,
                                   background_subtraction='min',
                                   processing_specs=processing,
                                   thresholding_specs=threshold,
-                                  min_particle_size=4, shape_tol=0.4, overlap_threshold=0.8)
+                                  min_particle_size=4, shape_tol=0.4, overlap_threshold=0.8,
+                                  subset=[base_string, 5, 10], exclude=[])
 #img = collection.images[0]
 img = collection.images['calib_5.tif']
 
