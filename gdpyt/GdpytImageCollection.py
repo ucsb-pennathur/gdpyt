@@ -3,6 +3,7 @@ from .GdpytCalibrationSet import GdpytCalibrationSet
 from gdpyt.utils.plotting import *
 from os.path import join, isdir
 from os import listdir
+import re
 from collections import OrderedDict
 from sklearn.neighbors import NearestNeighbors
 from skimage.filters.rank import median
@@ -17,13 +18,14 @@ class GdpytImageCollection(object):
 
     def __init__(self, folder, filetype, crop_specs=None, processing_specs=None, thresholding_specs=None,
                  background_subtraction=None, min_particle_size=None, max_particle_size=None,
-                 shape_tol=0.2, overlap_threshold=0.3, exclude=[]):
+                 shape_tol=0.2, overlap_threshold=0.3, exclude=[], subset=[]):
         super(GdpytImageCollection, self).__init__()
         if not isdir(folder):
             raise ValueError("Specified folder {} does not exist".format(folder))
         
         self._folder = folder
         self._filetype = filetype
+        self._get_exclusion_subset(exclude=exclude, subset=subset)
         self._find_files(exclude=exclude)
         self._add_images()
 
@@ -97,6 +99,34 @@ class GdpytImageCollection(object):
             images.update({img.filename: img})
             logger.warning('Loaded image {}'.format(img.filename))
         self._images = images
+
+    def _get_exclusion_subset(self, exclude, subset: list):
+        """
+        modify the variable [exclude] to include all files not in the [subset]
+        """
+        base_string = subset[0]
+        start = subset[1]
+        stop = subset[2]
+        if len(subset) > 0:
+            if len(subset) < 3:
+                raise ValueError("Subset requires a file base string and least two values: start and stop index.")
+            elif len(subset) == 3:
+                all_files = listdir(self._folder)
+                save_files = []
+                for file in all_files:
+                    if file.endswith(self._filetype):
+                        if file in exclude:
+                            continue
+                        save_files.append(file)
+                for f in save_files:
+                    search_string = base_string + '(.*)' + self._filetype
+                    file_index = int(re.search(search_string, f).group(1))
+                    if file_index < start or file_index > stop:
+                        exclude.append(f)
+            else:
+                raise ValueError("Collecting multiple subsets is not implemented at the moment.")
+        else:
+            pass
 
     def _find_files(self, exclude=[]):
         """
@@ -381,7 +411,3 @@ class GdpytImageCollection(object):
     @property
     def overlap_threshold(self):
         return self._overlap_threshold
-
-
-
-
