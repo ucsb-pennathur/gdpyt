@@ -6,11 +6,12 @@ import matplotlib as mpl
 import numpy as np
 import pandas as pd
 from os.path import splitext
+import re
 import logging
 
 logger = logging.getLogger(__name__)
 
-def plot_calib_stack(stack, z=None, draw_contours=False):
+def plot_calib_stack(stack, z=None, draw_contours=True, imgs_per_row=5, fig=None, axes=None):
     # assert isinstance(stack, GdpytCalibratioStack)
 
     if z is not None:
@@ -18,9 +19,10 @@ def plot_calib_stack(stack, z=None, draw_contours=False):
             raise TypeError("Specify z range as a two-element list or tuple")
 
     n_images = len(stack)
-    n_cols = min(10, n_images)
+    n_cols = min(imgs_per_row, n_images)
     n_rows = int(n_images / n_cols) + 1
-    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(2 * n_cols, n_rows * 2))
+    if fig is None:
+        fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(2 * n_cols, n_rows * 2))
 
     if not isinstance(axes, np.ndarray):
         axes = np.array([axes]).reshape(-1,1)
@@ -30,11 +32,25 @@ def plot_calib_stack(stack, z=None, draw_contours=False):
             n = i * n_cols + j
             if n > n_images - 1:
                 axes[i, j].imshow(np.zeros_like(template), cmap='gray')
-                axes[i, j].set_title('None', fontsize=5)
+                axes[i, j].set_title('None', fontsize=12)
             else:
                 z, template = stack[n]
                 axes[i, j].imshow(template, cmap='gray')
-                axes[i, j].set_title('z = {}'.format(z), fontsize=5)
+
+                for p in stack.particles:
+                    if p.z == z:
+                        jj = p.template_contour
+                        jjj = jj[0, :]
+                        jj = np.vstack([jj, jj[0, :]])
+                        for contour in p.contour:
+                            #axes[i, j].plot(jj[:, 0], jj[:, 1], linewidth=1, color='red')
+                            axes[i, j].plot(jj[:, 1], jj[:, 0], linewidth=0.5, color='blue')
+
+                """for particle in self.particles:
+                    cv2.drawContours(canvas, [particle.contour], -1, color, thickness)"""
+                j=1
+
+                axes[i, j].set_title('z = {}'.format(z), fontsize=12)
             axes[i, j].get_xaxis().set_visible(False)
             axes[i, j].get_yaxis().set_visible(False)
 
@@ -210,12 +226,124 @@ def plot_particle_coordinate(collection, coordinate='z', sort_images=None, parti
     coords = pd.concat(coords)
     fig, ax = plt.subplots(figsize=(11, 7))
     for id_ in particle_id:
+        j = coords.loc[id_]
         ax.plot(coords.loc[id_].values, label='ID {}'.format(id_))
     ax.set_xlabel('Image #')
     ax.set_ylabel('{} position'.format(coordinate.upper()))
-    ax.legend()
+    #ax.legend()
 
     return fig
+
+def plot_particle_coordinate_calibration(collection, plot_type='errorbars', measurement_volume=None):
+
+    coords = []
+    identified_particles = 0
+    for img in collection.images.values():
+        # sum all particles that were identified in all images in the collection
+        identified_particles += len(img.particles)
+
+        # only append coordinates with a valid z-coordinate
+        [coords.append([p.id, p.location[0], p.location[1], p.z, p.x_true, p.y_true, p.z_true]) for p in
+         img.particles if p.z is not None and np.isnan(p.z) == False]
+
+    df = pd.DataFrame(data=coords, columns=['id', 'x', 'y', 'z', 'true_x', 'true_y', 'true_z'])
+
+    # number of particles with a valid z-coordinate measurement
+    measured_z_particles = len(df.z)
+    percent_measured_particles = measured_z_particles / identified_particles * 100
+
+    # distance from true x-y position
+    df['dist'] = np.sqrt((df['true_x'] - df['x']) ** 2 + (df['true_y'] - df['y']) ** 2)
+
+    # measurement error
+    df['square_error_x'] = (df['true_x'] - df['x']) ** 2
+    df['square_error_y'] = (df['true_y'] - df['y']) ** 2
+    df['square_error_z'] = (df['true_z'] - df['z']) ** 2
+
+    # local z-uncertainty: root mean square error
+    df_z_sum = df.groupby(['true_z']).sum()
+    df_z_sum['rmse_x'] = np.sqrt(df_z_sum.square_error_x / measured_z_particles)
+    df_z_sum['rmse_y'] = np.sqrt(df_z_sum.square_error_y / measured_z_particles)
+    df_z_sum['rmse_z'] = np.sqrt(df_z_sum.square_error_z / measured_z_particles)
+    df_z_sum['rmse_xy'] = np.sqrt(df_z_sum.rmse_x ** 2 + df_z_sum.rmse_y ** 2)
+
+    if measurement_volume is not None:
+        df_z_sum.rmse_xy = df_z_sum.rmse_xy / measurement_volume
+
+    # mean z-coordinate for each true_z
+    df_z_mean = df.groupby(['true_z']).mean()
+    df_z_std = df.groupby(['true_z']).std()
+
+    fig, ax = plt.subplots()
+    ax.plot(df_z_sum.index, df_z_sum.index, color='black', linewidth=1, alpha=0.95, label='Ideal')
+    if plot_type == 'scatter':
+       ax.scatter(x=df.true_z, y=df.z)
+    if plot_type == 'errorbars':
+        ax.errorbar(x=df_z_sum.index, y=df_z_mean.z, yerr=df_z_sum.rmse_z, xerr=df_z_sum.rmse_xy, fmt='o', ecolor='gray', elinewidth=2, capsize=2, label='Measured')
+
+    #ax.set_xlabel(r'$\Delta z_{true} (\mu m)$')
+    ax.set_xlabel(r'$z_{true}$ / h')
+    #ax.set_ylabel(r'$z_{measured}$ $(\mu m)$')
+    ax.set_ylabel(r'$z_{measured}$ / h')
+    ax.set_title('Measurement uncertainty: root mean squared error', fontsize=8)
+    ax.legend()
+    plt.tight_layout
+
+    return fig
+
+def plot_particle_snr_and(collection, second_plot='area'):
+    values = []
+    identified_particles_per_image = []
+    for img in collection.images.values():
+        for p in img.particles:
+            if p.z is not None and np.isnan(p.z) == False:
+                values.append([p.id, p.z, p.z_true, p.area, p.solidity, p.snr, len(img.particles)])
+
+    df = pd.DataFrame(data=values, columns=['id', 'z', 'true_z', 'area', 'solidity', 'snr', 'img_num_particles'])
+
+    df_z_count = df.groupby(['true_z']).count()
+    df_z_mean = df.groupby(['true_z']).mean()
+    df_z_std = df.groupby(['true_z']).std()
+
+    fig, ax = plt.subplots()
+    ax.errorbar(x=df_z_mean.index, y=df_z_mean.snr, yerr=df_z_std.snr*2, fmt='o', color='darkblue', ecolor='aliceblue', elinewidth=2, capsize=2)
+    ax.plot(df_z_mean.index, df_z_mean.snr, color='darkblue', alpha=0.25)
+
+    #ax.set_xlabel(r'$\Delta z_{true} (\mu m)$')
+    ax.set_xlabel(r'$z_{true}$ / $h$')
+    ax.set_ylabel(r'$SNR$ $(\frac {\mu_p}{\sigma_I})$', color='darkblue')
+    ax.set_ylim([0, 50])
+
+    if second_plot == 'area':
+        ax2 = ax.twinx()
+        ax2.errorbar(x=df_z_mean.index, y=df_z_mean.area, yerr=df_z_std.area*2, fmt='o', color='darkgreen', ecolor='limegreen', elinewidth=1, capsize=3)
+        ax2.plot(df_z_mean.index, df_z_mean.area, color='darkgreen', alpha=0.25)
+        ax2.set_ylabel(r'$A_{p}$ $(pixels^2)$', color='darkgreen')
+        ax2.set_ylim([0, 1500])
+
+    elif second_plot == 'solidity':
+        ax2 = ax.twinx()
+        ax2.errorbar(x=df_z_mean.index, y=df_z_mean.solidity, yerr=df_z_std.solidity*2, fmt='o', color='darkgreen', ecolor='limegreen', elinewidth=1, capsize=3)
+        ax2.plot(df_z_mean.index, df_z_mean.solidity, color='darkgreen', alpha=0.25)
+        ax2.set_ylabel(r'$Solidity$ $(\%)$', color='darkgreen')
+        ax2.set_ylim([0.8, 1.0125])
+
+    elif second_plot == 'percent_measured':
+        per_measured_particles = []
+        for ind in df_z_count.index:
+            per_measured_particles.append([ind, df_z_count['z'][ind] / df_z_mean['img_num_particles'][ind]])
+        percent_measured_particles = np.array(per_measured_particles, dtype=float)
+
+        ax2 = ax.twinx()
+        ax2.scatter(percent_measured_particles[:, 0], percent_measured_particles[:, 1], color='darkgreen')
+        ax2.plot(percent_measured_particles[:, 0], percent_measured_particles[:, 1], color='darkgreen', alpha=0.25)
+        ax2.set_ylabel(r'$Measured$ $Particles$ $(\%)$', color='darkgreen')
+        ax2.set_ylim([0.8, 1.0125])
+
+    plt.tight_layout
+
+    return fig
+
 
 def plot_tensor_dset(dset, N):
     n_images = N

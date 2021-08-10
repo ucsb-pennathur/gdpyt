@@ -1,10 +1,20 @@
 import cv2
+
 import numpy as np
+import numpy.ma as ma
+
+from skimage.draw import rectangle_perimeter
+
 import pandas as pd
+
+
+from matplotlib import pyplot as plt
+
+from .particle_identification import apply_threshold
 
 class GdpytParticle(object):
 
-    def __init__(self, image_raw, image_filt, id_, contour, bbox):
+    def __init__(self, image_raw, image_filt, id_, contour, bbox, thresh_specs=None):
         super(GdpytParticle, self).__init__()
         self._id = id_
         assert isinstance(image_raw, np.ndarray)
@@ -15,6 +25,7 @@ class GdpytParticle(object):
         self._bbox = bbox
         self._compute_center()
         self._compute_convex_hull()
+        self._compute_local_snr(thresh_specs=thresh_specs)
         self._similarity_curve = None
         self._interpolation_curve = None
         self._z = None
@@ -29,6 +40,7 @@ class GdpytParticle(object):
                      'Bounding box dimensions': [self.bbox[2], self.bbox[3]],
                      'Area': self.area,
                      'Solidity': self.solidity,
+                     'SNR': self.snr,
                      'Z coordinate': self.z}
         out_str = "{}: {} \n".format(class_, self.id)
         for key, val in repr_dict.items():
@@ -66,9 +78,26 @@ class GdpytParticle(object):
 
         if (pad_x == (0, 0)) and (pad_y == (0, 0)):
             template = image[y: y + h, x: x + w]
+            jjj = np.squeeze(self.contour)
+            self.template_contour = np.array([jjj[:,0]-y, jjj[:,1]-x]).T
         else:
             template = np.pad(image[y: y + h, x: x + w].astype(np.float), (pad_y, pad_x),
                                     'constant', constant_values=np.nan)
+
+        """        
+        fig, ax = plt.subplots(ncols=2)
+        rr, cc = rectangle_perimeter(start=(x, y), end=( x + w, y + h), shape=self._image_raw.shape)
+        img = np.zeros_like(self._image_raw, dtype=np.uint16)
+        img[rr, cc] = 2**15
+        ax[0].imshow(self._image_raw, cmap='gray', alpha=0.95)
+        ax[0].imshow(img, cmap='Reds', alpha=0.5)
+        jj = np.squeeze(self.contour)
+        ax[0].plot(jj[:,0], jj[:,1], color='blue', linewidth=1)
+        ax[1].imshow(template, cmap='gray')
+        ax[1].plot(template_contour[:, 1], template_contour[:, 0], color='blue', linewidth=1)
+        ax[0].set_title('hahahah')
+        plt.show()"""
+
         assert template.shape == (h0, w0)
         return template
 
@@ -85,11 +114,35 @@ class GdpytParticle(object):
         cY = int(M["m01"] / M["m00"])
         self._set_location((cX, cY))
 
-    #def _compute_local_snr(self):
-    #    mask = np.zeros_like(self._image_raw)
-    #    cv2.drawContours(mask, self.contour, -1, 255, -1)
-    #    mean_p_raw = self._image_raw[mask != 0].mean()
-    #    bckr_raw = self._image_raw[self.bbox[1]:self.bbox[1] + self.bbox[3], self.bbox[0]
+    def _compute_local_snr(self, thresh_specs):
+        #mask = np.zeros_like(self._image_raw)
+        #cv2.drawContours(mask, self.contour, -1, 255, -1)
+        #mean_p_raw = self._image_raw[mask != 0].mean()
+        #bckr_raw = self._image_raw[self.bbox[1]:self.bbox[1] + self.bbox[3], self.bbox[0]
+
+        img_f = self.template
+        img_f_bkg = img_f.copy()
+
+        particle_mask = apply_threshold(img_f, parameter=thresh_specs).astype(np.uint8)
+        background_mask = particle_mask.astype(bool)
+
+        # apply background mask to get background
+        img_f_mask_inv = ma.masked_array(img_f, mask=particle_mask)
+
+        # apply particle mask to get signal
+        particle_mask = np.logical_not(background_mask).astype(bool)
+        img_f_mask = ma.masked_array(img_f_bkg, mask=particle_mask)
+
+        # calculate SNR for filtered image
+        mean_signal_f = img_f_mask.mean()
+        mean_background_f = img_f_mask_inv.mean()
+        std_background_f = img_f_mask_inv.std()
+        snr_filtered = (mean_signal_f - mean_background_f) / std_background_f
+
+        self._snr = snr_filtered
+
+
+
     def _dilated_bbox(self, dilation=None, dims=None):
         if dims is None:
             w, h = self.bbox[2], self.bbox[3]
@@ -123,6 +176,11 @@ class GdpytParticle(object):
     def _set_location(self, location):
         assert len(location) == 2
         self._location = location
+
+    def _set_location_true(self, x, y, z):
+        self._x_true = x
+        self._y_true = y
+        self._z_true = z
 
     def get_template(self, dilation=None, resize=None):
         if dilation is None and resize is None:
@@ -208,12 +266,28 @@ class GdpytParticle(object):
         return self._location
 
     @property
+    def x_true(self):
+        return self._x_true
+
+    @property
+    def y_true(self):
+        return self._y_true
+
+    @property
+    def z_true(self):
+        return self._z_true
+
+    @property
     def max_sim(self):
         return self._max_sim
 
     @property
     def solidity(self):
         return self._solidity
+
+    @property
+    def snr(self):
+        return self._snr
 
     @property
     def similarity_curve(self):

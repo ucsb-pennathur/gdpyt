@@ -18,16 +18,22 @@ class GdpytImageCollection(object):
 
     def __init__(self, folder, filetype, crop_specs=None, processing_specs=None, thresholding_specs=None,
                  background_subtraction=None, min_particle_size=None, max_particle_size=None,
-                 shape_tol=0.2, overlap_threshold=0.3, exclude=[], subset=[]):
+                 shape_tol=0.2, overlap_threshold=0.3, exclude=[], subset=[], folder_ground_truth=None):
         super(GdpytImageCollection, self).__init__()
         if not isdir(folder):
             raise ValueError("Specified folder {} does not exist".format(folder))
         
         self._folder = folder
+        self._folder_ground_truth = folder_ground_truth
         self._filetype = filetype
+
         if len(subset) > 0:
             self._get_exclusion_subset(exclude=exclude, subset=subset)
         self._find_files(exclude=exclude)
+
+        if folder_ground_truth is not None:
+            self._find_files_ground_truth(exclude=exclude)
+
         self._add_images()
 
         # Define the cropping done on all the images in this collection
@@ -71,6 +77,10 @@ class GdpytImageCollection(object):
 
         self.filter_images()
         self.identify_particles()
+
+        if folder_ground_truth is not None:
+            self.identify_particles_ground_truth()
+
         #self.uniformize_particle_ids()
 
     def __len__(self):
@@ -146,25 +156,24 @@ class GdpytImageCollection(object):
             "Found {} files with filetype {} in folder {}".format(len(save_files), self.filetype, self.folder))
         # Save all the files of the right filetype in this attribute
         self._files = save_files
-        # img_index = []
-        # for i in save_files:
-        #     # "calib_20.tif"
-        #     ii = re.search('_(.*).tif', i).group(1)
-        #     if "_" in ii:
-        #         # "chip1test1_....run_20.tif"
-        #         ii = ii[-3:]
-        #         if "_" in ii:
-        #             iii = re.search('_(.*)', ii).group(1)
-        #             ii = iii
-        #     ii = int(ii)
-        #
-        #     img_index.append(ii)
-        #
-        # zipped_lists = zip(img_index, save_files)
-        # sorted_pairs = sorted(zipped_lists)
-        # tuples = zip(*sorted_pairs)
-        # list1, list2 = [ list(tuple) for tuple in tuples]
-        # self._files = list2
+
+    def _find_files_ground_truth(self, exclude=[]):
+        if self._folder_ground_truth == 'standard_gdpt':
+            logger.warning("Using standard GDPT particle locations: [29, 29]")
+            self._files_ground_truth = None
+        else:
+            all_files = listdir(self._folder_ground_truth)
+            save_files = []
+            for file in all_files:
+                if file.endswith('.txt'):
+                    if file in exclude:
+                        continue
+                    save_files.append(file)
+
+            logger.warning(
+                "Found {} files with filetype {} in ground truth folder {}".format(len(save_files), '.txt', self._folder_ground_truth))
+            # Save all the files of the right filetype in this attribute
+            self._files_ground_truth = save_files
 
 
     def create_calibration(self, name_to_z, exclude=[], dilate=True):
@@ -196,7 +205,7 @@ class GdpytImageCollection(object):
         background_mean = np.divide(background_add, len(self.images))
 
         # compute percentile limits
-        vmin, vmax = np.percentile(background_mean, q=(0.5, 99.95))  # clip the bottom 0.5% and top 0.05% intensities
+        vmin, vmax = np.percentile(background_mean, q=(0.005, 99.995))  # clip the bottom 0.005% and top 0.005% intensities
 
         # --- compute the minimum pixel intensity across all images ---
         background_img = np.ones((sizey, sizex), dtype=np.uint16) * 2 ** 16
@@ -229,6 +238,35 @@ class GdpytImageCollection(object):
                                      shape_tol=self._shape_tol, overlap_threshold=self._overlap_threshold)
             logger.info("Identified {} particles on image {}".format(len(image.particles), image.filename))
 
+    def identify_particles_ground_truth(self):
+
+        if self._folder_ground_truth == 'standard_gdpt':
+            for image in self.images.values():
+                for p in image.particles:
+                    x_true = 29
+                    y_true = 29
+                    N_cal = len(self.images)
+                    z_filename = float(image.filename.split('B00')[-1].split('.')[0])
+                    z_measurement_volume = 86.0
+                    z_true = z_filename/N_cal
+                    # measurement volume = 86 microns
+                    p._set_location_true(x=x_true, y=y_true, z=z_true)
+
+        else:
+            for image in self.images.values():
+                filename = image.filename[:-4]
+                ground_truth = np.loadtxt(join(self._folder_ground_truth, filename + '.txt'))
+                ground_truth_xyz = ground_truth[:, 0:3]
+
+                for p in image.particles:
+                    neigh = NearestNeighbors(n_neighbors=1)
+                    neigh.fit(ground_truth_xyz[:, 0:2])
+                    result = neigh.kneighbors([p.location])
+                    x_true = ground_truth_xyz[result[1][0][0]][0]
+                    y_true = ground_truth_xyz[result[1][0][0]][1]
+                    z_true = ground_truth_xyz[result[1][0][0]][2]
+                    p._set_location_true(x=x_true, y=y_true, z=z_true)
+
     def is_infered(self):
         """ Checks if the z coordinate has been inferred for the images in this collection. Only returns true if that's
         true for all the images. """
@@ -254,6 +292,14 @@ class GdpytImageCollection(object):
 
     def plot_particle_coordinate(self, coordinate='z', sort_images=None, particle_ids=None):
         fig = plot_particle_coordinate(self, coordinate=coordinate, sort_images=sort_images, particle_id=particle_ids)
+        return fig
+
+    def plot_particle_coordinate_calibration(self, measurement_volume=None):
+        fig = plot_particle_coordinate_calibration(self, measurement_volume=measurement_volume)
+        return fig
+
+    def plot_particle_snr_and(self, second_plot='area'):
+        fig = plot_particle_snr_and(self, second_plot=second_plot)
         return fig
 
     def plot_animated_surface(self, sort_images=None, fps=10, save_as=None):
@@ -379,6 +425,58 @@ class GdpytImageCollection(object):
             self._max_particle_size = max
 
         self.identify_particles()
+
+    def calculate_image_stats(self):
+        stats = {
+            'mean_snr_filtered': np.mean(self.image_stats.snr_filtered),
+            'mean_signal': np.mean(self.image_stats.mean_signal),
+            'mean_background': np.mean(self.image_stats.mean_background),
+            'std_background': np.mean(self.image_stats.std_background),
+            'mean_particle_density': np.mean(self.image_stats.particle_density),
+            'mean_pixel_density': np.mean(self.image_stats.pixel_density),
+        }
+        return stats
+
+    def calculate_rmse_uncertainty(self):
+
+        coords = []
+        identified_particles = 0
+        for img in self.images.values():
+
+            # sum all particles that were identified in all images in the collection
+            identified_particles += len(img.particles)
+
+            # only append coordinates with a valid z-coordinate
+            [coords.append([p.id, p.location[0], p.location[1], p.z, p.x_true, p.y_true, p.z_true]) for p in
+             img.particles if p.z is not None and np.isnan(p.z) == False]
+
+        df = pd.DataFrame(data=coords, columns=['id', 'x', 'y', 'z', 'true_x', 'true_y', 'true_z'])
+
+        # number of particles with a valid z-coordinate measurement
+        measured_z_particles = len(df.z)
+        percent_measured_particles = measured_z_particles / identified_particles * 100
+
+        # distance from true x-y position
+        df['dist'] = np.sqrt((df['true_x'] - df['x']) ** 2 + (df['true_y'] - df['y']) ** 2)
+
+        # measurement error
+        df['square_error_x'] = (df['true_x'] - df['x']) ** 2
+        df['square_error_y'] = (df['true_y'] - df['y']) ** 2
+        df['square_error_z'] = (df['true_z'] - df['z']) ** 2
+
+        # root mean square error
+        rmse_x = np.sqrt(df.square_error_x.sum() / measured_z_particles)
+        rmse_y = np.sqrt(df.square_error_y.sum() / measured_z_particles)
+        rmse_xy = np.sqrt(rmse_x ** 2 + rmse_y ** 2)
+        rmse_z = np.sqrt(df.square_error_z.sum() / measured_z_particles)
+
+        rmse_uncertainty = {
+            'mean_rmse_xy_uncertainty': rmse_xy,
+            'mean_rmse_z_uncertainty': rmse_z,
+            'percent_measured_particles': percent_measured_particles,
+        }
+
+        return rmse_uncertainty
 
     @property
     def folder(self):

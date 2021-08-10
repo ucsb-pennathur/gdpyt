@@ -50,7 +50,7 @@ collection = GdpytImageCollection(folder, filetype,
                                   processing_specs=processing,
                                   thresholding_specs=threshold,
                                   min_particle_size=4, shape_tol=0.4, overlap_threshold=0.8,
-                                  subset=[base_string, 5, 10], exclude=[])
+                                  exclude=[])
 #img = collection.images[0]
 img = collection.images['calib_5.tif']
 

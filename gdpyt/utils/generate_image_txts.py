@@ -130,7 +130,7 @@ def generate_grid_calibration(settings_file, grid, z_levels, particle_diameter=2
 def _generate_grid_coordinates(grid, imshape, z=None):
     assert len(imshape) == 2
 
-    # Particle gird
+    # Particle grid
     xtot, ytot = imshape
     n_x, n_y = grid
     n_particles = n_x * n_y
@@ -181,11 +181,3 @@ def _append_particle_diam(coords, particle_diameter):
 
 if __name__ == '__main__':
    pass
-
-
-
-
-
-
-
-

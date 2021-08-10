@@ -3,10 +3,11 @@ import matplotlib.pyplot as plt
 import cv2
 import numpy as np
 
-folder = r'C:\Users\silus\UCSB\master_thesis\python_stuff\gdpyt\tests\test_synthetic\DS_Grid_Gaussian_N50_Sigma20\calibration_images'
+#folder = r'C:\Users\silus\UCSB\master_thesis\python_stuff\gdpyt\tests\test_synthetic\DS_Grid_Gaussian_N50_Sigma20\calibration_images'
+folder = r'/Users/mackenzie/Desktop/gdpyt-tests/synthetic/calibration_images'
 filetype = '.tif'
 processing = {
-    'cv2.GaussianBlur': {'args': [(11, 11), 5]}}
+    'gaussian': {'args': [], 'kwargs': dict(sigma=0.5, preserve_range=True)}}
    # 'cv2.medianBlur': {'args': [9]},
    # 'cv2.bilateralFilter': {'args': [9, 13, 15]}}
 

@@ -1,10 +1,16 @@
 import cv2
+from matplotlib import pyplot as plt
+
 from skimage import io
 from skimage.filters import median, gaussian
 from skimage.morphology import disk, white_tophat
 from skimage.filters.rank import mean_bilateral
 from skimage.exposure import equalize_adapthist
+from skimage.feature import blob_log
+from skimage.draw import rectangle_perimeter
+
 import numpy as np
+import numpy.ma as ma
 import pandas as pd
 from .particle_identification import apply_threshold, identify_contours, identify_circles, merge_particles
 from .GdpytParticle import GdpytParticle
@@ -66,8 +72,8 @@ class GdpytImage(object):
             out_str += '{}: {} \n'.format(key, str(val))
         return out_str
 
-    def _add_particle(self, id_, contour, bbox):
-        self._particles.append(GdpytParticle(self._raw, self._filtered, id_, contour, bbox))
+    def _add_particle(self, id_, contour, bbox, thresh_specs=None):
+        self._particles.append(GdpytParticle(self._raw, self._filtered, id_, contour, bbox, thresh_specs=thresh_specs))
 
     def _update_processing_stats(self, names, values):
         if not isinstance(names, list):
@@ -187,7 +193,7 @@ class GdpytImage(object):
 
         return ret_particle
 
-    def identify_particles(self, thresh_specs, min_size=None, max_size=None, shape_tol=0.1, overlap_threshold=0.3):
+    def identify_particles(self, thresh_specs, min_size=None, max_size=None, shape_tol=0.1, overlap_threshold=0.3, padding=3):
         if shape_tol is not None:
             assert 0 < shape_tol < 1
         particle_mask = apply_threshold(self.filtered, parameter=thresh_specs).astype(np.uint8)
@@ -197,6 +203,22 @@ class GdpytImage(object):
         logger.debug("{} contours in thresholded image".format(len(contours)))
         contours, bboxes = self.merge_overlapping_particles(contours, bboxes, overlap_thresh=overlap_threshold)
         logger.debug("{} contours in thresholded image after merging of overlapping".format(len(contours)))
+
+        """
+        x, y, w, h = bboxes[0]
+        rr, cc = rectangle_perimeter(start=(y, x), end=(y + h, x + w), shape=self.raw.shape)
+        img = np.zeros_like(self.raw, dtype=np.uint16)
+        img[rr, cc] = 2**15
+        jj = np.squeeze(contours)
+        fig, ax = plt.subplots(ncols=2)
+        ax[0].imshow(img, cmap='gray')
+        ax[0].plot(jj[:,0], jj[:,1], color='blue', linewidth=1)
+        ax[0].imshow(self.raw, cmap='Reds', alpha=0.5)
+        template = self.raw[y: y + h, x: x + w]
+        ax[1].imshow(template, cmap='gray')
+        ax[1].set_title('title')
+        plt.show()
+        """
 
         id_ = 0
         # Sort contours and bboxes by x-coordinate:
@@ -232,31 +254,75 @@ class GdpytImage(object):
                     skipped_cnts.append(contour)
                     continue
 
+            # pad the bounding box to ensure the entire particle is captured
+            bbox = [bbox[0] - padding, bbox[1] - padding, bbox[2] + padding * 2, bbox[3] + padding * 2]
+
             # Add particle
-            self._add_particle(id_, contour, bbox)
+            self._add_particle(id_, contour, bbox, thresh_specs)
             id_ += 1
 
         # Fill in areas of the skipped particles in the particle mask
         #for i in range(len(skipped_cnts)):
             #cv2.drawContours(particle_mask, skipped_cnts, i, color=0, thickness=-1)
 
-        particle_mask = particle_mask.astype(bool)
+        background_mask = particle_mask.astype(bool)
         # masked_img = cv2.bitwise_and(self.filtered, self.filtered, mask=particle_mask)
 
-        # Inverse of the particle area
-        inv_mask = particle_mask != 0
+        # copy image numpy arrays for manipulation while perserving the original data
+        img_f = self.filtered.copy()
+        img_r = self.raw.copy()
+        img_f_bkg = self.filtered.copy()
+        img_r_bkg = self.raw.copy()
 
-        # Calculate SNR + Particle image density
-        mean_bckgr_r = self.raw[inv_mask].mean()
-        mean_bckgr_filt = self.filtered[inv_mask].mean()
-        sigma_bckgr = self.raw[inv_mask].std()
-        sigma_bckgr_f = self.filtered[inv_mask].std()
-        snr_filt = (self.filtered[particle_mask].mean() - mean_bckgr_filt)/ self.filtered[inv_mask].std()
-        snr_raw = (self.raw[particle_mask].mean() - mean_bckgr_r) / self.raw[inv_mask].std()
-        p_density = particle_mask.sum() / particle_mask.size
+        # apply background mask to get background
+        img_f_mask_inv = ma.masked_array(img_f, mask=particle_mask)
+        img_r_mask_inv = ma.masked_array(img_r, mask=particle_mask)
 
-        self._update_processing_stats(['mean_bckgr_r', 'mean_bckgr_f', 'sigma_bckgr_r', 'sigma_bckgr_f', 'snr_r', 'snr_f', 'rho_p'],
-                                      [mean_bckgr_r, mean_bckgr_filt, sigma_bckgr, sigma_bckgr_f, snr_raw, snr_filt, p_density])
+        # apply particle mask to get signal
+        particle_mask = np.logical_not(background_mask).astype(bool)
+        img_f_mask = ma.masked_array(img_f_bkg, mask=particle_mask)
+        img_r_mask = ma.masked_array(img_r_bkg, mask=particle_mask)
+
+        # calculate SNR for raw image
+        mean_signal_r = img_r_mask.mean()
+        mean_background_r = img_r_mask_inv.mean()
+        std_background_r = img_r_mask_inv.std()
+        snr_raw = (mean_signal_r - mean_background_r) / std_background_r
+
+        # calculate SNR for filtered image
+        mean_signal_f = img_f_mask.mean()
+        mean_background_f = img_f_mask_inv.mean()
+        std_background_f = img_f_mask_inv.std()
+        snr_filtered = (mean_signal_f - mean_background_f) / std_background_f
+        """
+        Signal-to-noise ratio (Barnkob & Rossi 2020): SNR = mean particle image signal / standard deviation of noise
+        """
+
+        # calculate pixel density (# of pixels in particles / # of pixels in image) for filtered image
+        pixel_density = background_mask.sum() / background_mask.size
+        """
+        Particle image density (Barnkob & Rossi 2020): Density = sum of particle image areas / full image area
+        """
+
+        # calculate particle density (# of particles / # of pixels in image) for filtered image
+        if self.particles:
+            num_particles = len(self.particles)
+            particle_density = num_particles / background_mask.size
+        else:
+            smoothed_particle_mask = gaussian(background_mask, sigma=1, preserve_range=False)
+            blobs_in_mask = blob_log(smoothed_particle_mask, min_sigma=2, max_sigma=50, num_sigma=5, threshold=0.1)
+            particle_density = len(blobs_in_mask) / background_mask.size
+
+        """
+        If you want to plot the particle/background images
+            NOTE - you must use interpolation='none' in order to properly see the image.
+        fig, ax = plt.subplots(ncols=2)
+        ax[0].imshow(img_f_mask, cmap='gray', interpolation='none')
+        ax[1].imshow(img_f_mask_inv, cmap='gray', interpolation='none')
+        plt.show()
+        """
+        self._update_processing_stats(['mean_signal', 'mean_background', 'std_background', 'snr_filtered', 'pixel_density', 'particle_density'],
+                                      [mean_signal_f, mean_background_f, std_background_f, snr_filtered, pixel_density, particle_density])
 
     def is_infered(self):
         return all([particle.z is not None for particle in self.particles])

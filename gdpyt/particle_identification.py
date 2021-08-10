@@ -16,13 +16,13 @@ def apply_threshold(img, parameter, invert=False):
                          "supplementary arguments for that function as a value")
 
     method = list(parameter.keys())[0]
-    if method not in ['none', 'otsu', 'multiotsu', 'local', 'min', 'mean', 'manual', 'triangle', 'manual_smoothing',
-                     'li', 'niblack', 'sauvola']:
+    if method not in ['none', 'otsu', 'multiotsu', 'local', 'min', 'mean', 'mean_percent', 'median', 'median_percent',
+                      'manual', 'triangle', 'manual_smoothing', 'li', 'niblack', 'sauvola']:
         raise ValueError("method must be one of ['none', otsu', 'multiotsu', 'local', 'min',"
                          " 'manual', 'triangle', 'manual_smoothing', 'li', 'niblack', 'sauvola']")
 
     if method in ['manual', 'manual_smoothing']:
-        manual_initial_guess = np.round(img.mean() + img.std() * parameter[method][2], 0)
+        manual_initial_guess = np.round(img.mean() + np.std(img) * parameter[method][0], 0)
         print("initial threshold guess: " + str(manual_initial_guess))
 
     if method == 'none':
@@ -38,6 +38,15 @@ def apply_threshold(img, parameter, invert=False):
         #thresh_img = img > thresh_val[-1]               # original
     elif method == 'mean':
         thresh_val = threshold_mean(img)
+        thresh_img = img > thresh_val
+    elif method == 'mean_percent':
+        thresh_val = threshold_mean(img) + threshold_mean(img) * parameter[method][0]
+        thresh_img = img > thresh_val
+    elif method == 'median':
+        thresh_val = np.median(img)
+        thresh_img = img > thresh_val
+    elif method == 'median_percent':
+        thresh_val = np.median(img) + np.median(img) * parameter[method][0]
         thresh_img = img > thresh_val
     elif method == 'min':
         thresh_val = threshold_minimum(img)
@@ -134,5 +143,3 @@ def merge_particles(particles):
     new_bbox = cv2.boundingRect(new_contour)
 
     return new_contour, new_bbox
-
-

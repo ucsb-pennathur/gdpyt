@@ -151,8 +151,8 @@ class GdpytCalibrationStack(object):
             logger.info("Cm of {:.2f} below thresh. of {:.2f} for particle ".format(sim[max_idx], min_cm, particle.id))
             particle.set_z(np.nan)
 
-    def plot(self, z=None, draw_contours=True):
-        fig = plot_calib_stack(self, z=z, draw_contours=draw_contours)
+    def plot(self, z=None, draw_contours=True, imgs_per_row=5, fig=None, ax=None):
+        fig = plot_calib_stack(self, z=z, draw_contours=draw_contours, imgs_per_row=imgs_per_row, fig=fig, axes=ax)
         return fig
 
     def reset_id(self, new_id):
@@ -188,6 +188,32 @@ class GdpytCalibrationStack(object):
         self._layers = new_layers
         self._zero = z_zero
         logger.info("Zeroing calibration stack {}. Found in-focus z position at {}".format(self.id, z_zero))
+
+    def calculate_stats(self, true_num_particles=None, measurement_volume=None):
+        snrs = []
+        areas = []
+        for p in self.particles:
+            snrs.append(p.snr)
+            areas.append(p.area)
+
+        if true_num_particles is not None and measurement_volume is not None:
+            stats = {
+                'percent_particles_idd': len(self.particles) / true_num_particles * 100,
+                'measurement_volume': measurement_volume,
+                'avg_snr': np.mean(snrs),
+                'avg_area': np.mean(areas),
+                'min_particle_size': np.sqrt(np.min(areas) * 4 / np.pi),
+                'max_particle_size': np.sqrt(np.max(areas) * 4 / np.pi),
+            }
+        else:
+            stats = {
+                'num_particles': len(self.particles),
+                'avg_snr': np.mean(snrs),
+                'avg_area': np.mean(areas),
+                'min_particle_size': np.sqrt(np.min(areas) * 4 / np.pi),
+                'max_particle_size': np.sqrt(np.max(areas) * 4 / np.pi),
+            }
+        return stats
 
     @property
     def id(self):
