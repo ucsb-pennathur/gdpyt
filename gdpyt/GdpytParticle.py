@@ -25,13 +25,15 @@ class GdpytParticle(object):
         self._bbox = bbox
         self._compute_center()
         self._compute_convex_hull()
-        self._compute_local_snr(thresh_specs=thresh_specs)
         self._similarity_curve = None
         self._interpolation_curve = None
         self._z = None
         self._z_default = None
         self._max_sim = None
         self._use_raw = True
+
+        if thresh_specs is not None:
+            self._compute_local_snr(thresh_specs=thresh_specs)
 
     def __repr__(self):
         class_ = 'GdpytParticle'
@@ -227,6 +229,10 @@ class GdpytParticle(object):
         if self._z_default is None:
             self._z_default = z
 
+    def set_cm(self, c_measured):
+        assert isinstance(c_measured, float)
+        self._cm = c_measured
+
     def set_id(self, id_):
         self._id = id_
 
@@ -276,6 +282,10 @@ class GdpytParticle(object):
     @property
     def z_true(self):
         return self._z_true
+
+    @property
+    def cm(self):
+        return self._cm
 
     @property
     def max_sim(self):

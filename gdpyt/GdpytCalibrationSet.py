@@ -58,7 +58,10 @@ class GdpytCalibrationSet(object):
         ids_in_collects = []
         for i, collection in enumerate(collections):
             if dilate:
-                dilation = sqrt(collection.shape_tol + 1)
+                if isinstance(dilate, float) or isinstance(dilate, int):
+                    dilation = dilate
+                else:
+                    dilation = sqrt(collection.shape_tol + 1)
             else:
                 dilation = None
             if i != 0:
@@ -78,8 +81,9 @@ class GdpytCalibrationSet(object):
 
                         if particle.id not in stacks.keys():
                             new_stack = GdpytCalibrationStack(particle.id, particle.location, dilation=dilation)
-                            # For the calibration stack that is used for the conventional method use the filtered template
-                            particle.use_raw(False)
+                            # cross-correlation-based calibration stacks: use filtered image (i.e. stacks_use_raw=False)
+                            # neural-network-based calibration stacks: use raw image (i.e. stacks_use_raw=True)
+                            particle.use_raw(collection.stacks_use_raw)
                             new_stack.add_particle(particle)
                             stacks.update({particle.id: new_stack})
                         else:
@@ -105,8 +109,8 @@ class GdpytCalibrationSet(object):
     #
     #             stack.fill_levels(missing_levels)
 
-    def infer_z(self, infer_collection):
-        return GdpytImageInference(infer_collection, self)
+    def infer_z(self, infer_collection, infer_sub_image=True):
+        return GdpytImageInference(infer_collection, self, infer_sub_image=infer_sub_image)
 
     def train_cnn(self, epochs, cost_func, normalize_dataset=True, normalize_per_sample=False,
                   transforms=[Resize(180), ToTensor()], aux_logits=None,
@@ -196,10 +200,11 @@ class GdpytCalibrationSet(object):
 
 class GdpytImageInference(object):
 
-    def __init__(self, infer_collection, calib_set):
+    def __init__(self, infer_collection, calib_set, infer_sub_image):
         self.collection = infer_collection
         assert isinstance(calib_set, GdpytCalibrationSet)
         self.calib_set = calib_set
+        self._infer_sub_image = infer_sub_image
 
     def _cross_correlation_inference(self, function, use_stack=None, min_cm=0):
         logger.warning('cc inference min_cm {}'.format(min_cm))
@@ -210,12 +215,14 @@ class GdpytImageInference(object):
             logger.info("Infering image {}".format(image.filename))
             for particle in image.particles:
                 if use_stack is None:
-                    stack = self.calib_set.calibration_stacks[particle.id]
+                    if particle.id < len(self.calib_set.calibration_stacks):
+                        stack = self.calib_set.calibration_stacks[particle.id]
+                    else:
+                        stack = self.calib_set.calibration_stacks[0]
                 else:
                     stack = self.calib_set.calibration_stacks[use_stack]
-                # Filtered templates are used for correlation calculations
-                particle.use_raw(False)
-                stack.infer_z(particle, function=function, min_cm=min_cm)
+
+                stack.infer_z(particle, function=function, min_cm=min_cm, infer_sub_image=self._infer_sub_image) # Filtered templates are used for correlation calculations
 
     def ccorr(self, use_stack=None, min_cm=0):
         self._cross_correlation_inference('ccorr', use_stack=use_stack, min_cm=min_cm)
@@ -263,3 +270,7 @@ class GdpytImageInference(object):
             if isinstance(pred, tuple):
                 pred = pred[0]
             predict_dset.set_sample_z(None, pred)
+
+    @property
+    def infer_sub_image(self):
+        return self._infer_sub_image

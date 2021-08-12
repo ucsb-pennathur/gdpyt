@@ -1,3 +1,5 @@
+from matplotlib import pyplot as plt
+
 from .GdpytParticle import GdpytParticle
 from collections import OrderedDict
 from gdpyt.utils.plotting import plot_calib_stack
@@ -76,7 +78,10 @@ class GdpytCalibrationStack(object):
             z.append(particle.z)
             templates.append(particle.get_template(dilation=self._template_dilation))
 
-        self._stats = {'mean': np.array(templates).mean(), 'std': np.array(templates).std()}
+        self._stats = {'max': np.array(templates).max(),
+                       'mean': np.array(templates).mean(),
+                       'std': np.array(templates).std(),
+                       } # TODO: include better stats for CalibrationStack
 
         layers = OrderedDict()
         for z, template in sorted(zip(z, templates), key=lambda k: k[0]):
@@ -97,7 +102,7 @@ class GdpytCalibrationStack(object):
                         return_layers.update({key, item})
                 return return_layers
 
-    def infer_z(self, particle, function='ccorr', min_cm=0):
+    def infer_z(self, particle, function='ccorr', min_cm=0, infer_sub_image=True):
         assert 0 <= min_cm <= 1
         logger.info("Infering particle {}".format(particle.id))
         if function.lower() == 'ccorr':
@@ -139,20 +144,25 @@ class GdpytCalibrationStack(object):
             sim.append(sim_func(c_temp, particle.template))
         sim = np.array(sim)
         max_idx = optim(sim)
-        z_interp, sim_interp = akima_interpolation(z_calib, sim, max_idx)
-        # Use optimization function to find optimum z and similarity
+        particle.set_cm(sim[max_idx])
 
-        if sim[max_idx] > min_cm:
+        if sim[max_idx] > min_cm and infer_sub_image is False:
+            particle.set_z(z_calib[optim(sim)])
+            particle.set_max_sim(sim[max_idx])
+            particle.set_similarity_curve(z_calib, sim, label_suffix=function+'_subimageOFF')
+        elif sim[max_idx] > min_cm and infer_sub_image is True:
+            z_interp, sim_interp = akima_interpolation(z_calib, sim, max_idx) # Use optimization function to find optimum z and similarity
             particle.set_z(z_interp[optim(sim_interp)])
-            particle.set_max_sim(sim[max_idx])#()sim_interp[optim(sim_interp)])
-            particle.set_similarity_curve(z_calib, sim, label_suffix=function)
-            particle.set_interpolation_curve(z_interp, sim_interp, label_suffix=function)
+            particle.set_max_sim(sim_interp[optim(sim_interp)])
+            particle.set_similarity_curve(z_calib, sim, label_suffix=function+'_subimageOFF')
+            particle.set_interpolation_curve(z_interp, sim_interp, label_suffix=function+'_subimageON')
         else:
             logger.info("Cm of {:.2f} below thresh. of {:.2f} for particle ".format(sim[max_idx], min_cm, particle.id))
             particle.set_z(np.nan)
 
-    def plot(self, z=None, draw_contours=True, imgs_per_row=5, fig=None, ax=None):
-        fig = plot_calib_stack(self, z=z, draw_contours=draw_contours, imgs_per_row=imgs_per_row, fig=fig, axes=ax)
+
+    def plot(self, z=None, draw_contours=True, fill_contours=False, imgs_per_row=5, fig=None, ax=None, format_string=False):
+        fig = plot_calib_stack(self, z=z, draw_contours=draw_contours, fill_contours=fill_contours, imgs_per_row=imgs_per_row, fig=fig, axes=ax, format_string=format_string)
         return fig
 
     def reset_id(self, new_id):
@@ -172,10 +182,31 @@ class GdpytCalibrationStack(object):
         zl, zh = (min(zs), max(zs))
         if len(zs) > 3 and len(areas) > 3:
             akima_poly = Akima1DInterpolator(zs, areas)
-            z_interp = np.linspace(zl, zh, 200)
+            z_interp = np.linspace(zl, zh, 500) # Note: 500 was chosen because it yielded the best results: 8/11/2021
             z_zero = z_interp[np.argmin(akima_poly(z_interp))]
+
+            # code for testing which interpolation is best for sub-image resolution
+            """
+            fig, ax = plt.subplots()
+            ax.plot(z_interp, akima_poly(z_interp), label='akima min: {}'.format(z_zero))
+            order = [9, 11, 15]
+            for o in order:
+                z_poly = np.polyfit(zs, areas, o)
+                z_p = np.poly1d(z_poly)
+                z_zero_poly = z_interp[np.argmin(z_p(z_interp))]
+                ax.plot(z_interp, z_p(z_interp), label='{} poly min: {}'.format(o, z_zero_poly))
+            ax.scatter(zs, areas, color='black', label='contour area')
+            ax.set_xlabel('z/h')
+            ax.set_ylabel(r'$A_p$ ($pixles^2$)')
+            ax.set_title(r'$GdpytCalibrationStack$.zero_stacks')
+            ax.legend(fontsize=8)
+            plt.show()
+            """
+
         else:
             z_zero = zs[np.argmin(areas)]
+
+        z_zero = np.around(z_zero, decimals=3)
 
         # Add offset to layers and particles:
         for p in self.particles:
@@ -190,6 +221,17 @@ class GdpytCalibrationStack(object):
         logger.info("Zeroing calibration stack {}. Found in-focus z position at {}".format(self.id, z_zero))
 
     def calculate_stats(self, true_num_particles=None, measurement_volume=None):
+        """
+
+        Parameters
+        ----------
+        true_num_particles: the TRUE total number of particles across all images
+        measurement_volume:
+
+        Returns
+        -------
+
+        """
         snrs = []
         areas = []
         for p in self.particles:
@@ -202,16 +244,20 @@ class GdpytCalibrationStack(object):
                 'measurement_volume': measurement_volume,
                 'avg_snr': np.mean(snrs),
                 'avg_area': np.mean(areas),
-                'min_particle_size': np.sqrt(np.min(areas) * 4 / np.pi),
-                'max_particle_size': np.sqrt(np.max(areas) * 4 / np.pi),
+                'min_particle_area': np.min(areas),
+                'max_particle_area': np.max(areas),
+                'min_particle_dia': np.sqrt(np.min(areas) * 4 / np.pi),
+                'max_particle_dia': np.sqrt(np.max(areas) * 4 / np.pi),
             }
         else:
             stats = {
                 'num_particles': len(self.particles),
                 'avg_snr': np.mean(snrs),
                 'avg_area': np.mean(areas),
-                'min_particle_size': np.sqrt(np.min(areas) * 4 / np.pi),
-                'max_particle_size': np.sqrt(np.max(areas) * 4 / np.pi),
+                'min_particle_area': np.min(areas),
+                'max_particle_area': np.max(areas),
+                'min_particle_dia': np.sqrt(np.min(areas) * 4 / np.pi),
+                'max_particle_dia': np.sqrt(np.max(areas) * 4 / np.pi),
             }
         return stats
 
