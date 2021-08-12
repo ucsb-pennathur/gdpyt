@@ -7,7 +7,7 @@ from skimage.morphology import disk, white_tophat
 from skimage.filters.rank import mean_bilateral
 from skimage.exposure import equalize_adapthist
 from skimage.feature import blob_log
-from skimage.draw import rectangle_perimeter
+from skimage.draw import rectangle_perimeter, polygon
 
 import numpy as np
 import numpy.ma as ma
@@ -156,7 +156,6 @@ class GdpytImage(object):
         """
         valid_filters = ['none', 'median', 'mean_bilateral', 'gaussian', 'white_tophat', 'equalize_adapthist']
 
-        # Convert to 8 byte uint for filter operations
         img_copy = self._raw.copy()
         raw_dtype = img_copy.dtype
 
@@ -204,21 +203,30 @@ class GdpytImage(object):
         contours, bboxes = self.merge_overlapping_particles(contours, bboxes, overlap_thresh=overlap_threshold)
         logger.debug("{} contours in thresholded image after merging of overlapping".format(len(contours)))
 
+
+        # Code to plot all the contours and bounding boxes for every image
         """
-        x, y, w, h = bboxes[0]
-        rr, cc = rectangle_perimeter(start=(y, x), end=(y + h, x + w), shape=self.raw.shape)
         img = np.zeros_like(self.raw, dtype=np.uint16)
-        img[rr, cc] = 2**15
-        jj = np.squeeze(contours)
-        fig, ax = plt.subplots(ncols=2)
-        ax[0].imshow(img, cmap='gray')
-        ax[0].plot(jj[:,0], jj[:,1], color='blue', linewidth=1)
-        ax[0].imshow(self.raw, cmap='Reds', alpha=0.5)
-        template = self.raw[y: y + h, x: x + w]
-        ax[1].imshow(template, cmap='gray')
-        ax[1].set_title('title')
-        plt.show()
+        for con_box in sorted(zip(contours, bboxes), key=lambda b: b[1][0], reverse=True):
+            cntr = con_box[0]
+            cntr = np.squeeze(cntr)
+            if np.size(cntr) > 3:
+                bbx = con_box[1]
+                x, y, w, h = bbx
+                rr, cc = rectangle_perimeter(start=(x, y), end=(x + w, y + h), shape=self.raw.shape)
+                img[rr, cc] = 2 ** 15
+                rr, cc = polygon(cntr[:,0], cntr[:,1], img.shape)
+                img[rr, cc] = 2**13
+        fig, ax = plt.subplots()
+        ax.imshow(img, cmap='viridis')
+        title='{} - mode=constant'.format(self.filename)
+        ax.set_title(title)
+        #plt.show()
+        basepath='/Users/mackenzie/Desktop/gdpyt-characterization/results/median_filtering/noise-level4/mode-wrap/'
+        plt.savefig(basepath + title + '.png')
+        plt.close()
         """
+
 
         id_ = 0
         # Sort contours and bboxes by x-coordinate:
@@ -244,18 +252,23 @@ class GdpytImage(object):
             if shape_tol is not None:
                 # Discard contours that are clearly not a circle just by looking at the aspect ratio of the bounding box
                 bbox_ar = bbox[2] / bbox[3]
+                jj=abs(np.maximum(bbox_ar, 1 / bbox_ar) - 1)
                 if abs(np.maximum(bbox_ar, 1 / bbox_ar) - 1) > shape_tol:
                     skipped_cnts.append(contour)
                     continue
                 # Check if circle by calculating thinness ratio
                 tr = 4 * np.pi * contour_area / contour_perim**2
                 logging.debug("bbox_ar: {}, circ {}".format(bbox_ar, tr))
+                j = abs(np.maximum(tr, 1 / tr) - 1)
                 if abs(np.maximum(tr, 1 / tr) - 1) > shape_tol:
                     skipped_cnts.append(contour)
                     continue
 
             # pad the bounding box to ensure the entire particle is captured
             bbox = [bbox[0] - padding, bbox[1] - padding, bbox[2] + padding * 2, bbox[3] + padding * 2]
+
+            if self.filename == 'B00010.tif':
+                x=1
 
             # Add particle
             self._add_particle(id_, contour, bbox, thresh_specs)
@@ -266,7 +279,6 @@ class GdpytImage(object):
             #cv2.drawContours(particle_mask, skipped_cnts, i, color=0, thickness=-1)
 
         background_mask = particle_mask.astype(bool)
-        # masked_img = cv2.bitwise_and(self.filtered, self.filtered, mask=particle_mask)
 
         # copy image numpy arrays for manipulation while perserving the original data
         img_f = self.filtered.copy()
@@ -340,7 +352,7 @@ class GdpytImage(object):
         self._raw = self._original
         # cv2.normalize(img, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
 
-    def merge_duplicate_particles(self):
+    def merge_duplicate_particles(self, thresh_specs=None):
         unique_ids = self.unique_ids(counts=True)
         duplicate_ids = unique_ids[unique_ids['count'] > 1].index.tolist()
 
@@ -354,7 +366,7 @@ class GdpytImage(object):
                 self._particles.remove(dup_p[i])
 
             # Add the merged particle
-            self._add_particle(dup_id, merged_contour, merged_bbox)
+            self._add_particle(dup_id, merged_contour, merged_bbox, thresh_specs=thresh_specs)
 
     def merge_overlapping_particles(self, cnts, bboxes, overlap_thresh=0.3, timeout=10):
         grp = 0
@@ -426,6 +438,20 @@ class GdpytImage(object):
             coords = pd.DataFrame()
 
         return coords
+
+    def particle_similarity_curve(self, id_=None):
+        coords = []
+        for particle in self.particles:
+            if id_ is not None:
+                assert isinstance(id_, list)
+                if particle.id not in id_:
+                    continue
+            if particle.similarity_curve is None:
+                continue
+            else:
+                j=particle.interpolation.values()
+                jj=2
+                #coords.append(pd.DataFrame({'id': [int(particle.id)], 'z': [particle.interpolation_curve.z], 'c_m': [particle.interpolation_curve.values()]}))
 
     def maximum_cm(self, id_=None):
         cms = []

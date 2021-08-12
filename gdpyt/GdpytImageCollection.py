@@ -18,7 +18,8 @@ class GdpytImageCollection(object):
 
     def __init__(self, folder, filetype, crop_specs=None, processing_specs=None, thresholding_specs=None,
                  background_subtraction=None, min_particle_size=None, max_particle_size=None,
-                 shape_tol=0.2, overlap_threshold=0.3, exclude=[], subset=[], folder_ground_truth=None):
+                 shape_tol=0.2, overlap_threshold=0.3, exclude=[], subset=[], folder_ground_truth=None,
+                 stacks_use_raw=False, infer_sub_image=True):
         super(GdpytImageCollection, self).__init__()
         if not isdir(folder):
             raise ValueError("Specified folder {} does not exist".format(folder))
@@ -26,6 +27,8 @@ class GdpytImageCollection(object):
         self._folder = folder
         self._folder_ground_truth = folder_ground_truth
         self._filetype = filetype
+        self._stacks_use_raw = stacks_use_raw
+        self._infer_sub_image = infer_sub_image
 
         if len(subset) > 0:
             self._get_exclusion_subset(exclude=exclude, subset=subset)
@@ -272,7 +275,7 @@ class GdpytImageCollection(object):
         true for all the images. """
         return all([image.is_infered() for image in self.images.values()])
 
-    def infer_z(self, calib_set):
+    def infer_z(self, calib_set, infer_sub_image=True):
         """ Returns an object whose methods implement a different function to infer the z coordinate of each image.
         For example: collection.infer_z.znccorr() assigns z coordinates based on zero-normalized cross correlation
         similarity
@@ -280,7 +283,7 @@ class GdpytImageCollection(object):
         """
         assert isinstance(calib_set, GdpytCalibrationSet)
 
-        return calib_set.infer_z(self)
+        return calib_set.infer_z(self, infer_sub_image=infer_sub_image)
 
     def plot(self, raw=True, draw_particles=True, exclude=[], **kwargs):
         fig = plot_img_collection(self, raw=raw, draw_particles=draw_particles, exclude=exclude, **kwargs)
@@ -294,8 +297,18 @@ class GdpytImageCollection(object):
         fig = plot_particle_coordinate(self, coordinate=coordinate, sort_images=sort_images, particle_id=particle_ids)
         return fig
 
-    def plot_particle_coordinate_calibration(self, measurement_volume=None):
-        fig = plot_particle_coordinate_calibration(self, measurement_volume=measurement_volume)
+    def plot_particle_coordinate_calibration(self, measurement_quality, measurement_depth=None, measurement_width=None):
+        fig = plot_particle_coordinate_calibration(self, measurement_quality=measurement_quality, measurement_depth=measurement_depth, measurement_width=measurement_width)
+        return fig
+
+    def plot_similarity_curve(self, sub_image, method=None, min_cm=0, particle_id=None, image_id=None):
+        if particle_id is None and image_id is None:
+            raise ValueError("Must input either particle_id or image_id to plot similarity curve for.")
+        fig = plot_similarity_curve(self, sub_image=sub_image, method=method, min_cm=min_cm, particle_id=particle_id, image_id=image_id)
+        return fig
+
+    def plot_local_rmse_uncertainty(self, measurement_quality, measurement_depth=None, measurement_width=None):
+        fig = plot_local_rmse_uncertainty(self, measurement_quality, measurement_depth=measurement_depth, measurement_width=measurement_width)
         return fig
 
     def plot_particle_snr_and(self, second_plot='area'):
@@ -306,7 +319,20 @@ class GdpytImageCollection(object):
         fig = plot_animated_surface(self, sort_images=sort_images, fps=fps, save_as=save_as)
         return fig
 
-    def uniformize_particle_ids(self, baseline=None, threshold=50, uv=[[0,0]]):
+    def uniformize_particle_ids(self, baseline=None, threshold=50, uv=[[0,0]], baseline_img=None):
+        """
+
+        Parameters
+        ----------
+        baseline
+        threshold
+        uv
+        baseline_img: should be the filename (e.g. calib_23.tif) of the image file to use as the baseline for ID assignment
+
+        Returns
+        -------
+
+        """
         baseline_locations = []
         # If a calibration set is given as the baseline, the particle IDs in this collection are assigned based on
         # the location and ID of the calibration set. This should always be done when the collection contains target images
@@ -333,9 +359,12 @@ class GdpytImageCollection(object):
             else:
                 raise TypeError("Invalid type for baseline")
         # If no baseline is given, the particle IDs are assigned based on the IDs and location of the particles in the
-        # first image
+        # baseline_img or else the first image
         else:
-            baseline_img = self._files[0]
+            index = 0
+            if baseline_img is not None:
+                index = self._files.index(baseline_img)
+            baseline_img = self._files[index]
             baseline_img = self.images[baseline_img]
 
             for particle in baseline_img.particles:
@@ -363,8 +392,7 @@ class GdpytImageCollection(object):
             if len(locations) == 0:
                 continue
             if baseline_locations.empty:
-                dfs = [pd.DataFrame({'x': p.location[0], 'y': p.location[1]},
-                             index=[p.id]) for p in particles]
+                dfs = [pd.DataFrame({'x': p.location[0], 'y': p.location[1]}, index=[p.id]) for p in particles]
                 baseline_locations = pd.concat(dfs)
                 next_id = len(baseline_locations)
                 continue
@@ -404,7 +432,7 @@ class GdpytImageCollection(object):
                 image.particles.remove(p)
             # The nearest neighbor mapping creates particles with duplicate IDs under some circumstances
             # These need to be merged to one giant particle
-            image.merge_duplicate_particles()
+            image.merge_duplicate_particles(thresh_specs=self._thresholding_specs)
 
 
     def update_processing(self, processing_specs, erase_old=False):
@@ -437,46 +465,83 @@ class GdpytImageCollection(object):
         }
         return stats
 
-    def calculate_rmse_uncertainty(self):
+    def calculate_measurement_quality_global(self, local=None):
+        """
+        Calculate the global measurement quality by taking the mean of local evaluations.
+        >Return as a dictionary.
+        """
+        if local is None:
+            df = self.calculate_measurement_quality_local().mean()
+        else:
+            df = local.mean()
 
+        return df.to_dict()
+
+    def calculate_measurement_quality_local(self):
+        """
+        Methods:
+            1. Get the number of particles identified at each true_z.
+            2. Get the number of particles assigned valid z-measurement at each true_z.
+            3. Calculate the percent measured particles at each true_z.
+            4. Calculate the root mean squared error at each true_z.
+            5. Calculate the mean and standard deviation at each true_z.
+        Parameters
+        ----------
+        measurement_volume
+
+        Returns
+        -------
+
+        """
+        # get the percent of identified particles that were successfully measured (assigned a z-coordinate)
         coords = []
-        identified_particles = 0
         for img in self.images.values():
+            [coords.append([p.id, p.z, p.z_true]) for p in img.particles] #TODO - there needs to be a long term solution for dealing with particles w/o ground truth.
 
-            # sum all particles that were identified in all images in the collection
-            identified_particles += len(img.particles)
+        dfz = pd.DataFrame(data=coords, columns=['id', 'z', 'true_z'])
+        dfz_count = dfz.id.groupby(dfz['true_z']).count().astype(int).reset_index(name='counts')
+        dfz_count_nan = dfz.z.isnull().groupby(dfz['true_z']).sum().astype(int).reset_index(name='counts')
 
-            # only append coordinates with a valid z-coordinate
-            [coords.append([p.id, p.location[0], p.location[1], p.z, p.x_true, p.y_true, p.z_true]) for p in
-             img.particles if p.z is not None and np.isnan(p.z) == False]
+        identified_particles_true_z = dfz_count.to_numpy(copy=True)[:, 0]
+        identified_particles = dfz_count.to_numpy(copy=True)[:, 1]
+        measured_particles = dfz_count_nan.to_numpy(copy=True)[:, 1]
+        percent_measured = (identified_particles - measured_particles) / identified_particles * 100
+        particle_measure_quality = np.column_stack((identified_particles_true_z, identified_particles, measured_particles, percent_measured))
+        df_particle_measure_quality = pd.DataFrame(data=particle_measure_quality, columns=['true_z', 'num_idd', 'num_invalid_z_measure', 'percent_measure'])
+        df_particle_measure_quality.set_index(keys='true_z', inplace=True)
 
-        df = pd.DataFrame(data=coords, columns=['id', 'x', 'y', 'z', 'true_x', 'true_y', 'true_z'])
+        # get the local rmse uncertainty for each true_z
+        coords = []
+        for img in self.images.values():
+            [coords.append([p.id, p.location[0], p.location[1], p.z, p.x_true, p.y_true, p.z_true]) for p in img.particles] #TODO - there needs to be a long term solution for dealing with particles w/o ground truth.
+        df_rmse = pd.DataFrame(data=coords, columns=['id', 'x', 'y', 'z', 'true_x', 'true_y', 'true_z'])
+        df_rmse.dropna(axis=0, how='any', inplace=True)
+        df_rmse.sort_values(by='true_z', inplace=True)
+        df_rmse['error_x'] = df_rmse['true_x'] - df_rmse['x']
+        df_rmse['error_y'] = df_rmse['true_y'] - df_rmse['y']
+        df_rmse['error_z'] = df_rmse['true_z'] - df_rmse['z']
+        df_rmse['square_error_x'] = df_rmse['error_x'] ** 2
+        df_rmse['square_error_y'] = df_rmse['error_y'] ** 2
+        df_rmse['square_error_z'] = df_rmse['error_z'] ** 2
 
-        # number of particles with a valid z-coordinate measurement
-        measured_z_particles = len(df.z)
-        percent_measured_particles = measured_z_particles / identified_particles * 100
+        dfsum = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).sum()
+        dfcount = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).count()
+        rmse_x = (dfsum.square_error_x / dfcount.square_error_x) ** 0.5
+        rmse_y = (dfsum.square_error_y / dfcount.square_error_y) ** 0.5
+        rmse_xy = (rmse_x ** 2 + rmse_y ** 2) ** 0.5
+        rmse_z = (dfsum.square_error_z / dfcount.square_error_z) ** 0.5
 
-        # distance from true x-y position
-        df['dist'] = np.sqrt((df['true_x'] - df['x']) ** 2 + (df['true_y'] - df['y']) ** 2)
+        dfstd = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).std()
+        dfmean = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).mean()
+        dfmean.drop(columns=['id', 'x', 'y', 'true_x', 'true_y', 'square_error_x', 'square_error_y', 'square_error_z'], inplace=True)
+        df_mean_rmse = dfmean.assign(rmse_x=rmse_x.values, rmse_y=rmse_y.values, rmse_xy=rmse_xy.values, rmse_z=rmse_z.values,
+                                     std_x=dfstd.x.values, std_y=dfstd.y.values, std_z=dfstd.z.values)
 
-        # measurement error
-        df['square_error_x'] = (df['true_x'] - df['x']) ** 2
-        df['square_error_y'] = (df['true_y'] - df['y']) ** 2
-        df['square_error_z'] = (df['true_z'] - df['z']) ** 2
+        collection_measurement_quality_local = pd.concat([df_mean_rmse, df_particle_measure_quality], axis=1)
 
-        # root mean square error
-        rmse_x = np.sqrt(df.square_error_x.sum() / measured_z_particles)
-        rmse_y = np.sqrt(df.square_error_y.sum() / measured_z_particles)
-        rmse_xy = np.sqrt(rmse_x ** 2 + rmse_y ** 2)
-        rmse_z = np.sqrt(df.square_error_z.sum() / measured_z_particles)
+        return collection_measurement_quality_local
 
-        rmse_uncertainty = {
-            'mean_rmse_xy_uncertainty': rmse_xy,
-            'mean_rmse_z_uncertainty': rmse_z,
-            'percent_measured_particles': percent_measured_particles,
-        }
 
-        return rmse_uncertainty
 
     @property
     def folder(self):
@@ -493,6 +558,10 @@ class GdpytImageCollection(object):
     @property
     def images(self):
         return self._images
+
+    @property
+    def stacks_use_raw(self):
+        return self._stacks_use_raw
 
     @property
     def background_img(self):

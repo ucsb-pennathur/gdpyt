@@ -1,17 +1,23 @@
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-import mpl_toolkits.mplot3d.axes3d as p3
-import matplotlib.animation as animation
-import matplotlib as mpl
-import numpy as np
-import pandas as pd
 from os.path import splitext
 import re
 import logging
 
+import cv2
+import numpy as np
+from scipy.ndimage import binary_fill_holes
+from skimage.draw import polygon
+import pandas as pd
+
+import matplotlib.pyplot as plt
+from matplotlib.ticker import (MultipleLocator, AutoMinorLocator)
+from mpl_toolkits.mplot3d import Axes3D
+import mpl_toolkits.mplot3d.axes3d as p3
+import matplotlib.animation as animation
+import matplotlib as mpl
+
 logger = logging.getLogger(__name__)
 
-def plot_calib_stack(stack, z=None, draw_contours=True, imgs_per_row=5, fig=None, axes=None):
+def plot_calib_stack(stack, z=None, draw_contours=True, fill_contours=False, imgs_per_row=5, fig=None, axes=None, format_string=False):
     # assert isinstance(stack, GdpytCalibratioStack)
 
     if z is not None:
@@ -31,26 +37,31 @@ def plot_calib_stack(stack, z=None, draw_contours=True, imgs_per_row=5, fig=None
         for j in range(n_cols):
             n = i * n_cols + j
             if n > n_images - 1:
-                axes[i, j].imshow(np.zeros_like(template), cmap='gray')
+                axes[i, j].imshow(np.zeros_like(template), cmap='viridis')
                 axes[i, j].set_title('None', fontsize=12)
             else:
                 z, template = stack[n]
-                axes[i, j].imshow(template, cmap='gray')
+                axes[i, j].imshow(template, cmap='viridis')
+                particle_z = [p for p in stack.particles if p.z == z]
 
-                for p in stack.particles:
-                    if p.z == z:
-                        jj = p.template_contour
-                        jjj = jj[0, :]
-                        jj = np.vstack([jj, jj[0, :]])
-                        for contour in p.contour:
-                            #axes[i, j].plot(jj[:, 0], jj[:, 1], linewidth=1, color='red')
-                            axes[i, j].plot(jj[:, 1], jj[:, 0], linewidth=0.5, color='blue')
+                for index, p_z in enumerate(particle_z):
+                    connected_contour = np.vstack([p_z.template_contour, p_z.template_contour[0, :]])
+                    axes[i, j].plot(connected_contour[:, 1], connected_contour[:, 0], linewidth=0.5, color='red')
 
-                """for particle in self.particles:
-                    cv2.drawContours(canvas, [particle.contour], -1, color, thickness)"""
-                j=1
+                    if fill_contours is True:
+                        rr, cc = polygon(connected_contour[:, 0], connected_contour[:, 1], template.shape)
+                        template_contour = template.copy()
+                        template_contour[rr, cc] = np.max(template)
+                        axes[i, j].imshow(template_contour, cmap='viridis')
 
-                axes[i, j].set_title('z = {}'.format(z), fontsize=12)
+                if format_string:
+                    my_format = "{0:.3f}"
+                    axes[i, j].set_title('z = {}'.format(my_format.format(z)), fontsize=12)
+                else:
+                    axes[i, j].set_title('z = {}'.format(z), fontsize=12)
+                axes[i, j].get_xaxis().set_visible(False)
+                axes[i, j].get_yaxis().set_visible(False)
+
             axes[i, j].get_xaxis().set_visible(False)
             axes[i, j].get_yaxis().set_visible(False)
 
@@ -234,59 +245,294 @@ def plot_particle_coordinate(collection, coordinate='z', sort_images=None, parti
 
     return fig
 
-def plot_particle_coordinate_calibration(collection, plot_type='errorbars', measurement_volume=None):
+def plot_particle_coordinate_calibration(collection, measurement_quality, plot_type='errorbars', measurement_depth=None, measurement_width=None):
 
-    coords = []
-    identified_particles = 0
-    for img in collection.images.values():
-        # sum all particles that were identified in all images in the collection
-        identified_particles += len(img.particles)
-
-        # only append coordinates with a valid z-coordinate
-        [coords.append([p.id, p.location[0], p.location[1], p.z, p.x_true, p.y_true, p.z_true]) for p in
-         img.particles if p.z is not None and np.isnan(p.z) == False]
-
-    df = pd.DataFrame(data=coords, columns=['id', 'x', 'y', 'z', 'true_x', 'true_y', 'true_z'])
-
-    # number of particles with a valid z-coordinate measurement
-    measured_z_particles = len(df.z)
-    percent_measured_particles = measured_z_particles / identified_particles * 100
-
-    # distance from true x-y position
-    df['dist'] = np.sqrt((df['true_x'] - df['x']) ** 2 + (df['true_y'] - df['y']) ** 2)
-
-    # measurement error
-    df['square_error_x'] = (df['true_x'] - df['x']) ** 2
-    df['square_error_y'] = (df['true_y'] - df['y']) ** 2
-    df['square_error_z'] = (df['true_z'] - df['z']) ** 2
-
-    # local z-uncertainty: root mean square error
-    df_z_sum = df.groupby(['true_z']).sum()
-    df_z_sum['rmse_x'] = np.sqrt(df_z_sum.square_error_x / measured_z_particles)
-    df_z_sum['rmse_y'] = np.sqrt(df_z_sum.square_error_y / measured_z_particles)
-    df_z_sum['rmse_z'] = np.sqrt(df_z_sum.square_error_z / measured_z_particles)
-    df_z_sum['rmse_xy'] = np.sqrt(df_z_sum.rmse_x ** 2 + df_z_sum.rmse_y ** 2)
-
-    if measurement_volume is not None:
-        df_z_sum.rmse_xy = df_z_sum.rmse_xy / measurement_volume
-
-    # mean z-coordinate for each true_z
-    df_z_mean = df.groupby(['true_z']).mean()
-    df_z_std = df.groupby(['true_z']).std()
+    df = measurement_quality
+    df['rmse_xy'] = (df['rmse_x'] ** 2 + df['rmse_y'] ** 2) ** 0.5
 
     fig, ax = plt.subplots()
-    ax.plot(df_z_sum.index, df_z_sum.index, color='black', linewidth=1, alpha=0.95, label='Ideal')
-    if plot_type == 'scatter':
-       ax.scatter(x=df.true_z, y=df.z)
-    if plot_type == 'errorbars':
-        ax.errorbar(x=df_z_sum.index, y=df_z_mean.z, yerr=df_z_sum.rmse_z, xerr=df_z_sum.rmse_xy, fmt='o', ecolor='gray', elinewidth=2, capsize=2, label='Measured')
+    ax.plot(df.true_z, df.true_z, color='black', linewidth=1, alpha=0.95, label='Ideal')
 
-    #ax.set_xlabel(r'$\Delta z_{true} (\mu m)$')
-    ax.set_xlabel(r'$z_{true}$ / h')
-    #ax.set_ylabel(r'$z_{measured}$ $(\mu m)$')
-    ax.set_ylabel(r'$z_{measured}$ / h')
+    if measurement_depth is not None: # TODO: fix measurement depth and volume plotting
+        df['rmse_vol_xy'] = df['rmse_xy'] / measurement_width
+        df['rmse_vol_z'] = df['rmse_z'] / 1
+
+        if plot_type == 'scatter':
+           ax.scatter(x=df.true_z, y=df.z)
+        if plot_type == 'errorbars':
+            ax.errorbar(x=df.true_z, y=df.z, yerr=df.rmse_vol_z, xerr=df.rmse_vol_xy, fmt='o', ecolor='gray', elinewidth=2, capsize=2, label='Measured')
+
+        ax.set_xlabel(r'$z_{true}$ / h')
+        ax.set_ylabel(r'$z_{measured}$ / h')
+
+    else:
+
+        if plot_type == 'scatter':
+           ax.scatter(x=df.true_z, y=df.z)
+        if plot_type == 'errorbars':
+            ax.errorbar(x=df.true_z, y=df.z, yerr=df.rmse_z, xerr=df.rmse_xy, fmt='o', ecolor='gray', elinewidth=2, capsize=2, label='Measured')
+
+        ax.set_xlabel(r'$\Delta z_{true} (\mu m)$')
+        ax.set_ylabel(r'$z_{measured}$ $(\mu m)$')
+
     ax.set_title('Measurement uncertainty: root mean squared error', fontsize=8)
     ax.legend()
+    plt.tight_layout
+
+    return fig
+
+
+def plot_similarity_curve(collection, sub_image, method=None, min_cm=0, particle_id=None, image_id=None, imgs_per_row=9):
+    """
+    Plots the similarity curve for:
+        1. a single particle (particle_id) across all images.
+        2. every particle on a single image (image_id).
+    Note - both particle_id and image_id cannot be valid. One must be None.
+    Parameters
+    ----------
+    collection:     the test image collection with z-determined particles
+    sub_image       if sub-image interpolation was used
+    method          which inference method was applied
+    min_cm          the minimum acceptable correlation value
+    particle_id     which particle to plot
+    image_id        which image to plot particles
+
+    Returns
+    -------
+
+    """
+    if particle_id is None and image_id is None:
+        raise ValueError("Specify an integer for particle_id or filename for image_id")
+    elif particle_id is not None and image_id is not None:
+        raise ValueError("Cannot specify both image_id and particle_id")
+    elif particle_id is not None:
+        if isinstance(particle_id, int):
+            pass
+        elif isinstance(particle_id, list):
+            particle_id = particle_id[0]
+        else:
+            raise TypeError("particle_id must be an integer or a list. Received type {}".format(type(particle_id)))
+
+    img_list = sorted(collection.images.items(), key=lambda x: x[0], reverse=False)
+
+    if particle_id is not None:
+        n_images = len(collection.images)
+        n_cols = min(imgs_per_row, n_images)
+        n_rows = int(n_images / n_cols) + 1
+
+        fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(2 * n_cols, n_rows * 2))
+
+        if not isinstance(axes, np.ndarray):
+            axes = np.array([axes]).reshape(-1, 1)
+
+        k = 0
+        for i in range(n_rows):
+            for j in range(n_cols):
+                n = i * n_cols + j
+                if n > n_images - 1:
+                    axes[i, j].axis('off')
+                    axes[i, j].axis('off')
+                else:
+                    for p in img_list[k][1].particles:
+                        if p.id != particle_id:
+                            pass
+                        else:
+                            if np.isnan([p.z]):
+                                logger.warning("particle z-coordinate is NaN")
+                                axes[i, j].text(0.5, 0.5, str(np.round(p.cm, 3)) + r'$<c_{min}$', ha='center', va='center', color='red', fontsize=15)
+                                axes[i, j].set_title(r'$z_{true}$/h = ' + str(p.z_true), fontsize=11)
+                                axes[i, j].set_yticklabels([])
+                                axes[i, j].set_xticklabels([])
+                                k += 1
+                            else:
+                                sim_z = p.similarity_curve.iloc[:, 0]
+                                sim_cm = p.similarity_curve.iloc[:, 1]
+                                axes[i, j].plot(sim_z, sim_cm, color='tab:blue', label='c_m')
+
+                                if sub_image:
+                                    interp_z = p.interpolation_curve.iloc[:, 0]
+                                    interp_cm = p.interpolation_curve.iloc[:, 1]
+                                    axes[i, j].plot(interp_z, interp_cm, color='lightcoral', label='interp')
+
+                                axes[i, j].set_title(r'$z_{true}$/h = ' + str(p.z_true), fontsize=11)
+                                axes[i, j].grid(b=True, which='major', alpha=0.25)
+                                axes[i, j].grid(b=True, which='minor', alpha=0.125)
+                                axes[i, j].xaxis.set_major_locator(MultipleLocator(0.5))
+                                axes[i, j].xaxis.set_minor_locator(MultipleLocator(0.1))
+                                axes[i, j].yaxis.set_major_locator(MultipleLocator(0.5))
+                                axes[i, j].yaxis.set_minor_locator(MultipleLocator(0.1))
+
+                                # only place labels on outer axes
+                                if j != 0:
+                                    axes[i, j].set_yticklabels([])
+                                else:
+                                    axes[i, j].set_ylabel(r'$c_m$')
+
+                                if i != n_rows - 1:
+                                    axes[i, j].set_xticklabels([])
+                                else:
+                                    axes[i, j].set_xlabel(r'$z_{cal}$ / h')
+
+                                # if measured z-coord > error threshold, change axes spines color to red
+                                if np.abs(p.z_true - sim_z[np.argmax(sim_cm)]) > 0.05:
+                                    for side in ['bottom', 'left', 'right', 'top']:
+                                        axes[i, j].text(0.5, 0.05, r'$\epsilon_{z}=$'+str(np.round(np.abs(p.z_true - sim_z[np.argmax(sim_cm)]), 2)),
+                                                        ha='center', va='center', color='dimgray', fontsize=11)
+                                        axes[i, j].spines[side].set_color('red')
+
+                                k += 1
+
+    elif image_id is not None:
+
+        n_images = len(img_list[image_id][1].particles)
+
+        if n_images == 1:
+            fig, axes = plt.subplots(nrows=2, figsize=(6,6))
+            p = img_list[image_id][1].particles[0]
+            if np.isnan([p.z]):
+                logger.warning("particle z-coordinate is NaN")
+                fig = None
+                return fig
+            else:
+                sim_z = p.similarity_curve.iloc[:, 0]
+                sim_cm = p.similarity_curve.iloc[:, 1]
+                axes[0].scatter(sim_z, sim_cm, s=1, color='tab:blue', label=r'$c_m$')
+                axes[0].plot(sim_z, sim_cm, color='tab:blue', alpha=0.15)
+                axes[0].scatter(p.z_true, np.max(sim_cm), s=25, color='black', marker='*',
+                                label=r'$z_{true}$')
+
+                max_ind = np.argmax(sim_cm)
+                sim_z_near_max = sim_z[max_ind-2:max_ind+3]
+                sim_cm_near_max = sim_cm[max_ind-2:max_ind+3]
+                axes[1].scatter(sim_z_near_max, sim_cm_near_max, s=6, color='tab:blue')
+                axes[1].plot(sim_z_near_max, sim_cm_near_max, color='tab:blue', alpha=0.25)
+                axes[1].scatter(sim_z[max_ind], sim_cm[max_ind], s=50, color='b', marker='o',
+                                label=r'$\epsilon_{sub-image: off}=$' + str(np.round(np.abs(p.z_true-sim_z[max_ind]), 4)))
+
+                if sub_image:
+                    interp_z = p.interpolation_curve.iloc[:, 0]
+                    interp_cm = p.interpolation_curve.iloc[:, 1]
+                    axes[0].plot(interp_z, interp_cm, color='lightcoral', alpha=0.75, label=r'$interp.$')
+
+                    interp_cm_max = np.max(interp_cm)
+                    interp_z_max = interp_z[np.argmax(interp_cm)]
+                    axes[1].plot(interp_z, interp_cm, color='lightcoral', alpha=0.75)
+                    axes[1].scatter(interp_z_max, interp_cm_max, s=50, color='r', marker='*',
+                                    label=r'$\epsilon_{sub-image: on}=$'+str(np.round(np.abs(p.z_true-interp_z_max), 4)))
+                    axes[1].scatter(p.z_true, np.max(interp_cm_max), s=50, color='black', marker='*', label=r'$z_{true}$')
+
+                axes[0].set_ylim(bottom=0, top=1.05)
+                axes[0].set_ylabel(r'$c_m$')
+                axes[0].set_title(r'$z_{true}$/h = ' + str(p.z_true), fontsize=11)
+                axes[0].grid(b=True, which='major', alpha=0.25)
+                axes[0].grid(b=True, which='minor', alpha=0.125)
+                axes[0].xaxis.set_major_locator(MultipleLocator(0.25))
+                axes[0].xaxis.set_minor_locator(MultipleLocator(0.05))
+                axes[0].yaxis.set_major_locator(MultipleLocator(0.25))
+                axes[0].yaxis.set_minor_locator(MultipleLocator(0.05))
+                axes[0].legend()
+
+                axes[1].set_ylim(bottom=np.max([np.min(sim_cm_near_max), 0.8]), top=1.025)
+                axes[1].set_ylabel(r'$c_m$')
+                axes[1].set_xlabel(r'$z_{cal}$ / h')
+                axes[1].grid(b=True, which='major', alpha=0.25)
+                axes[1].grid(b=True, which='minor', alpha=0.125)
+                axes[1].xaxis.set_major_locator(MultipleLocator(0.025))
+                axes[1].xaxis.set_minor_locator(MultipleLocator(0.005))
+                axes[1].yaxis.set_major_locator(MultipleLocator(0.025))
+                axes[1].yaxis.set_minor_locator(MultipleLocator(0.005))
+                axes[1].legend(fontsize=8, loc='upper right')
+
+        else:
+            # code is not finished (but it's not far from finished)
+
+            # place holder to not cause an error
+            fig, axes = plt.subplots(figsize=(6, 6))
+            axes.text(0.5, 0.5, r'$p_{num} > 1$', ha='center', va='center', color='red', fontsize=20)
+
+            """
+            n_cols = min(imgs_per_row, n_images)
+            n_rows = int(n_images / n_cols) + 1
+    
+            fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(2 * n_cols, n_rows * 2))
+    
+            if not isinstance(axes, np.ndarray):
+                axes = np.array([axes]).reshape(-1, 1)
+    
+            k = 0
+            for i in range(n_rows):
+                for j in range(n_cols):
+                    n = i * n_cols + j
+                    if n > n_images - 1:
+                        axes[i, j].axis('off')
+                        axes[i, j].axis('off')
+                    else:
+                        j = img_list[image_id][1].particles
+                        for p in img_list[image_id][1].particles:
+                            sim_z = p.similarity_curve.iloc[:, 0]
+                            sim_cm = p.similarity_curve.iloc[:, 1]
+                            interp_z = p.interpolation_curve.iloc[:, 0]
+                            interp_cm = p.interpolation_curve.iloc[:, 1]
+    
+                            axes[i, j].plot(sim_z, sim_cm, label='c_m')
+                            axes[i, j].plot(interp_z, interp_cm, label='interp')
+                            axes[i, j].set_title(r'$z_{true}$/h = ' + str(p.z_true), fontsize=11)
+                            axes[i, j].grid(b=True, which='major', alpha=0.25)
+                            axes[i, j].grid(b=True, which='minor', alpha=0.125)
+                            axes[i, j].xaxis.set_major_locator(MultipleLocator(0.5))
+                            axes[i, j].xaxis.set_minor_locator(MultipleLocator(0.1))
+                            axes[i, j].yaxis.set_major_locator(MultipleLocator(0.5))
+                            axes[i, j].yaxis.set_minor_locator(MultipleLocator(0.1))
+    
+                            if j != 0:
+                                axes[i, j].set_yticklabels([])
+                            else:
+                                axes[i, j].set_ylabel(r'$c_m$')
+    
+                            if i != n_rows - 1:
+                                axes[i, j].set_xticklabels([])
+                            else:
+                                axes[i, j].set_xlabel(r'$z_{cal}$ / h')
+            """
+
+    return fig
+
+
+def plot_local_rmse_uncertainty(collection, measurement_quality, measurement_depth=None, measurement_width=None):
+
+    df = measurement_quality
+
+    fig, ax = plt.subplots(nrows=2, sharex=True)
+
+    if measurement_depth is not None:
+        #df['true_z_vol'] = df['true_z'] / measurement_depth # TODO: fix measurement depth and volume plotting
+        df['rmse_vol_z'] = df['rmse_z'] / 1
+        ax[0].scatter(x=df.true_z, y=df.rmse_vol_z)
+        ax[0].plot(df.true_z, df.rmse_vol_z)
+        ax[0].set_ylabel(r'$\sigma_{z}(z)$ / h')
+        #ax[0].set_ylim([0, 0.07])
+
+        df['rmse_vol_xy'] = df['rmse_xy'] / measurement_width
+        ax[1].scatter(x=df.true_z, y=df.rmse_vol_xy)
+        ax[1].plot(df.true_z, df.rmse_vol_xy)
+        ax[1].set_ylabel(r'$\sigma_{xy}$ / w')
+        #ax[1].set_ylim([0, 0.05])
+        ax[1].set_xlabel(r'$z$ / h')
+
+    else:
+        MEASUREMENT_DEPTH = 86 # TODO: resolve measurement depth in this plot
+        df['rmse_real_z'] = df['rmse_z'] * 86
+        ax[0].scatter(x=df.true_z, y=df.rmse_real_z)
+        ax[0].plot(df.true_z, df.rmse_real_z)
+        ax[0].set_ylabel(r'$\sigma_{z}(z)$')
+
+        ax[1].scatter(x=df.true_z, y=df.rmse_xy)
+        ax[1].plot(df.true_z, df.rmse_xy)
+        ax[1].set_ylabel(r'$\sigma_{xy}$')
+        ax[1].set_xlabel(r'$z$')
+
+    #ax.set_title('Measurement uncertainty: root mean squared error', fontsize=8)
+    #ax.legend()
     plt.tight_layout
 
     return fig
@@ -311,7 +557,7 @@ def plot_particle_snr_and(collection, second_plot='area'):
 
     #ax.set_xlabel(r'$\Delta z_{true} (\mu m)$')
     ax.set_xlabel(r'$z_{true}$ / $h$')
-    ax.set_ylabel(r'$SNR$ $(\frac {\mu_p}{\sigma_I})$', color='darkblue')
+    ax.set_ylabel(r'$SNR$ ( $\frac {\mu_p}{\sigma_I}$ )', color='darkblue')
     ax.set_ylim([0, 50])
 
     if second_plot == 'area':
