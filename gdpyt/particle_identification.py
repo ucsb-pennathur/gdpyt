@@ -3,6 +3,11 @@ import cv2
 from skimage.filters import threshold_mean, threshold_minimum, threshold_triangle
 from skimage.filters import threshold_otsu, threshold_multiotsu, threshold_local
 from skimage.filters import threshold_niblack, threshold_li, threshold_sauvola
+from skimage.morphology import disk, white_tophat, closing, square
+from skimage.filters.rank import mean_bilateral
+from skimage.exposure import equalize_adapthist
+from skimage.segmentation import clear_border
+from skimage.measure import label, regionprops
 from skimage import (
     color, feature, filters, io, measure, morphology, segmentation, util
 )
@@ -30,7 +35,9 @@ def apply_threshold(img, parameter, invert=False):
         thresh_img = img
     elif method == 'otsu':
         thresh_val = threshold_otsu(img)
-        thresh_img = img > thresh_val
+        bw = closing(img > thresh_val, square(3))
+        thresh_img = clear_border(bw)
+        # thresh_img = img > thresh_val -- old: updated 8/14/21
     elif method == 'multiotsu':
         kwargs = parameter[method]
         thresh_val = threshold_multiotsu(img, **kwargs)
@@ -44,10 +51,14 @@ def apply_threshold(img, parameter, invert=False):
         thresh_img = img > thresh_val
     elif method == 'median':
         thresh_val = np.median(img)
-        thresh_img = img > thresh_val
+        bw = closing(img > thresh_val, square(3))
+        thresh_img = clear_border(bw)
+        # thresh_img = img > thresh_val -- old: updated 8/14/21
     elif method == 'median_percent':
         thresh_val = np.median(img) + np.median(img) * parameter[method][0]
-        thresh_img = img > thresh_val
+        bw = closing(img > thresh_val, square(3))
+        thresh_img = clear_border(bw)
+        # thresh_img = img > thresh_val -- old: updated 8/14/21
     elif method == 'min':
         thresh_val = threshold_minimum(img)
         thresh_img = img > thresh_val
@@ -94,6 +105,11 @@ def apply_threshold(img, parameter, invert=False):
     return thresh_img
 
 def identify_contours(particle_mask):
+    """
+    Notes - OpenCV is used here because it provides the integer-valued coordinates of the contours. Skimage provides the
+    floating point value between YES/NO contour pixels and, for this reason, it is not suitable here.
+    """
+
     contours = cv2.findContours(particle_mask.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
     contours = imutils.grab_contours(contours)
     bboxes = [cv2.boundingRect(contour) for contour in contours]

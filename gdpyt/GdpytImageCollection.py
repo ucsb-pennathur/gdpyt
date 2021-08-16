@@ -18,25 +18,44 @@ class GdpytImageCollection(object):
 
     def __init__(self, folder, filetype, crop_specs=None, processing_specs=None, thresholding_specs=None,
                  background_subtraction=None, min_particle_size=None, max_particle_size=None,
-                 shape_tol=0.2, overlap_threshold=0.3, exclude=[], subset=[], folder_ground_truth=None,
-                 stacks_use_raw=False, infer_sub_image=True):
+                 shape_tol=0.2, overlap_threshold=0.3, exclude=[], subset=None, folder_ground_truth=None,
+                 stacks_use_raw=False, infer_sub_image=True, measurement_depth=None, true_num_particles=None,
+                 if_img_stack_take='mean', take_subset_mean=None, inspect_contours_for_every_image=False,
+                 template_padding=3, file_basestring=None, same_id_threshold=10):
         super(GdpytImageCollection, self).__init__()
         if not isdir(folder):
             raise ValueError("Specified folder {} does not exist".format(folder))
-        
+
+        # properties of the image collection
         self._folder = folder
-        self._folder_ground_truth = folder_ground_truth
         self._filetype = filetype
+        self._file_basestring = file_basestring
+        self._folder_ground_truth = folder_ground_truth
+        self._measurement_depth = measurement_depth
+        self._true_num_particles = true_num_particles
+
+        # image processing filters
+        self._min_particle_size = min_particle_size
+        self._max_particle_size = max_particle_size
+        self._same_id_threshold = same_id_threshold
+        self._overlap_threshold = overlap_threshold
+        self._shape_tol = shape_tol
+
+        # toggles for loading images
+        self._if_img_stack_take = if_img_stack_take
+        self._take_subset_mean = take_subset_mean
+
+        # toggles for inspection
+        self._inspect_contours_for_every_image = inspect_contours_for_every_image
+
+        # toggles for calibration stacks and inference
+        self._template_padding = template_padding
         self._stacks_use_raw = stacks_use_raw
         self._infer_sub_image = infer_sub_image
 
-        if len(subset) > 0:
-            self._get_exclusion_subset(exclude=exclude, subset=subset)
+        self._get_exclusion_subset(exclude=exclude, subset=subset)
         self._find_files(exclude=exclude)
-
-        if folder_ground_truth is not None:
-            self._find_files_ground_truth(exclude=exclude)
-
+        self._find_files_ground_truth(exclude=exclude)
         self._add_images()
 
         # Define the cropping done on all the images in this collection
@@ -65,26 +84,12 @@ class GdpytImageCollection(object):
         else:
             self._thresholding_specs = thresholding_specs
 
-        # Minimum and maximum particle size for image in this collection
-        self._min_particle_size = min_particle_size
-        self._max_particle_size = max_particle_size
-
-        # Shape tolerance
-        if shape_tol is not None:
-            if not 0 < shape_tol < 1:
-                raise ValueError("Shape tolerance parameter shape_tol must be between 0 and 1")
-        self._shape_tol = shape_tol
-
-        # Overlap threshold for merging particles
-        self._overlap_threshold = overlap_threshold
 
         self.filter_images()
         self.identify_particles()
+        self.identify_particles_ground_truth()
 
-        if folder_ground_truth is not None:
-            self.identify_particles_ground_truth()
-
-        #self.uniformize_particle_ids()
+        self.uniformize_particle_ids()
 
     def __len__(self):
         return len(self.images)
@@ -109,22 +114,22 @@ class GdpytImageCollection(object):
     def _add_images(self):
         images = OrderedDict()
         for file in self._files:
-            img = GdpytImage(join(self.folder, file))
+            img = GdpytImage(join(self.folder, file), if_img_stack_take=self._if_img_stack_take, take_subset_mean=self._take_subset_mean, true_num_particles=self._true_num_particles)
             images.update({img.filename: img})
             logger.warning('Loaded image {}'.format(img.filename))
         self._images = images
 
-    def _get_exclusion_subset(self, exclude, subset: list):
+    def _get_exclusion_subset(self, exclude, subset):
         """
         modify the variable [exclude] to include all files not in the [subset]
         """
-        base_string = subset[0]
-        start = subset[1]
-        stop = subset[2]
-        if len(subset) > 0:
-            if len(subset) < 3:
-                raise ValueError("Subset requires a file base string and least two values: start and stop index.")
-            elif len(subset) == 3:
+        if subset is None:
+            pass
+        else:
+            if len(subset) == 2:
+                base_string = self._file_basestring
+                start = subset[0]
+                stop = subset[1]
                 all_files = listdir(self._folder)
                 save_files = []
                 for file in all_files:
@@ -139,8 +144,7 @@ class GdpytImageCollection(object):
                         exclude.append(f)
             else:
                 raise ValueError("Collecting multiple subsets is not implemented at the moment.")
-        else:
-            pass
+
 
     def _find_files(self, exclude=[]):
         """
@@ -161,7 +165,10 @@ class GdpytImageCollection(object):
         self._files = save_files
 
     def _find_files_ground_truth(self, exclude=[]):
-        if self._folder_ground_truth == 'standard_gdpt':
+        if self._folder_ground_truth is None:
+            logger.warning("No ground truth")
+            self._files_ground_truth = None
+        elif self._folder_ground_truth == 'standard_gdpt':
             logger.warning("Using standard GDPT particle locations: [29, 29]")
             self._files_ground_truth = None
         else:
@@ -238,7 +245,9 @@ class GdpytImageCollection(object):
         for image in self.images.values():
             image.identify_particles(self._thresholding_specs,
                                      min_size=self._min_particle_size, max_size=self._max_particle_size,
-                                     shape_tol=self._shape_tol, overlap_threshold=self._overlap_threshold)
+                                     shape_tol=self._shape_tol, overlap_threshold=self._overlap_threshold,
+                                     inspect_contours_for_every_image=self._inspect_contours_for_every_image,
+                                     padding=self._template_padding)
             logger.info("Identified {} particles on image {}".format(len(image.particles), image.filename))
 
     def identify_particles_ground_truth(self):
@@ -255,11 +264,16 @@ class GdpytImageCollection(object):
                     # measurement volume = 86 microns
                     p._set_location_true(x=x_true, y=y_true, z=z_true)
 
-        else:
+        elif self._folder_ground_truth is not None:
             for image in self.images.values():
                 filename = image.filename[:-4]
                 ground_truth = np.loadtxt(join(self._folder_ground_truth, filename + '.txt'))
                 ground_truth_xyz = ground_truth[:, 0:3]
+                image.set_true_num_particles(data=ground_truth_xyz)
+                image._update_particle_density_stats()
+
+                # normalize the ground truth z-coordinate
+                ground_truth_xyz[:,2] = (ground_truth_xyz[:,2] - np.min(ground_truth_xyz)) / self._measurement_depth
 
                 for p in image.particles:
                     neigh = NearestNeighbors(n_neighbors=1)
@@ -269,6 +283,7 @@ class GdpytImageCollection(object):
                     y_true = ground_truth_xyz[result[1][0][0]][1]
                     z_true = ground_truth_xyz[result[1][0][0]][2]
                     p._set_location_true(x=x_true, y=y_true, z=z_true)
+
 
     def is_infered(self):
         """ Checks if the z coordinate has been inferred for the images in this collection. Only returns true if that's
@@ -289,6 +304,11 @@ class GdpytImageCollection(object):
         fig = plot_img_collection(self, raw=raw, draw_particles=draw_particles, exclude=exclude, **kwargs)
         return fig
 
+    def plot_adjacent_similarity(self, calib_set, infer_sub_image=True):
+        assert isinstance(calib_set, GdpytCalibrationSet)
+        j=1
+        return j
+
     def plot_particle_trajectories(self, sort_images=None):
         fig = plot_particle_trajectories(self, sort_images=sort_images)
         return fig
@@ -297,8 +317,10 @@ class GdpytImageCollection(object):
         fig = plot_particle_coordinate(self, coordinate=coordinate, sort_images=sort_images, particle_id=particle_ids)
         return fig
 
-    def plot_particle_coordinate_calibration(self, measurement_quality, measurement_depth=None, measurement_width=None):
-        fig = plot_particle_coordinate_calibration(self, measurement_quality=measurement_quality, measurement_depth=measurement_depth, measurement_width=measurement_width)
+    def plot_particle_coordinate_calibration(self, measurement_quality, measurement_depth=None, true_xy=False, measurement_width=None):
+        fig = plot_particle_coordinate_calibration(self, measurement_quality=measurement_quality,
+                                                   measurement_depth=measurement_depth, true_xy=true_xy,
+                                                   measurement_width=measurement_width)
         return fig
 
     def plot_similarity_curve(self, sub_image, method=None, min_cm=0, particle_id=None, image_id=None):
@@ -307,31 +329,34 @@ class GdpytImageCollection(object):
         fig = plot_similarity_curve(self, sub_image=sub_image, method=method, min_cm=min_cm, particle_id=particle_id, image_id=image_id)
         return fig
 
-    def plot_local_rmse_uncertainty(self, measurement_quality, measurement_depth=None, measurement_width=None):
-        fig = plot_local_rmse_uncertainty(self, measurement_quality, measurement_depth=measurement_depth, measurement_width=measurement_width)
+    def plot_local_rmse_uncertainty(self, measurement_quality, measurement_depth=None, true_xy=False, measurement_width=None):
+        fig = plot_local_rmse_uncertainty(self, measurement_quality, measurement_depth=measurement_depth, true_xy=true_xy, measurement_width=measurement_width)
+        return fig
+
+    def plot_particles_stats(self, stat='area'):
+        fig = plot_particles_stats(self, stat=stat)
         return fig
 
     def plot_particle_snr_and(self, second_plot='area'):
         fig = plot_particle_snr_and(self, second_plot=second_plot)
         return fig
 
+    def plot_calib_col_image_stats(self, data):
+        fig = plot_calib_col_image_stats(data)
+        return fig
+
     def plot_animated_surface(self, sort_images=None, fps=10, save_as=None):
         fig = plot_animated_surface(self, sort_images=sort_images, fps=fps, save_as=save_as)
         return fig
 
-    def uniformize_particle_ids(self, baseline=None, threshold=50, uv=[[0,0]], baseline_img=None):
+    def uniformize_particle_ids(self, baseline=None, uv=[[0,0]], baseline_img=None):
         """
-
         Parameters
         ----------
-        baseline
-        threshold
-        uv
+        baseline: only use in RARE cases where you already have the location of the particles and their IDs.
+        threshold: maximum x-y displacement between images to be assigned the same ID.
+        uv: a simulated displacement between images
         baseline_img: should be the filename (e.g. calib_23.tif) of the image file to use as the baseline for ID assignment
-
-        Returns
-        -------
-
         """
         baseline_locations = []
         # If a calibration set is given as the baseline, the particle IDs in this collection are assigned based on
@@ -408,11 +433,16 @@ class GdpytImageCollection(object):
             for distance, idx, particle in zip(distances, indices, particles):
                 # If the particle is close enough to a particle of the baseline, give that particle the same ID as the
                 # particle in the baseline
-                if distance < threshold:
+                if distance < self._same_id_threshold:
+                    j=1
+                    particle.compute_local_snr()
+                    j=1
                     particle.set_id(baseline_locations.index.values[idx.squeeze()])
+                    j=1
+                    particle.compute_local_snr()
 
                     # assign the baseline coordinates (x,y) to the matched particle coordinates (x,y)
-                    baseline_locations.loc[particle.id, ('x','y')] = (particle.location[0],particle.location[1])
+                    baseline_locations.loc[particle.id, ('x','y')] = (particle.location[0], particle.location[1])
                     # the baseline is essentially the "current" location for that particle ID and after each
                     # successful identification, we update the "current" location of that particle ID.
 
@@ -434,6 +464,20 @@ class GdpytImageCollection(object):
             # These need to be merged to one giant particle
             image.merge_duplicate_particles(thresh_specs=self._thresholding_specs)
 
+    def get_particles_in_image(self, particle_id=None):
+        # get particles in every image
+        coords = []
+        for img in self.images.values():
+            [coords.append([p.id, p.z, p.z_true]) for p in img.particles]
+        df = pd.DataFrame(data=coords, columns=['id', 'z', 'true_z'])
+        df['z'] = df['z'].round(2)
+        df['true_z'] = df['true_z'].round(2)
+
+        if particle_id is None:
+            return df
+        else:
+            return df.loc[df['id'].isin(particle_id)]
+
 
     def update_processing(self, processing_specs, erase_old=False):
         if not isinstance(processing_specs, dict):
@@ -451,7 +495,6 @@ class GdpytImageCollection(object):
             self._min_particle_size = min
         if max is not None:
             self._max_particle_size = max
-
         self.identify_particles()
 
     def calculate_image_stats(self):
@@ -477,7 +520,7 @@ class GdpytImageCollection(object):
 
         return df.to_dict()
 
-    def calculate_measurement_quality_local(self):
+    def calculate_measurement_quality_local(self, true_xy=False):
         """
         Methods:
             1. Get the number of particles identified at each true_z.
@@ -499,6 +542,8 @@ class GdpytImageCollection(object):
             [coords.append([p.id, p.z, p.z_true]) for p in img.particles] #TODO - there needs to be a long term solution for dealing with particles w/o ground truth.
 
         dfz = pd.DataFrame(data=coords, columns=['id', 'z', 'true_z'])
+        dfz['true_z'] = dfz['true_z'].round(2)
+
         dfz_count = dfz.id.groupby(dfz['true_z']).count().astype(int).reset_index(name='counts')
         dfz_count_nan = dfz.z.isnull().groupby(dfz['true_z']).sum().astype(int).reset_index(name='counts')
 
@@ -512,30 +557,51 @@ class GdpytImageCollection(object):
 
         # get the local rmse uncertainty for each true_z
         coords = []
-        for img in self.images.values():
-            [coords.append([p.id, p.location[0], p.location[1], p.z, p.x_true, p.y_true, p.z_true]) for p in img.particles] #TODO - there needs to be a long term solution for dealing with particles w/o ground truth.
-        df_rmse = pd.DataFrame(data=coords, columns=['id', 'x', 'y', 'z', 'true_x', 'true_y', 'true_z'])
-        df_rmse.dropna(axis=0, how='any', inplace=True)
-        df_rmse.sort_values(by='true_z', inplace=True)
-        df_rmse['error_x'] = df_rmse['true_x'] - df_rmse['x']
-        df_rmse['error_y'] = df_rmse['true_y'] - df_rmse['y']
-        df_rmse['error_z'] = df_rmse['true_z'] - df_rmse['z']
-        df_rmse['square_error_x'] = df_rmse['error_x'] ** 2
-        df_rmse['square_error_y'] = df_rmse['error_y'] ** 2
-        df_rmse['square_error_z'] = df_rmse['error_z'] ** 2
 
-        dfsum = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).sum()
-        dfcount = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).count()
-        rmse_x = (dfsum.square_error_x / dfcount.square_error_x) ** 0.5
-        rmse_y = (dfsum.square_error_y / dfcount.square_error_y) ** 0.5
-        rmse_xy = (rmse_x ** 2 + rmse_y ** 2) ** 0.5
-        rmse_z = (dfsum.square_error_z / dfcount.square_error_z) ** 0.5
+        if true_xy:
+            for img in self.images.values():
+                [coords.append([p.id, p.location[0], p.location[1], p.z, p.x_true, p.y_true, p.z_true]) for p in img.particles] #TODO - there needs to be a long term solution for dealing with particles w/o ground truth.
+            df_rmse = pd.DataFrame(data=coords, columns=['id', 'x', 'y', 'z', 'true_x', 'true_y', 'true_z'])
+            df_rmse['true_z'] = df_rmse['true_z'].round(2)
+            df_rmse.dropna(axis=0, how='any', inplace=True)
+            df_rmse.sort_values(by='true_z', inplace=True)
+            df_rmse['error_x'] = df_rmse['true_x'] - df_rmse['x']
+            df_rmse['error_y'] = df_rmse['true_y'] - df_rmse['y']
+            df_rmse['error_z'] = df_rmse['true_z'] - df_rmse['z']
+            df_rmse['square_error_x'] = df_rmse['error_x'] ** 2
+            df_rmse['square_error_y'] = df_rmse['error_y'] ** 2
+            df_rmse['square_error_z'] = df_rmse['error_z'] ** 2
 
-        dfstd = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).std()
-        dfmean = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).mean()
-        dfmean.drop(columns=['id', 'x', 'y', 'true_x', 'true_y', 'square_error_x', 'square_error_y', 'square_error_z'], inplace=True)
-        df_mean_rmse = dfmean.assign(rmse_x=rmse_x.values, rmse_y=rmse_y.values, rmse_xy=rmse_xy.values, rmse_z=rmse_z.values,
-                                     std_x=dfstd.x.values, std_y=dfstd.y.values, std_z=dfstd.z.values)
+            dfsum = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).sum()
+            dfcount = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).count()
+            rmse_x = (dfsum.square_error_x / dfcount.square_error_x) ** 0.5
+            rmse_y = (dfsum.square_error_y / dfcount.square_error_y) ** 0.5
+            rmse_xy = (rmse_x ** 2 + rmse_y ** 2) ** 0.5
+            rmse_z = (dfsum.square_error_z / dfcount.square_error_z) ** 0.5
+
+            dfstd = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).std()
+            dfmean = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).mean()
+            dfmean.drop(columns=['id', 'x', 'y', 'true_x', 'true_y', 'square_error_x', 'square_error_y', 'square_error_z'], inplace=True)
+            df_mean_rmse = dfmean.assign(rmse_x=rmse_x.values, rmse_y=rmse_y.values, rmse_xy=rmse_xy.values, rmse_z=rmse_z.values,
+                                         std_x=dfstd.x.values, std_y=dfstd.y.values, std_z=dfstd.z.values)
+        else:
+            for img in self.images.values():
+                [coords.append([p.id, p.location[0], p.location[1], p.z, p.z_true]) for p in img.particles]
+            df_rmse = pd.DataFrame(data=coords, columns=['id', 'x', 'y', 'z', 'true_z'])
+            df_rmse['true_z'] = df_rmse['true_z'].round(2)
+            df_rmse.dropna(axis=0, how='any', inplace=True)
+            df_rmse.sort_values(by='true_z', inplace=True)
+            df_rmse['error_z'] = df_rmse['true_z'] - df_rmse['z']
+            df_rmse['square_error_z'] = df_rmse['error_z'] ** 2
+
+            dfsum = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).sum()
+            dfcount = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).count()
+            rmse_z = (dfsum.square_error_z / dfcount.square_error_z) ** 0.5
+
+            dfstd = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).std()
+            dfmean = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).mean()
+            dfmean.drop(columns=['id', 'x', 'y', 'square_error_z'], inplace=True)
+            df_mean_rmse = dfmean.assign(rmse_z=rmse_z.values, std_x=dfstd.x.values, std_y=dfstd.y.values, std_z=dfstd.z.values)
 
         collection_measurement_quality_local = pd.concat([df_mean_rmse, df_particle_measure_quality], axis=1)
 
@@ -564,13 +630,18 @@ class GdpytImageCollection(object):
         return self._stacks_use_raw
 
     @property
+    def true_num_particles(self):
+        return self._true_num_particles
+
+    @property
     def background_img(self):
         return self._background_img
 
     @property
     def image_stats(self):
         image_stats = [image.stats for image in self.images.values()]
-        return pd.concat(image_stats, ignore_index=False, keys=list(self.images.keys()), names=['Image']).droplevel(1)
+        df = pd.concat(image_stats, ignore_index=False, keys=list(self.images.keys()), names=['Image']).droplevel(1)
+        return df
 
     @property
     def shape_tol(self):

@@ -14,7 +14,7 @@ from .particle_identification import apply_threshold
 
 class GdpytParticle(object):
 
-    def __init__(self, image_raw, image_filt, id_, contour, bbox, thresh_specs=None):
+    def __init__(self, image_raw, image_filt, id_, contour, bbox, particle_mask_on_image):
         super(GdpytParticle, self).__init__()
         self._id = id_
         assert isinstance(image_raw, np.ndarray)
@@ -23,17 +23,23 @@ class GdpytParticle(object):
         self._image_filt = image_filt
         self._contour = contour
         self._bbox = bbox
+        self._mask_on_image = particle_mask_on_image
+        self._mask_on_template = None
         self._compute_center()
         self._compute_convex_hull()
+        self._in_images = []
         self._similarity_curve = None
         self._interpolation_curve = None
         self._z = None
+        self._z_true = None
         self._z_default = None
+        self._x_true = None
+        self._y_true = None
+        self._snr = None
         self._max_sim = None
         self._use_raw = True
 
-        if thresh_specs is not None:
-            self._compute_local_snr(thresh_specs=thresh_specs)
+        self.compute_local_snr()
 
     def __repr__(self):
         class_ = 'GdpytParticle'
@@ -48,6 +54,9 @@ class GdpytParticle(object):
         for key, val in repr_dict.items():
             out_str += '{}: {} \n'.format(key, str(val))
         return out_str
+
+    def add_particle_in_image(self, img_id):
+        self._in_images.append([img_id])
 
     def _create_template(self, bbox=None):
         if self.use_raw:
@@ -80,8 +89,9 @@ class GdpytParticle(object):
 
         if (pad_x == (0, 0)) and (pad_y == (0, 0)):
             template = image[y: y + h, x: x + w]
-            jjj = np.squeeze(self.contour)
-            self.template_contour = np.array([jjj[:,0]-y, jjj[:,1]-x]).T
+            self._mask_on_template = self._mask_on_image[y: y + h, x: x + w]
+            contr = np.squeeze(self.contour)
+            self.template_contour = np.array([contr[:, 0] - x, contr[:, 1] - y]).T
         else:
             template = np.pad(image[y: y + h, x: x + w].astype(np.float), (pad_y, pad_x),
                                     'constant', constant_values=np.nan)
@@ -116,23 +126,19 @@ class GdpytParticle(object):
         cY = int(M["m01"] / M["m00"])
         self._set_location((cX, cY))
 
-    def _compute_local_snr(self, thresh_specs):
-        #mask = np.zeros_like(self._image_raw)
-        #cv2.drawContours(mask, self.contour, -1, 255, -1)
-        #mean_p_raw = self._image_raw[mask != 0].mean()
-        #bckr_raw = self._image_raw[self.bbox[1]:self.bbox[1] + self.bbox[3], self.bbox[0]
+    def compute_local_snr(self):
 
         img_f = self.template
         img_f_bkg = img_f.copy()
 
-        particle_mask = apply_threshold(img_f, parameter=thresh_specs).astype(np.uint8)
-        background_mask = particle_mask.astype(bool)
+        #particle_mask = apply_threshold(img_f, parameter=thresh_specs).astype(np.uint16) #np.uin8
+        background_mask = self._mask_on_template
 
         # apply background mask to get background
-        img_f_mask_inv = ma.masked_array(img_f, mask=particle_mask)
+        img_f_mask_inv = ma.masked_array(img_f, mask=self._mask_on_template)
 
         # apply particle mask to get signal
-        particle_mask = np.logical_not(background_mask).astype(bool)
+        particle_mask = np.logical_not(background_mask)
         img_f_mask = ma.masked_array(img_f_bkg, mask=particle_mask)
 
         # calculate SNR for filtered image
@@ -142,7 +148,6 @@ class GdpytParticle(object):
         snr_filtered = (mean_signal_f - mean_background_f) / std_background_f
 
         self._snr = snr_filtered
-
 
 
     def _dilated_bbox(self, dilation=None, dims=None):
@@ -229,6 +234,11 @@ class GdpytParticle(object):
         if self._z_default is None:
             self._z_default = z
 
+    def set_true_z(self, z):
+        if self._z_true is None:
+            assert isinstance(z, float)
+            self._z_true = z
+
     def set_cm(self, c_measured):
         assert isinstance(c_measured, float)
         self._cm = c_measured
@@ -266,6 +276,10 @@ class GdpytParticle(object):
     @property
     def interpolation_curve(self):
         return self._interpolation_curve
+
+    @property
+    def in_images(self):
+        return self._in_images
 
     @property
     def location(self):
@@ -310,3 +324,7 @@ class GdpytParticle(object):
     @property
     def z(self):
         return self._z
+
+    @property
+    def true_num_particles(self):
+        return self._true_num_particles

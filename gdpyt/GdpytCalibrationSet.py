@@ -34,6 +34,7 @@ class GdpytCalibrationSet(object):
                         raise ValueError("No z coordinate specified for image {}")
                     else:
                         image.set_z(img_to_z[image.filename])
+                        image.add_particles_in_image()
 
         self._create_stacks(*collections, exclude=exclude, dilate=dilate)
         # Attribute that holds a Pytorch model
@@ -177,17 +178,21 @@ class GdpytCalibrationSet(object):
         plt.tight_layout()
         plt.show()
 
-    def zero_stacks(self, exclude_ids=None):
+    def zero_stacks(self, offset=0, exclude_ids=None):
         for id_, stack in self.calibration_stacks.items():
             if exclude_ids is not None:
                 if id_ in exclude_ids:
                     continue
             else:
-                stack.set_zero()
+                stack.set_zero(offset=offset)
 
     @property
     def calibration_stacks(self):
         return self._calibration_stacks
+
+    @property
+    def particle_ids(self):
+        return list(self.calibration_stacks.keys())
 
     @property
     def cnn(self):
