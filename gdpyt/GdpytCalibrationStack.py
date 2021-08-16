@@ -2,7 +2,7 @@ from matplotlib import pyplot as plt
 
 from .GdpytParticle import GdpytParticle
 from collections import OrderedDict
-from gdpyt.utils.plotting import plot_calib_stack
+from gdpyt.utils.plotting import plot_calib_stack, plot_calib_stack_self_similarity, plot_calib_stack_3d
 from gdpyt.similarity.correlation import *
 from scipy.interpolate import Akima1DInterpolator
 import numpy as np
@@ -87,6 +87,8 @@ class GdpytCalibrationStack(object):
         for z, template in sorted(zip(z, templates), key=lambda k: k[0]):
             layers.update({z: template})
         self._layers = layers
+        self.infer_self_similarity()
+
 
     def get_layers(self, range_z=None):
         if range_z is None:
@@ -160,10 +162,48 @@ class GdpytCalibrationStack(object):
             logger.info("Cm of {:.2f} below thresh. of {:.2f} for particle ".format(sim[max_idx], min_cm, particle.id))
             particle.set_z(np.nan)
 
+    def infer_self_similarity(self, function='barnkob_ccorr'):
+        logger.info("Inferring self-similarity for calibration stack {}".format(self.id))
+
+        if function.lower() == 'barnkob_ccorr':
+            if self._template_dilation is None:
+                sim_func = barnkob_cross_correlation_equal_shape
+            else:
+                sim_func = max_barnkob_cross_correlation
+        else:
+            raise ValueError("Unknown similarity function {}".format(function))
+
+        z_calib, temp_calib = np.array(list(self.layers.keys())), np.array(list(self.layers.values()))
+        num_layers = len(temp_calib)
+
+        sim_self_backward = []
+        sim_self_forward = []
+        sim_self_adjacent = []
+        for index, c_temp in enumerate(temp_calib):
+            if index > 0 and index < num_layers - 1:
+                forward = sim_func(temp_calib[index], temp_calib[index - 1])
+                backward = sim_func(temp_calib[index], temp_calib[index+1])
+                sim_self_adjacent.append(np.mean([forward, backward]))
+                sim_self_backward.append(backward)
+                sim_self_forward.append(forward)
+
+        sim_self = np.array(sim_self_adjacent)
+        z_self = np.squeeze(np.array([z_calib[1:num_layers-1]]))
+        self._self_similarity = np.vstack((z_self, sim_self)).T
+
 
     def plot(self, z=None, draw_contours=True, fill_contours=False, imgs_per_row=5, fig=None, ax=None, format_string=False):
         fig = plot_calib_stack(self, z=z, draw_contours=draw_contours, fill_contours=fill_contours, imgs_per_row=imgs_per_row, fig=fig, axes=ax, format_string=format_string)
         return fig
+
+    def plot_3d_stack(self, intensity_percentile=(10, 98.75), stepsize=5, aspect_ratio=3):
+        fig = plot_calib_stack_3d(self,  intensity_percentile=intensity_percentile, stepsize=stepsize, aspect_ratio=aspect_ratio)
+        return fig
+
+    def plot_self_similarity(self):
+        fig = plot_calib_stack_self_similarity(self)
+        return fig
+
 
     def reset_id(self, new_id):
         assert isinstance(new_id, int)
@@ -172,7 +212,7 @@ class GdpytCalibrationStack(object):
         for particle in self.particles:
             particle.reset_id(new_id)
 
-    def set_zero(self):
+    def set_zero(self, offset=0):
         areas = []
         zs = []
         for particle in sorted(self.particles, key=lambda p: p.z):
@@ -207,6 +247,7 @@ class GdpytCalibrationStack(object):
             z_zero = zs[np.argmin(areas)]
 
         z_zero = np.around(z_zero, decimals=3)
+        z_zero = z_zero - offset
 
         # Add offset to layers and particles:
         for p in self.particles:
@@ -220,7 +261,7 @@ class GdpytCalibrationStack(object):
         self._zero = z_zero
         logger.info("Zeroing calibration stack {}. Found in-focus z position at {}".format(self.id, z_zero))
 
-    def calculate_stats(self, true_num_particles=None, measurement_volume=None):
+    def calculate_stats(self, true_num_particles=None, measurement_depth=None):
         """
 
         Parameters
@@ -238,10 +279,10 @@ class GdpytCalibrationStack(object):
             snrs.append(p.snr)
             areas.append(p.area)
 
-        if true_num_particles is not None and measurement_volume is not None:
+        if true_num_particles is not None and measurement_depth is not None:
             stats = {
                 'percent_particles_idd': len(self.particles) / true_num_particles * 100,
-                'measurement_volume': measurement_volume,
+                'measurement_depth': measurement_depth,
                 'avg_snr': np.mean(snrs),
                 'avg_area': np.mean(areas),
                 'min_particle_area': np.min(areas),
@@ -280,6 +321,10 @@ class GdpytCalibrationStack(object):
     @property
     def stats(self):
         return self._stats
+
+    @property
+    def self_similarity(self):
+        return self._self_similarity
 
     @property
     def particles(self):
