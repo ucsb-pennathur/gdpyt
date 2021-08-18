@@ -204,7 +204,6 @@ class GdpytCalibrationStack(object):
         fig = plot_calib_stack_self_similarity(self)
         return fig
 
-
     def reset_id(self, new_id):
         assert isinstance(new_id, int)
         self._id = new_id
@@ -279,27 +278,16 @@ class GdpytCalibrationStack(object):
             snrs.append(p.snr)
             areas.append(p.area)
 
-        if true_num_particles is not None and measurement_depth is not None:
-            stats = {
-                'percent_particles_idd': len(self.particles) / true_num_particles * 100,
-                'measurement_depth': measurement_depth,
-                'avg_snr': np.mean(snrs),
-                'avg_area': np.mean(areas),
-                'min_particle_area': np.min(areas),
-                'max_particle_area': np.max(areas),
-                'min_particle_dia': np.sqrt(np.min(areas) * 4 / np.pi),
-                'max_particle_dia': np.sqrt(np.max(areas) * 4 / np.pi),
-            }
-        else:
-            stats = {
-                'num_particles': len(self.particles),
-                'avg_snr': np.mean(snrs),
-                'avg_area': np.mean(areas),
-                'min_particle_area': np.min(areas),
-                'max_particle_area': np.max(areas),
-                'min_particle_dia': np.sqrt(np.min(areas) * 4 / np.pi),
-                'max_particle_dia': np.sqrt(np.max(areas) * 4 / np.pi),
-            }
+        stats = {
+            'particle_id': p.id,
+            'layers': len(self.layers),
+            'avg_snr': np.mean(snrs),
+            'avg_area': np.mean(areas),
+            'min_particle_area': np.min(areas),
+            'max_particle_area': np.max(areas),
+            'min_particle_dia': np.sqrt(np.min(areas) * 4 / np.pi),
+            'max_particle_dia': np.sqrt(np.max(areas) * 4 / np.pi),
+                }
         return stats
 
     @property

@@ -1,8 +1,10 @@
 from matplotlib import pyplot as plt
+from matplotlib.pyplot import cm
 
 from .GdpytCalibrationStack import GdpytCalibrationStack
 from gdpyt.inception_net import GdpytInceptionDataset, GdpytInceptionRegressionNet, train_net
 import pandas as pd
+import numpy as np
 import torch
 import torch.nn as nn
 from torchvision.transforms import Resize, ToTensor, Normalize, Compose
@@ -14,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class GdpytCalibrationSet(object):
 
-    def __init__(self, collections, image_to_z, exclude=[], dilate=True):
+    def __init__(self, collections, image_to_z, dilate=True, min_num_layers=None,  exclude=[]):
         super(GdpytCalibrationSet, self).__init__()
 
         if not isinstance(image_to_z, list):
@@ -36,7 +38,10 @@ class GdpytCalibrationSet(object):
                         image.set_z(img_to_z[image.filename])
                         image.add_particles_in_image()
 
+        self._min_num_layers = min_num_layers
+        self._particle_ids = None
         self._create_stacks(*collections, exclude=exclude, dilate=dilate)
+        self._clean_stacks()
         # Attribute that holds a Pytorch model
         self._cnn = None
         self.cnn_data_params = None
@@ -54,7 +59,7 @@ class GdpytCalibrationSet(object):
             out_str += '{}: {} \n'.format(key, str(val))
         return out_str
 
-    def _create_stacks(self, *collections, exclude=[], dilate=True):
+    def _create_stacks(self, *collections, exclude=[], exclude_particle_ids=[], dilate=True):
         stacks = {}
         ids_in_collects = []
         for i, collection in enumerate(collections):
@@ -80,7 +85,9 @@ class GdpytCalibrationSet(object):
                             else:
                                 particle.reset_id(new_id_map[particle.id])
 
-                        if particle.id not in stacks.keys():
+                        if particle.id in exclude_particle_ids:
+                            continue
+                        elif particle.id not in stacks.keys():
                             new_stack = GdpytCalibrationStack(particle.id, particle.location, dilation=dilation)
                             # cross-correlation-based calibration stacks: use filtered image (i.e. stacks_use_raw=False)
                             # neural-network-based calibration stacks: use raw image (i.e. stacks_use_raw=True)
@@ -94,6 +101,27 @@ class GdpytCalibrationSet(object):
                 stack.build_layers()
 
         self._calibration_stacks = stacks
+
+    def _clean_stacks(self):
+        """
+        Remove calibration stacks with too few images or particle stats that differ significantly from others.
+        """
+        df = self.calculate_stacks_stats()
+        all_stacks_uniques = df.particle_id.unique()
+
+        # filter on number of layers
+        if self._min_num_layers:
+            df = df.loc[df['layers'] > self._min_num_layers]
+        else:
+            df = df.loc[df['layers'] > df.layers.mean() * 0.75]
+
+        passing_stacks_uniques = df.particle_id.unique()
+        exclude_particle_ids = list(set(all_stacks_uniques) - set(passing_stacks_uniques))
+        for id in exclude_particle_ids:
+            del self.calibration_stacks[id]
+            self.update_particle_ids()
+            logger.warning("Removed calibration stack {} from set.".format(id))
+
 
     # def fill_missing_levels(self, exclude_stacks=None):
     #     logger.info("Filling missing calibration levels..")
@@ -170,14 +198,6 @@ class GdpytCalibrationSet(object):
         self._train_summary = pd.DataFrame({'Epoch': [i for i in range(epochs)], 'Avg_loss': avg_epoch_loss,
                                             'Sigma_loss': std_epoch_loss})
 
-    def plot_train_summary(self):
-        fig, axes = plt.subplots(nrows=2)
-        ax = axes.ravel()
-        ax[0].plot(self.train_summary['Epoch'], self.train_summary['Avg_loss'], label='Avg loss')
-        ax[1].plot(self.train_summary['Epoch'], self.train_summary['Sigma_loss'], label=r'$\sigma$ loss')
-        plt.tight_layout()
-        plt.show()
-
     def zero_stacks(self, offset=0, exclude_ids=None):
         for id_, stack in self.calibration_stacks.items():
             if exclude_ids is not None:
@@ -186,13 +206,59 @@ class GdpytCalibrationSet(object):
             else:
                 stack.set_zero(offset=offset)
 
+    def update_particle_ids(self):
+        self._particle_ids = list(self.calibration_stacks.keys())
+
+    def calculate_stacks_stats(self, measurement_depth=None, true_num_particles=None):
+        for stack in self.calibration_stacks.keys():
+            calib_stack_data = self.calibration_stacks[stack].calculate_stats(true_num_particles=true_num_particles,
+                                                                              measurement_depth=measurement_depth)
+            calib_stack_data.update({'stack_id': stack, 'p_id': self.calibration_stacks[stack].id})
+            if stack == 0:
+                df_stacks = pd.DataFrame(data=calib_stack_data, index=[stack])
+            else:
+                new_stacks = pd.DataFrame(data=calib_stack_data, index=[stack])
+                df_stacks = pd.concat([df_stacks, new_stacks])
+        return df_stacks
+
+    def plot_train_summary(self):
+        fig, axes = plt.subplots(nrows=2)
+        ax = axes.ravel()
+        ax[0].plot(self.train_summary['Epoch'], self.train_summary['Avg_loss'], label='Avg loss')
+        ax[1].plot(self.train_summary['Epoch'], self.train_summary['Sigma_loss'], label=r'$\sigma$ loss')
+        plt.tight_layout()
+        plt.show()
+
+    def plot_stacks_self_similarity(self, min_num_layers=0):
+        fig, ax = plt.subplots()
+        color = iter(cm.gist_rainbow(np.linspace(0, 1, len(self.calibration_stacks.values()))))
+        for stack in self.calibration_stacks.values():
+            if len(stack.layers) >= min_num_layers:
+                c = next(color)
+                ax.plot(stack.self_similarity[:, 0], stack.self_similarity[:, 1], color=c, alpha=0.5)
+                ax.scatter(stack.self_similarity[:, 0], stack.self_similarity[:, 1], s=3, color=c, label=stack.id)
+        ax.set_xlabel(r'$z$ / h')
+        ax.set_ylabel(r'$S_i$ $\left(|z_{i-1}, z_{i+1}|\right)$')
+        ax.set_ylim([0.8975, 1.005])
+        ax.grid(alpha=0.25)
+        ax.legend()
+
     @property
     def calibration_stacks(self):
         return self._calibration_stacks
 
     @property
     def particle_ids(self):
-        return list(self.calibration_stacks.keys())
+        self.update_particle_ids()
+        return self._particle_ids
+
+    @property
+    def min_num_layers(self):
+        return self._min_num_layers
+
+    @property
+    def calib_set_stats(self):
+        return self.calculate_stacks_stats()
 
     @property
     def cnn(self):
