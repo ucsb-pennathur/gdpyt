@@ -1,5 +1,5 @@
 """
-This program tests the GDPyT measurement accuracy on...
+This program tests the GDPyT measurement accuracy on... DataSet I
 """
 
 from gdpyt import GdpytImageCollection
@@ -24,8 +24,8 @@ EXPORT_RESULTS_PATH = '/Users/mackenzie/Desktop/gdpyt-characterization/datasets/
 # display options
 SHOW_CALIB_PLOTS = True
 SAVE_CALIB_PLOTS = True
-SHOW_PLOTS = False
-SAVE_PLOTS = False
+SHOW_PLOTS = True
+SAVE_PLOTS = True
 
 # define sweep
 NOISE_LEVELS = ['1']  #
@@ -34,7 +34,7 @@ NOISE_LEVELS = ['1']  #
 N_CAL = 50.0
 N_TEST = 6
 MEASUREMENT_DEPTH = 86.0
-MEASUREMENT_WIDTH = 47.6
+MEASUREMENT_WIDTH = 2000
 TRUE_NUM_PARTICLES_PER_IMAGE = 361
 TRUE_NUM_PARTICLES_TOTAL = N_TEST * TRUE_NUM_PARTICLES_PER_IMAGE
 

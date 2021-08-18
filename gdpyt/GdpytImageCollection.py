@@ -186,14 +186,14 @@ class GdpytImageCollection(object):
             self._files_ground_truth = save_files
 
 
-    def create_calibration(self, name_to_z, exclude=[], dilate=True):
+    def create_calibration(self, name_to_z, dilate=True, min_num_layers=None, exclude=[]):
         """
         This creates a calibration from this image collection
         :param name_to_z: dictionary, maps each filename to a height. e.g {'run5_0.tif': 0.0, 'run5_1.tif': 1.0 ...}
                         This could also be done differently
         :return: A list of GdptCalibrationStacks. One for each particle in the images
         """
-        return GdpytCalibrationSet(self, name_to_z, exclude=exclude, dilate=dilate)
+        return GdpytCalibrationSet(self, name_to_z, dilate=dilate, min_num_layers=min_num_layers, exclude=exclude)
 
     def crop_images(self):
         for image in self.images.values():
@@ -331,6 +331,10 @@ class GdpytImageCollection(object):
 
     def plot_local_rmse_uncertainty(self, measurement_quality, measurement_depth=None, true_xy=False, measurement_width=None):
         fig = plot_local_rmse_uncertainty(self, measurement_quality, measurement_depth=measurement_depth, true_xy=true_xy, measurement_width=measurement_width)
+        return fig
+
+    def plot_num_particles_per_image(self):
+        fig = plot_num_particles_per_image(self)
         return fig
 
     def plot_particles_stats(self, stat='area'):

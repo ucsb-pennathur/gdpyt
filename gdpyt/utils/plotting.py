@@ -11,6 +11,7 @@ from skimage import exposure
 import pandas as pd
 
 import matplotlib.pyplot as plt
+from matplotlib.pyplot import cm
 from matplotlib.ticker import (MultipleLocator, AutoMinorLocator)
 from matplotlib.colors import LightSource
 from mpl_toolkits.mplot3d import Axes3D
@@ -128,7 +129,7 @@ def plot_calib_stack_self_similarity(calib_stack):
     ax.scatter(calib_stack.self_similarity[:, 0], calib_stack.self_similarity[:, 1])
     ax.set_xlabel(r'$z$ / h')
     ax.set_ylabel(r'$S_i$ $\left(|z_{i-1}, z_{i+1}|\right)$')
-    ax.set_ylim([0.7475, 1.005])
+    ax.set_ylim([0.8975, 1.005])
     ax.grid(alpha=0.25)
     return fig
 
@@ -656,6 +657,26 @@ def plot_calib_col_image_stats(df):
     ax2.set_ylabel(r'$A_{p}$ $(pixels^2)$', color='darkgreen')
     ax2.set_ylim([0, 1500])
 
+def plot_num_particles_per_image(collection):
+    img_id = []
+    num_particles = []
+    for i in collection.images.values():
+        img_id.append(i.z)
+        num_particles.append(int(len(i.particles)))
+
+    img_particles = list(zip(img_id, num_particles))
+    img_particles = sorted(img_particles, key = lambda x: x[0])
+    img_particles = np.vstack(img_particles)
+
+    fig, ax = plt.subplots()
+
+    ax.plot(img_particles[:, 0], img_particles[:, 1], alpha=0.5)
+    ax.scatter(img_particles[:, 0], img_particles[:, 1])
+
+    ax.set_xlabel(r'$z_{true}$ / $h$')
+    ax.set_ylabel(r'$p_{num}$')
+
+
 def plot_particles_stats(collection, stat='area'):
     values = []
     particles_ids = []
@@ -669,18 +690,31 @@ def plot_particles_stats(collection, stat='area'):
 
     particles_ids = np.unique(particles_ids)
 
-    fig, ax = plt.subplots(figsize=(10, 8))
+    color = iter(cm.brg(np.linspace(0, 1, len(particles_ids))))
+
+    fig, ax = plt.subplots(figsize=(8, 10))
+
+    min_areas = []
     for p in particles_ids:
         dfpp = df.loc[df['id'] == p]
+        min_areas.append([dfpp.area.min()])
         dfp = dfpp.sort_values(by='z', axis=0)
-        ax.plot(dfp.z, dfp.area, alpha=0.5)
-        ax.scatter(dfp.z, dfp.area, label=p)
+
+        c = next(color)
+        ax.plot(dfp.z, dfp.area, color=c, alpha=0.25)
+        ax.scatter(dfp.z, dfp.area, s=5, color=c, label=p)
+
+    min_area = np.mean(min_areas)
+    std_area = np.std(min_areas)
+    ax.axvline(x=min_area, ymin=0, ymax=0.25, color='black', linestyle='--', alpha=0.75)
+    ax.text(min_area, 0.3, r'$A_{p, min}' + '= {} +/- {}'.format(int(np.round(min_area, 0)), np.round(std_area, 1)),
+            verticalalignment='bottom', horizontalalignment='center', transform=ax.transAxes, color='black')
 
     ax.set_xlabel(r'$z_{true}$ / $h$')
     ax.set_ylabel(r'$A_{p}$ $(pixels^2)$')
     ax.set_ylim([0, 1750])
     ax.legend(title=r'$p_{ID}$', fontsize=8, loc='upper center', bbox_to_anchor=(0.5, 0.95), ncol=8, fancybox=True, shadow=True)
-    plt.tight_layout()
+    #plt.tight_layout()
     return fig
 
 def plot_particle_snr_and(collection, second_plot='area'):
