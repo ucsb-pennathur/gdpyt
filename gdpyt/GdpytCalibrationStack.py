@@ -260,7 +260,7 @@ class GdpytCalibrationStack(object):
         self._zero = z_zero
         logger.info("Zeroing calibration stack {}. Found in-focus z position at {}".format(self.id, z_zero))
 
-    def calculate_stats(self, true_num_particles=None, measurement_depth=None):
+    def calculate_stats(self):
         """
 
         Parameters

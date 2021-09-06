@@ -1,4 +1,4 @@
-from os.path import splitext
+from os.path import splitext, join
 import re
 import logging
 
@@ -129,7 +129,7 @@ def plot_calib_stack_self_similarity(calib_stack):
     ax.scatter(calib_stack.self_similarity[:, 0], calib_stack.self_similarity[:, 1])
     ax.set_xlabel(r'$z$ / h')
     ax.set_ylabel(r'$S_i$ $\left(|z_{i-1}, z_{i+1}|\right)$')
-    ax.set_ylim([0.8975, 1.005])
+    ax.set_ylim([0.7975, 1.005])
     ax.grid(alpha=0.25)
     return fig
 
@@ -586,6 +586,116 @@ def plot_similarity_curve(collection, sub_image, method=None, min_cm=0, particle
 
     return fig
 
+def plot_every_image_particle_stack_similarity(test_col, calib_set, save_results_path, plot=False, infer_sub_image=False, min_cm=0.75,
+                                               measurement_depth=1.0):
+    same_id_most_correlated = []
+    for img in test_col.images.values():
+        if img.z is None:
+            z_true = np.round(float(img.filename.split(test_col.file_basestring)[-1].split('.')[0]) / measurement_depth, 2)
+        else:
+            z_true = img.z
+
+        for p in img.particles:
+            if p.z_true is None:
+                p.set_true_z(z_true)
+
+            SAVE_TEST_ID = 'test_calibstacks_z{}_pid{}'.format(z_true, p.id)
+            num_stacks = len(calib_set.calibration_stacks.values())
+            color = iter(cm.nipy_spectral(np.linspace(0, 1, num_stacks)))
+
+            if plot:
+                fig, ax = plt.subplots(figsize=(8.75, 6))
+
+            stack_cm_zs = []
+            stack_interp_zs = []
+            cms = []
+            cmi = []
+            for stack in calib_set.calibration_stacks.values():
+                stack.infer_z(particle=p, function='barnkob_ccorr', min_cm=min_cm,
+                              infer_sub_image=infer_sub_image)
+
+                if p.z is not None and np.isnan(p.z) == False:
+                    sim_z = p.similarity_curve.iloc[:, 0]
+                    sim_cm = p.similarity_curve.iloc[:, 1]
+                    stack_cm_zs.append(sim_z[np.argmax(sim_cm)])
+                    cms.append(np.max(sim_cm))
+
+                    if plot:
+                        c = next(color)
+                        ax.plot(sim_z, sim_cm, color=c, linewidth=0.5, alpha=0.5, label=r'$c_m$ ' + str(stack.id))
+
+                    if infer_sub_image:
+                        interp_z = p.interpolation_curve.iloc[:, 0]
+                        interp_cm = p.interpolation_curve.iloc[:, 1]
+                        cmi.append(np.max(interp_cm))
+                        stack_interp_zs.append(interp_z[np.argmax(interp_cm)])
+                        if plot:
+                            ax.plot(interp_z, interp_cm, color=c, linewidth=2)  # , label='interp ' + str(stack.id)
+
+                        same_id_most_correlated.append(
+                            [z_true, p.id, stack.id, sim_z[np.argmax(sim_cm)], np.max(sim_cm),
+                             interp_z[np.argmax(interp_cm)], np.max(interp_cm)])
+
+            # if every inferred z-coordinate is NaN, must skip the loop
+            if len(cms) == 0:
+                continue
+
+            if plot:
+                # plot the true value
+                ax.axvline(x=p.z_true, ymin=0, ymax=0.925, color='black', linestyle='--', alpha=0.85)
+                ax.scatter(p.z_true, 1.00625, s=200, marker='*', color='magenta')
+
+                # calculate stats
+                best_guess_cm = np.round(stack_cm_zs[np.argmax(cms)], 3)
+                best_guess_interp = np.round(stack_interp_zs[np.argmax(cmi)], 2)
+
+                tp3cm = sorted(zip(cms, stack_cm_zs), reverse=True)[:3]
+                tp3cm = [p[1] for p in tp3cm]
+                top_three_cm = np.round(np.mean(tp3cm), 2)
+                tp3ci = sorted(zip(cmi, stack_interp_zs), reverse=True)[:3]
+                tp3ci = [p[1] for p in tp3ci]
+                top_three_interp = np.round(np.mean(tp3ci), 2)
+
+                mean_cm = np.round(np.mean(stack_cm_zs), 2)
+                mean_interp = np.round(np.mean(stack_interp_zs), 2)
+                std_cm = np.round(np.std(stack_cm_zs), 2)
+
+                ax.set_title(r'$z_{true}$/h = ' + str(np.round(p.z_true, 2)) + r': $Stack_{ID}, p_{ID}$' + '= {}'.format(p.id), fontsize=13)
+                ax.set_xlabel(r'$z$ / h', fontsize=12)
+                #ax.set_xlim([mean_cm - 1.5*std_cm, mean_cm + 1.5*std_cm])
+                ax.set_xlim([-0.01, 1.01])
+                ax.set_ylim([0.795, 1.0125])
+                ax.set_ylabel(r'$c_{m}$', fontsize=12)
+
+                ax.grid(b=True, which='major', alpha=0.25)
+                ax.grid(b=True, which='minor', alpha=0.125)
+
+                textstr = '\n'.join((
+                        r'$z_{true}$ / h = ' + str(np.round(p.z_true, 2)),
+                        r'Best Guess $(z_{cc}, z_{interp.})$' + '= {}, {}'.format(best_guess_cm, best_guess_interp),
+                        r'$Mean_{3}$: $(z_{cc}, z_{interp.})$' + '= {}, {}'.format(top_three_cm, top_three_interp),
+                        r'$Mean_{all}$: $(z_{cc}, z_{interp.})$' + '= {}, {}'.format(mean_cm, mean_interp)
+                ))
+
+                if np.abs(p.z_true - top_three_cm) < 0.02:
+                    boxcolor = 'springgreen'
+                else:
+                    boxcolor = 'lightcoral'
+                props = dict(boxstyle='square', facecolor=boxcolor, alpha=0.25)
+                ax.text(0.5, 0.19, textstr, verticalalignment='bottom', horizontalalignment='center', transform=ax.transAxes, bbox=props, fontsize=10)
+                ax.legend(title=r'$CalibStack_{ID}$', loc='lower center', bbox_to_anchor=(0.5, 0.00625), ncol=int(np.round(num_stacks / 2)), fontsize=10)
+
+                plt.tight_layout()
+                savefigpath = join(save_results_path, SAVE_TEST_ID + '_similarity.png')
+                fig.savefig(fname=savefigpath, bbox_inches='tight')
+                plt.close()
+
+    stack_results = np.array(same_id_most_correlated)
+    dfstack = pd.DataFrame(data=stack_results, index=None,
+                           columns=['img_id', 'p_id', 'stack_id', 'z_cm', 'max_c_cm', 'z_interp', 'max_z_interp'])
+    savedata = join(save_results_path, 'gdpyt_every_stackid_results.xlsx')
+    dfstack.to_excel(savedata)
+
 
 def plot_local_rmse_uncertainty(collection, measurement_quality, measurement_depth=None, true_xy=False, measurement_width=None):
 
@@ -650,12 +760,17 @@ def plot_calib_col_image_stats(df):
     ax.set_xlabel(r'$\Delta z_{true} (\mu m)$')
     ax.set_xlabel(r'$z_{true}$ / $h$')
     ax.set_ylabel(r'$SNR$ ( $\frac {\mu_p}{\sigma_I}$ )', color='darkblue')
-    ax.set_ylim([0, 150])
+    snrmax = int(np.round(np.max(df.snr_filtered) * 1.1, -1))
+    ax.set_ylim([0, snrmax])
 
     ax2 = ax.twinx()
     ax2.plot(df.z, df.contour_area_mean, color='darkgreen', alpha=1)
     ax2.set_ylabel(r'$A_{p}$ $(pixels^2)$', color='darkgreen')
-    ax2.set_ylim([0, 1500])
+    ymax = int(np.round(np.max(df.contour_area_mean) * 1.1, -1))
+    ax2.set_ylim([0, ymax])
+
+    return fig
+
 
 def plot_num_particles_per_image(collection):
     img_id = []
@@ -688,10 +803,11 @@ def plot_particles_stats(collection, stat='area'):
 
     df = pd.DataFrame(data=values, columns=['id', 'z', 'true_z', 'area', 'solidity', 'snr', 'img_num_particles'])
 
+    df_min_area = df.groupby(by='true_z').mean()
+    # TODO: determine the z-coordinate with the minimum average particle area
+
     particles_ids = np.unique(particles_ids)
-
     color = iter(cm.brg(np.linspace(0, 1, len(particles_ids))))
-
     fig, ax = plt.subplots(figsize=(8, 10))
 
     min_areas = []
@@ -706,13 +822,14 @@ def plot_particles_stats(collection, stat='area'):
 
     min_area = np.mean(min_areas)
     std_area = np.std(min_areas)
-    ax.axvline(x=min_area, ymin=0, ymax=0.25, color='black', linestyle='--', alpha=0.75)
-    ax.text(min_area, 0.3, r'$A_{p, min}' + '= {} +/- {}'.format(int(np.round(min_area, 0)), np.round(std_area, 1)),
+    ax.axvline(x=0.5, ymin=0, ymax=0.25, color='black', linestyle='--', alpha=0.75)
+    ax.text(0.5, 0.3, r'$A_{p, min}$' + '= {} +/- {}'.format(int(np.round(min_area, 0)), np.round(std_area, 1)),
             verticalalignment='bottom', horizontalalignment='center', transform=ax.transAxes, color='black')
 
     ax.set_xlabel(r'$z_{true}$ / $h$')
     ax.set_ylabel(r'$A_{p}$ $(pixels^2)$')
-    ax.set_ylim([0, 1750])
+    ymax = int(np.round(np.max(df.area) * 1.1, -1))
+    ax.set_ylim([0, ymax])
     ax.legend(title=r'$p_{ID}$', fontsize=8, loc='upper center', bbox_to_anchor=(0.5, 0.95), ncol=8, fancybox=True, shadow=True)
     #plt.tight_layout()
     return fig
@@ -722,7 +839,7 @@ def plot_particle_snr_and(collection, second_plot='area'):
     identified_particles_per_image = []
     for img in collection.images.values():
         for p in img.particles:
-            if p.z is not None and np.isnan(p.z) == False:
+            if p.z is not None and np.isnan(p.z) == False and p.snr:
                 values.append([p.id, p.z, p.z_true, p.area, p.solidity, p.snr, len(img.particles)])
 
     df = pd.DataFrame(data=values, columns=['id', 'z', 'true_z', 'area', 'solidity', 'snr', 'img_num_particles'])
@@ -740,14 +857,16 @@ def plot_particle_snr_and(collection, second_plot='area'):
     #ax.set_xlabel(r'$\Delta z_{true} (\mu m)$')
     ax.set_xlabel(r'$z_{true}$ / $h$')
     ax.set_ylabel(r'$SNR$ ( $\frac {\mu_p}{\sigma_I}$ )', color='darkblue')
-    ax.set_ylim([0, 50])
+    snrmax = int(np.round(np.max(df_z_mean.snr) * 1.35, -1))
+    ax.set_ylim([0, snrmax])
 
     if second_plot == 'area':
         ax2 = ax.twinx()
         ax2.errorbar(x=df_z_mean.index, y=df_z_mean.area, yerr=df_z_std.area*2, fmt='o', color='darkgreen', ecolor='limegreen', elinewidth=1, capsize=2)
         ax2.plot(df_z_mean.index, df_z_mean.area, color='darkgreen', alpha=0.125)
         ax2.set_ylabel(r'$A_{p}$ $(pixels^2)$', color='darkgreen')
-        ax2.set_ylim([0, 1700])
+        ymax = int(np.round(np.max(df_z_mean.area) * 1.1, -2))
+        ax2.set_ylim([0, ymax])
 
     elif second_plot == 'solidity':
         ax2 = ax.twinx()
