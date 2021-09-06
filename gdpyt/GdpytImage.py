@@ -5,6 +5,10 @@ from skimage import io
 from skimage.filters import median, gaussian
 from skimage.morphology import disk, white_tophat, closing, square
 from skimage.filters.rank import mean_bilateral
+# TODO: investigate the below functions
+from skimage.restoration import denoise_bilateral, denoise_nl_means, estimate_sigma
+from skimage.metrics import peak_signal_noise_ratio
+
 from skimage.exposure import equalize_adapthist
 from skimage.segmentation import clear_border
 from skimage.measure import label, regionprops
@@ -43,7 +47,10 @@ class GdpytImage(object):
 
         self._filepath = path
         self._filename = basename(path)
-        self._true_num_particles = true_num_particles
+        if true_num_particles is None:
+            self._true_num_particles = 1
+        else:
+            self._true_num_particles = true_num_particles
 
         # Load the image. This sets the ._raw attribute
         self.load(path, if_img_stack_take=if_img_stack_take, take_subset_mean=take_subset_mean)
@@ -159,6 +166,11 @@ class GdpytImage(object):
         This method should assign self._processed and self._processing_stats
         """
         valid_filters = ['none', 'median', 'mean_bilateral', 'gaussian', 'white_tophat', 'equalize_adapthist']
+        #TODO: - there are several 'denoising' filters that would be useful to investigate.
+        #   > particularly the skimage.restoration.denoise_bilateral function which perserves edges.
+        #   > see more here: https://scikit-image.org/docs/dev/auto_examples/filters/plot_denoise.html#sphx-glr-auto-examples-filters-plot-denoise-py
+        #   > there are very exciting results that perserve texture shown in the example below:
+        #   > see here: https://scikit-image.org/docs/dev/auto_examples/filters/plot_nonlocal_means.html#sphx-glr-auto-examples-filters-plot-nonlocal-means-py
 
         img_copy = self._raw.copy()
         raw_dtype = img_copy.dtype
@@ -302,16 +314,17 @@ class GdpytImage(object):
             plt.show()
 
         # Calculate contour statistics
-        min_contour_area = np.min(contour_areas)
-        max_contour_area = np.max(contour_areas)
-        mean_contour_area = np.mean(contour_areas)
-        std_contour_area = np.round(np.std(contour_areas), 1)
-        if min_contour_area < min_size * 1.5:
-            print("Min. contour area [input, measured] = [{}, {}]".format(min_size, min_contour_area))
-            print("Mean contour area: {} +/- {}".format(mean_contour_area, std_contour_area * 2))
-        if max_contour_area > max_size * 0.75:
-            print("Max. contour area [input, measured] = [{}, {}]".format(max_size, max_contour_area))
-            print("Mean contour area: {} +/- {}".format(mean_contour_area, std_contour_area * 2))
+        if len(contour_areas) > 0:
+            min_contour_area = np.min(contour_areas)
+            max_contour_area = np.max(contour_areas)
+            mean_contour_area = np.mean(contour_areas)
+            std_contour_area = np.round(np.std(contour_areas), 1)
+            if min_contour_area < min_size * 1.5:
+                print("Min. contour area [input, measured] = [{}, {}]".format(min_size, min_contour_area))
+                print("Mean contour area: {} +/- {}".format(mean_contour_area, std_contour_area * 2))
+            if max_contour_area > max_size * 0.75:
+                print("Max. contour area [input, measured] = [{}, {}]".format(max_size, max_contour_area))
+                print("Mean contour area: {} +/- {}".format(mean_contour_area, std_contour_area * 2))
 
         # Calculate image statistics
         background_mask = particle_mask.astype(bool)
@@ -363,11 +376,12 @@ class GdpytImage(object):
                 [mean_signal_f, mean_background_f, std_background_f, snr_filtered, pixel_density, particle_density,
                  percent_particles_idd, self.true_num_particles, mean_contour_area, std_contour_area])
         else:
+            #TODO: add statistics for contours that did not pass--so I can understand why they didn't pass.
             self._update_processing_stats(
                 ['mean_signal', 'mean_background', 'std_background', 'snr_filtered', 'pixel_density',
-                 'true_num_particles', 'contour_area_mean', 'contour_area_std'],
-                [mean_signal_f, mean_background_f, std_background_f, snr_filtered, pixel_density,
-                 self.true_num_particles, mean_contour_area, std_contour_area])
+                 'particle_density', 'percent_particles_idd', 'true_num_particles'],
+                [mean_signal_f, mean_background_f, std_background_f, snr_filtered, pixel_density, 0.0, 0.0,
+                 self.true_num_particles])
 
         """
         If you want to plot the particle/background images
@@ -441,7 +455,7 @@ class GdpytImage(object):
                 self._particles.remove(dup_p[i])
 
             # Add the merged particle
-            self._add_particle(dup_id, merged_contour, merged_bbox, thresh_specs=thresh_specs)
+            self._add_particle(dup_id, merged_contour, merged_bbox, self.masked)
 
         # calculate particle density (# of particles / # of pixels in image) for filtered image
         num_particles = len(self.particles)

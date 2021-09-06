@@ -209,13 +209,14 @@ class GdpytCalibrationSet(object):
     def update_particle_ids(self):
         self._particle_ids = list(self.calibration_stacks.keys())
 
-    def calculate_stacks_stats(self, measurement_depth=None, true_num_particles=None):
+    def calculate_stacks_stats(self):
+        si = 0
         for stack in self.calibration_stacks.keys():
-            calib_stack_data = self.calibration_stacks[stack].calculate_stats(true_num_particles=true_num_particles,
-                                                                              measurement_depth=measurement_depth)
+            calib_stack_data = self.calibration_stacks[stack].calculate_stats()
             calib_stack_data.update({'stack_id': stack, 'p_id': self.calibration_stacks[stack].id})
-            if stack == 0:
+            if si == 0:
                 df_stacks = pd.DataFrame(data=calib_stack_data, index=[stack])
+                si += 0
             else:
                 new_stacks = pd.DataFrame(data=calib_stack_data, index=[stack])
                 df_stacks = pd.concat([df_stacks, new_stacks])
@@ -232,16 +233,23 @@ class GdpytCalibrationSet(object):
     def plot_stacks_self_similarity(self, min_num_layers=0):
         fig, ax = plt.subplots()
         color = iter(cm.gist_rainbow(np.linspace(0, 1, len(self.calibration_stacks.values()))))
+        min_cm = 0.9
         for stack in self.calibration_stacks.values():
             if len(stack.layers) >= min_num_layers:
+                if np.min(stack.self_similarity[:, 1]) < min_cm:
+                    min_cm = np.min(stack.self_similarity[:, 1])
+
                 c = next(color)
                 ax.plot(stack.self_similarity[:, 0], stack.self_similarity[:, 1], color=c, alpha=0.5)
                 ax.scatter(stack.self_similarity[:, 0], stack.self_similarity[:, 1], s=3, color=c, label=stack.id)
+
         ax.set_xlabel(r'$z$ / h')
         ax.set_ylabel(r'$S_i$ $\left(|z_{i-1}, z_{i+1}|\right)$')
-        ax.set_ylim([0.8975, 1.005])
+
+        ax.set_ylim([min_cm, 1.005])
         ax.grid(alpha=0.25)
-        ax.legend()
+        if len(self.calibration_stacks.values()) < 15:
+            ax.legend()
 
     @property
     def calibration_stacks(self):
@@ -286,10 +294,10 @@ class GdpytImageInference(object):
             logger.info("Infering image {}".format(image.filename))
             for particle in image.particles:
                 if use_stack is None:
-                    if particle.id < len(self.calib_set.calibration_stacks):
+                    if particle.id in self.calib_set.particle_ids:
                         stack = self.calib_set.calibration_stacks[particle.id]
                     else:
-                        stack = self.calib_set.calibration_stacks[0]
+                        stack = self.calib_set.calibration_stacks[7] # TODO: use the best stack instead of a certain stack
                 else:
                     stack = self.calib_set.calibration_stacks[use_stack]
 

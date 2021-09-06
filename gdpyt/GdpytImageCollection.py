@@ -84,7 +84,6 @@ class GdpytImageCollection(object):
         else:
             self._thresholding_specs = thresholding_specs
 
-
         self.filter_images()
         self.identify_particles()
         self.identify_particles_ground_truth()
@@ -329,6 +328,9 @@ class GdpytImageCollection(object):
         fig = plot_similarity_curve(self, sub_image=sub_image, method=method, min_cm=min_cm, particle_id=particle_id, image_id=image_id)
         return fig
 
+    def plot_every_image_particle_stack_similarity(self, calib_set, save_results_path, plot=False, infer_sub_image=False, min_cm=0.75, measurement_depth=None):
+        plot_every_image_particle_stack_similarity(self, calib_set=calib_set, plot=plot, save_results_path=save_results_path, infer_sub_image=infer_sub_image, min_cm=min_cm, measurement_depth=measurement_depth)
+
     def plot_local_rmse_uncertainty(self, measurement_quality, measurement_depth=None, true_xy=False, measurement_width=None):
         fig = plot_local_rmse_uncertainty(self, measurement_quality, measurement_depth=measurement_depth, true_xy=true_xy, measurement_width=measurement_width)
         return fig
@@ -509,6 +511,8 @@ class GdpytImageCollection(object):
             'std_background': np.mean(self.image_stats.std_background),
             'mean_particle_density': np.mean(self.image_stats.particle_density),
             'mean_pixel_density': np.mean(self.image_stats.pixel_density),
+            'percent_particles_idd': np.mean(self.image_stats.percent_particles_idd),
+            'true_num_particles': np.mean(self.image_stats.true_num_particles)
         }
         return stats
 
@@ -546,6 +550,7 @@ class GdpytImageCollection(object):
             [coords.append([p.id, p.z, p.z_true]) for p in img.particles] #TODO - there needs to be a long term solution for dealing with particles w/o ground truth.
 
         dfz = pd.DataFrame(data=coords, columns=['id', 'z', 'true_z'])
+        dfz = dfz.dropna()
         dfz['true_z'] = dfz['true_z'].round(2)
 
         dfz_count = dfz.id.groupby(dfz['true_z']).count().astype(int).reset_index(name='counts')
@@ -566,6 +571,7 @@ class GdpytImageCollection(object):
             for img in self.images.values():
                 [coords.append([p.id, p.location[0], p.location[1], p.z, p.x_true, p.y_true, p.z_true]) for p in img.particles] #TODO - there needs to be a long term solution for dealing with particles w/o ground truth.
             df_rmse = pd.DataFrame(data=coords, columns=['id', 'x', 'y', 'z', 'true_x', 'true_y', 'true_z'])
+            df_rmse = df_rmse.dropna()
             df_rmse['true_z'] = df_rmse['true_z'].round(2)
             df_rmse.dropna(axis=0, how='any', inplace=True)
             df_rmse.sort_values(by='true_z', inplace=True)
@@ -592,6 +598,7 @@ class GdpytImageCollection(object):
             for img in self.images.values():
                 [coords.append([p.id, p.location[0], p.location[1], p.z, p.z_true]) for p in img.particles]
             df_rmse = pd.DataFrame(data=coords, columns=['id', 'x', 'y', 'z', 'true_z'])
+            df_rmse = df_rmse.dropna()
             df_rmse['true_z'] = df_rmse['true_z'].round(2)
             df_rmse.dropna(axis=0, how='any', inplace=True)
             df_rmse.sort_values(by='true_z', inplace=True)
@@ -628,6 +635,10 @@ class GdpytImageCollection(object):
     @property
     def images(self):
         return self._images
+
+    @property
+    def file_basestring(self):
+        return self._file_basestring
 
     @property
     def stacks_use_raw(self):
