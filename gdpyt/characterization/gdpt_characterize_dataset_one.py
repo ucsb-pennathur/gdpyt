@@ -12,27 +12,21 @@ from skimage.morphology import disk
 
 # ----- ----- ----- ----- DEFINE PARAMETERS ----- ----- ----- ----- ----- ----- -----
 
-# define filepaths
+# define file paths
 CALIB_PATH = '/Users/mackenzie/Desktop/gdpyt-characterization/datasets/JP-EXF01-20/Calibration'
-CALIB_RESULTS_PATH = '/Users/mackenzie/Desktop/gdpyt-characterization/datasets/JP-EXF01-20/Results/Calibration'
-
+CALIB_RESULTS_PATH = '/Users/mackenzie/Desktop/gdpyt-characterization/datasets/JP-EXF01-20/Results/Dataset_I/gdpyt analysis of parameters'
 TEST_PATH = '/Users/mackenzie/Desktop/gdpyt-characterization/datasets/JP-EXF01-20/Dataset_I'
-
-
-EXPORT_RESULTS_PATH = '/Users/mackenzie/Desktop/gdpyt-characterization/datasets/JP-EXF01-20/Results'
+EXPORT_RESULTS_PATH = '/Users/mackenzie/Desktop/gdpyt-characterization/datasets/JP-EXF01-20/Results/Dataset_I/gdpyt analysis of parameters'
 
 # display options
 SHOW_CALIB_PLOTS = True
-SAVE_CALIB_PLOTS = True
+SAVE_CALIB_PLOTS = False
 SHOW_PLOTS = True
-SAVE_PLOTS = True
-
-# define sweep
-NOISE_LEVELS = ['1']  #
+SAVE_PLOTS = False
 
 # dataset information
 N_CAL = 50.0
-N_TEST = 6
+N_TEST = 3
 MEASUREMENT_DEPTH = 86.0
 MEASUREMENT_WIDTH = 2000
 TRUE_NUM_PARTICLES_PER_IMAGE = 361
@@ -61,21 +55,23 @@ LATERAL_RESOLLUTION = 16E-6
 depth_of_focus = WAVELENGTH * REF_INDEX_MEDIUM / NA ** 2 + REF_INDEX_MEDIUM / (MAGNIFCATION * NA) * LATERAL_RESOLLUTION
 
 # image pre-processing
-SHAPE_TOL = 0.95  # None == take any shape; 1 == take perfectly circular shape only.
+TEMPLATE_PADDING = 3
+SHAPE_TOL = 0.75  # None == take any shape; 1 == take perfectly circular shape only.
 MIN_P_AREA = 15  # minimum particle size (area: units are in pixels) (recommended: 5)
 MAX_P_AREA = 2000  # maximum particle size (area: units are in pixels) (recommended: 200)
 SAME_ID_THRESH = 8  # maximum tolerance in x- and y-directions for particle to have the same ID between images
 MEDIAN_DISK = 5  # size of median disk filter - [1, 1.5, 2, 2.5, 3, 4,]
-CALIB_PROCESSING = {'none': {}}
+CALIB_PROCESSING = {'median': {'args': [disk(MEDIAN_DISK), None, 'wrap']}} # {'none': {}}
 PROCESSING = {'median': {'args': [disk(MEDIAN_DISK), None, 'wrap']}}
 MEDIAN_PERCENT = 0.05  # percent additional threshold value from median value
-THRESHOLD = {'median_percent': [MEDIAN_PERCENT]}
+THRESHOLD = {'median_percent': [MEDIAN_PERCENT]} # {'otsu': []}  #
 
 # similarity
+MIN_STACKS = N_CAL * 1 // 2
 ZERO_CALIB_STACKS = False
 ZERO_STACKS_OFFSET = 0.5
 INFER_METHODS = 'bccorr'
-MIN_CM = 0.75
+MIN_CM = 0.5
 SUB_IMAGE_INTERPOLATION = True
 
 # define filetypes
@@ -96,6 +92,8 @@ Option #2 is called the "calibration characterization"
 
 META = False
 CALIB_IDD = '0'
+# define sweep
+NOISE_LEVELS = ['1']
 
 # ----- ----- ----- CALIBRATION ANALYSIS - SWEEP CALIBRATION GRID NOISE LEVEL ----- ----- -----
 
@@ -111,10 +109,13 @@ for nl in NOISE_LEVELS: # TODO: the loop is not working. Every particle on follo
         SAVE_CALIB_ID = 'Calib-noise-level-' + CALIB_IDD
 
     CALIB_IMG_PATH = join(CALIB_PATH, CALIB_ID, 'Calib-0050')
+    CALIB_IMG_STRING = 'B00'
 
     # create image collection
     calib_col = GdpytImageCollection(CALIB_IMG_PATH,
                                      filetype,
+                                     image_collection_type='calibration',
+                                     file_basestring=CALIB_IMG_STRING,
                                      stacks_use_raw=False,
                                      background_subtraction=None,
                                      processing_specs=CALIB_PROCESSING,
@@ -122,19 +123,16 @@ for nl in NOISE_LEVELS: # TODO: the loop is not working. Every particle on follo
                                      min_particle_size=MIN_P_AREA,
                                      max_particle_size=MAX_P_AREA,
                                      shape_tol=SHAPE_TOL,
-                                     folder_ground_truth='standard_gdpt')
-
-    # uniformize particle id's
-    calib_col.uniformize_particle_ids(threshold=SAME_ID_THRESH)
-
-    # Calibration image filename to z position dictionary
-    name_to_z = {}
-    for image in calib_col.images.values():
-        name_to_z.update(
-            {image.filename: float(image.filename.split('B00')[-1].split('.')[0]) / N_CAL})  # 'calib_X.tif' to z = X
+                                     same_id_threshold=SAME_ID_THRESH,
+                                     true_num_particles=TRUE_NUM_PARTICLES_PER_IMAGE,
+                                     template_padding=TEMPLATE_PADDING,
+                                     folder_ground_truth='standard_gdpt',
+                                     if_img_stack_take='first',
+                                     inspect_contours_for_every_image=False
+                                     )
 
     # create the calibration set consisting of calibration stacks for each particle
-    calib_set = calib_col.create_calibration(name_to_z, dilate=True)  # Dilate: dilate images to slide template
+    calib_set = calib_col.create_calibration(name_to_z=None, dilate=True, min_num_layers=MIN_STACKS)  # Dilate: dilate images to slide template
 
     # set zero plane of the particles
     if ZERO_CALIB_STACKS:
@@ -144,8 +142,7 @@ for nl in NOISE_LEVELS: # TODO: the loop is not working. Every particle on follo
         format_strings = False
 
     # get calibration stacks data
-    calib_stack_data = calib_set.calibration_stacks[0].calculate_stats(true_num_particles=N_CAL,
-                                                                       measurement_volume=MEASUREMENT_DEPTH)
+    calib_stack_data = calib_set.calibration_stacks[0].calculate_stats()
 
     # plot calibration figures
     if SAVE_CALIB_PLOTS or SHOW_CALIB_PLOTS:
@@ -226,6 +223,7 @@ for nl in NOISE_LEVELS: # TODO: the loop is not working. Every particle on follo
     # ------ CREATE TEST IMAGE COLLECTION ------
     TEST_ID = 'Measurement-grid-noise-level' + nl
     SAVE_TEST_ID = 'Calib-noise-level-' + CALIB_IDD + '-Meas-grid-noise-level-' + nl
+    TEST_IMG_STRING = 'B00'
 
     if META is True:
         test_col = calib_col  # test images on identical calibration set (meta characterization)
@@ -235,7 +233,8 @@ for nl in NOISE_LEVELS: # TODO: the loop is not working. Every particle on follo
         TEST_GROUND_TRUTH_PATH = join(TEST_PATH, TEST_ID, 'Coordinates')
         test_col = GdpytImageCollection(TEST_IMG_PATH,
                                         filetype,
-                                        subset=['B00', 1, 4],
+                                        file_basestring=TEST_IMG_STRING,
+                                        subset=[1, 4],
                                         stacks_use_raw=False,
                                         background_subtraction=None,
                                         processing_specs=PROCESSING,
@@ -244,10 +243,8 @@ for nl in NOISE_LEVELS: # TODO: the loop is not working. Every particle on follo
                                         max_particle_size=MAX_P_AREA,
                                         shape_tol=SHAPE_TOL,
                                         folder_ground_truth=TEST_GROUND_TRUTH_PATH,
-                                        measurement_depth=MEASUREMENT_DEPTH)
-
-        # uniformize particle id's
-        test_col.uniformize_particle_ids(threshold=SAME_ID_THRESH)
+                                        measurement_depth=MEASUREMENT_DEPTH,
+                                        inspect_contours_for_every_image=False)
 
     # Infer position using Barnkob's ('bccorr'), znccorr' (zero-normalized cross-corr.) or 'ncorr' (normalized cross-corr.)
     test_col.infer_z(calib_set, infer_sub_image=SUB_IMAGE_INTERPOLATION).bccorr(min_cm=MIN_CM)
@@ -258,7 +255,7 @@ for nl in NOISE_LEVELS: # TODO: the loop is not working. Every particle on follo
     test_col_stats = test_col.calculate_image_stats()
 
     # get test collection inference local uncertainties
-    test_col_local_meas_quality = test_col.calculate_measurement_quality_local()
+    test_col_local_meas_quality = test_col.calculate_measurement_quality_local(true_xy=True)
 
     # get test collection inference global uncertainties
     test_col_global_meas_quality = test_col.calculate_measurement_quality_global(local=test_col_local_meas_quality)
@@ -385,7 +382,7 @@ for nl in NOISE_LEVELS: # TODO: the loop is not working. Every particle on follo
         'sub_image': SUB_IMAGE_INTERPOLATION,
         'xy_mean_uncertainty': test_col_global_meas_quality['rmse_xy'],
         'z_mean_uncertainty': test_col_global_meas_quality['rmse_z'],
-        'percent_particles_idd': calib_stack_data['percent_particles_idd'],
+        #'percent_particles_idd': calib_stack_data['percent_particles_idd'],
         'percent_particles_measured': test_col_global_meas_quality['percent_measure'],
         'mean_pixel_density': test_col_stats['mean_pixel_density'],
         'mean_particle_density': test_col_stats['mean_particle_density'],

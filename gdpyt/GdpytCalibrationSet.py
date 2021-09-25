@@ -1,24 +1,44 @@
-from matplotlib import pyplot as plt
-from matplotlib.pyplot import cm
-
+# import modules
 from .GdpytCalibrationStack import GdpytCalibrationStack
 from gdpyt.inception_net import GdpytInceptionDataset, GdpytInceptionRegressionNet, train_net
-import pandas as pd
-import numpy as np
+from gdpyt.utils import plotting
+
 import torch
 import torch.nn as nn
 from torchvision.transforms import Resize, ToTensor, Normalize, Compose
 from torch.utils.data import DataLoader
-from math import sqrt
+
+import pandas as pd
+
+from matplotlib import pyplot as plt
+
 import logging
 
 logger = logging.getLogger(__name__)
 
 class GdpytCalibrationSet(object):
 
-    def __init__(self, collections, image_to_z, dilate=True, min_num_layers=None,  exclude=[]):
+    def __init__(self, collections, image_to_z, dilate=True, template_padding=0, min_num_layers=None, self_similarity_method='sknccorr',  exclude=[]):
         super(GdpytCalibrationSet, self).__init__()
 
+        self._self_similarity_method = self_similarity_method
+        self._min_num_layers = min_num_layers
+        self._particle_ids = None
+        self._template_padding = template_padding
+        # Attribute that holds a Pytorch model
+        self._cnn = None
+        self.cnn_data_params = None
+        self._train_summary = None
+
+        # Ensure image_to_z mapper is the correct data type
+        """
+        image_to_z maps the calibration image filename to a value in the calibration stack. 
+        Notes:
+            * the first calibration image should be "..._1.tif" (as opposed to ...0.tif).
+            * the calibration stack spans the distance from 0 to Z (where Z is the measurement depth = number of 
+            calibration images * z-step per image) by centering the first image at 1 / (2 * number of calibration images) 
+            and the last image at 1 - 1 / (2 * number of calibration images)
+        """
         if not isinstance(image_to_z, list):
             if not isinstance(image_to_z, dict):
                 raise TypeError("image_to_z must be a dictionary with keys image names and z coordinates "
@@ -29,23 +49,36 @@ class GdpytCalibrationSet(object):
         if not isinstance(collections, list):
             collections = [collections]
 
+        # Set the z height of each image using image_to_z mapper
+        """
+        image.set_z: sets the z-height for that image.
+        image.add_particles_in_image: for each particle, append the image ID's in which it is identified.
+        """
         for collection, img_to_z in zip(collections, image_to_z):
             for image in collection.images.values():
                 if image.filename not in exclude:
                     if image.filename not in img_to_z.keys():
                         raise ValueError("No z coordinate specified for image {}")
                     else:
-                        image.set_z(img_to_z[image.filename])
-                        image.add_particles_in_image()
 
-        self._min_num_layers = min_num_layers
-        self._particle_ids = None
-        self._create_stacks(*collections, exclude=exclude, dilate=dilate)
-        self._clean_stacks()
-        # Attribute that holds a Pytorch model
-        self._cnn = None
-        self.cnn_data_params = None
-        self._train_summary = None
+                        # set both the true_z and z value for each image and particle therein.
+                        image.set_z(img_to_z[image.filename])
+
+                        # sets the "in_images" attribute for GdpytParticle
+                        # image.add_particles_in_image() # TODO: Method not working but also not important
+
+        # Create the calibration stacks
+        self._create_stacks(*collections, exclude=exclude, dilate=dilate, template_padding=template_padding,
+                            self_similarity_method=self_similarity_method)
+
+        # Calculate statistics for all stacks in the set
+        self._all_stacks_stats = self.calculate_stacks_stats()
+
+        # Clean the stacks to remove bad stacks
+        # self._clean_stacks()
+
+        # determine the beset stack
+        # self.determine_best_stack()
 
     def __len__(self):
         return len(self.calibration_stacks)
@@ -59,24 +92,57 @@ class GdpytCalibrationSet(object):
             out_str += '{}: {} \n'.format(key, str(val))
         return out_str
 
-    def _create_stacks(self, *collections, exclude=[], exclude_particle_ids=[], dilate=True):
+    def _create_stacks(self, *collections, exclude=[], exclude_particle_ids=[], dilate=False, template_padding=0,
+                       self_similarity_method='sknccorr'):
+        """
+        Steps:
+            1. Loop through all particle ID's and create a GdpytCalibrationStack for each ID.
+            2. Build the stack layers for each stack.
+            3. Instantiate the GdpytCalibrationSet's stacks attribute.
+
+        Parameters
+        ----------
+        collections: GdpytImageCollection -- Note multiple collections can be passed in (but this hasn't been tested).
+        exclude: image filename's to exclude.
+        exclude_particle_ids: particle ID's to exclude.
+        dilate: enlarge the template which generally improves correlation -- Note this has largely been deprecated by
+        the 'template_padding' attribute in the GdpytImageCollection class.
+        template_padding: the template_padding parameter can be used to provide additional padding for calibration
+        images to enable sliding of the test particle image template on across the calibration image template. It is not
+        used here because template_padding is better used during the initial call to GdpytImageCollection to identify
+        and analyze particle images and locations.
+        self_similarity_method: cross-correlation method for calibration stack self-similarity assessment.
+
+        Returns
+        -------
+
+        """
         stacks = {}
         ids_in_collects = []
         for i, collection in enumerate(collections):
+
+            # dilate (enlarge) the image template (Note: this function has largely been deprecated by the more recent
+            # manual 'template_padding' variable in GdpytImageCollection.
             if dilate:
                 if isinstance(dilate, float) or isinstance(dilate, int):
                     dilation = dilate
                 else:
-                    dilation = sqrt(collection.shape_tol + 1)
+                    dilation = 1
             else:
                 dilation = None
+
+            # create a new collection (i.e. GdpytImageCollection) ID if multiple image collections are passed in.
             if i != 0:
                 new_id_map = {}
                 new_id = max(ids_in_collects) + 1
+
+            # loop through all particle ID's and create a calibration stack class for each, then build stack layers.
             for image in collection.images.values():
                 if image.filename not in exclude:
                     for particle in image.particles:
-                        # For subsequent collections, reassign a unique ID to each particle so stacks from different images don't mix
+
+                        # if multiple collections, reassign a unique ID to each particle so stacks from different images
+                        # between collections don't get mixed up.
                         if i != 0:
                             if particle.id not in new_id_map.keys():
                                 new_id_map.update({particle.id: new_id})
@@ -88,63 +154,201 @@ class GdpytCalibrationSet(object):
                         if particle.id in exclude_particle_ids:
                             continue
                         elif particle.id not in stacks.keys():
-                            new_stack = GdpytCalibrationStack(particle.id, particle.location, dilation=dilation)
+
+                            # instantiate GdpytCalibrationStack class for each particle ID.
+                            new_stack = GdpytCalibrationStack(particle.id, particle.location, dilation=dilation,
+                                                              template_padding=template_padding,
+                                                              self_similarity_method=self_similarity_method)
+
+                            # Note on using the filtered or raw image for calibration stacks:
                             # cross-correlation-based calibration stacks: use filtered image (i.e. stacks_use_raw=False)
                             # neural-network-based calibration stacks: use raw image (i.e. stacks_use_raw=True)
-                            particle.use_raw(collection.stacks_use_raw)
+                            particle.set_use_raw(collection.stacks_use_raw)
                             new_stack.add_particle(particle)
                             stacks.update({particle.id: new_stack})
                         else:
                             stacks[particle.id].add_particle(particle)
                         ids_in_collects.append(particle.id)
+
+            # once all the particles ID's have been assigned to a stack, build the calibration stack layers.
             for stack in stacks.values():
                 stack.build_layers()
 
+        # define the GdpytCalibrationSet's stacks.
         self._calibration_stacks = stacks
 
     def _clean_stacks(self):
         """
         Remove calibration stacks with too few images or particle stats that differ significantly from others.
+
+        Steps:
+            1. Get dataframe of statistics for all stacks in the set.
+            2. Get the unique particle ID's in set.
+            3. Filter stacks by a minimum number of layers.
+                3.1 if min_num_layers is provided, use this as threshold.
+                3.2 else, use 75% of the mean number of layers per stack as the threshold.
+            4.
         """
-        df = self.calculate_stacks_stats()
+
+        # get set statistics
+        df = self.all_stacks_stats
+
+        # get unique particle ID's in set
         all_stacks_uniques = df.particle_id.unique()
 
-        # filter on number of layers
+        # filter stacks by a minimum number of layers per stack
         if self._min_num_layers:
             df = df.loc[df['layers'] > self._min_num_layers]
         else:
             df = df.loc[df['layers'] > df.layers.mean() * 0.75]
 
+        # get particle id's from filtered dataframe
         passing_stacks_uniques = df.particle_id.unique()
+
+        # get non-passing particle id's
         exclude_particle_ids = list(set(all_stacks_uniques) - set(passing_stacks_uniques))
+
+        # remove stacks from the set
         for id in exclude_particle_ids:
+
+            # delete stack
             del self.calibration_stacks[id]
+
+            # update the particle id's
             self.update_particle_ids()
+
             logger.warning("Removed calibration stack {} from set.".format(id))
 
-
-    # def fill_missing_levels(self, exclude_stacks=None):
-    #     logger.info("Filling missing calibration levels..")
-    #     for stack_id, stack in self.calibration_stacks.items():
-    #         if exclude_stacks is not None:
-    #             if stack_id in exclude_stacks:
-    #                 continue
-    #         else:
-    #             lvls_in_stack = list(stack.get_layers().keys())
-    #             missing_levels = OrderedDict()
-    #             for z, img_name in sorted(self.z_levels).items():
-    #                 if z not in lvls_in_stack:
-    #                     missing_levels.update({z: img_name})
-    #
-    #             stack.fill_levels(missing_levels)
-
     def infer_z(self, infer_collection, infer_sub_image=True):
+        """
+
+        Parameters
+        ----------
+        infer_collection: GdpytImageCollection to infer
+        infer_sub_image: use sub-image interpolation to calculate z-height
+
+        Returns
+        -------
+        GdpytImageInference class which holds methods for computing the cross-correlation
+        """
         return GdpytImageInference(infer_collection, self, infer_sub_image=infer_sub_image)
 
-    def train_cnn(self, epochs, cost_func, normalize_dataset=True, normalize_per_sample=False,
-                  transforms=[Resize(180), ToTensor()], aux_logits=None,
-                  max_sample_size=50, skip_na=True, min_stack_len=10,
-                  lr=1e-5, lambda_=1e-3, reg_type=None, batch_size=64, shuffle_batches=True):
+    def zero_stacks(self, offset=0, exclude_ids=None):
+        """
+        Modify the zero-location (i.e. z = 0) for all stacks in the calibration set.
+
+        The set_zero method adjust the z-coordinate of particles by:
+            1. applying a manual offset value.
+            2. calculating the z-height where the particle image area is minimized for that stack and using this as the
+            offset value.
+
+        Notes:
+            * The zero-location does not need to be the focal plane of the imaged particles. It can be arbitrary and/or
+            purposeful (e.g. the z-coordinate of a reference feature with respect to the particles' image plane.
+            * The zero-location for a calibration set is most usually the focal plane of the particles which
+            theoretically is when the particles' image area is minimized. This is not always true in application due to
+            pixelation and image thresholding and segmentation algorithms.
+
+        """
+        for id_, stack in self.calibration_stacks.items():
+            if exclude_ids is not None:
+                if id_ in exclude_ids:
+                    continue
+            else:
+                stack.set_zero(offset=offset) # TODO: note that this is here and it should be tested
+
+    def update_particle_ids(self):
+        """
+        Return a list of the particle ID's in the current calibration set.
+        """
+        self._particle_ids = list(self.calibration_stacks.keys())
+
+    def determine_best_stack(self):
+        """
+        Determine the "best" stack to use when the test particle ID is not in the calibration set stack ID's.
+        """
+        df = self.calculate_stacks_stats()
+
+        # filter by number of layers
+        df = df[df['layers'] > df['layers'].max() * 0.98]
+
+        # filter by snr
+        df = df[df['avg_snr'] > df['avg_snr'].max() * 0.99]
+
+        # choose the first particle ID if more than one
+        particle_ids = df.particle_id.to_numpy(dtype=int, copy=True)
+        particle_ids = particle_ids[0]
+
+        self._best_stack_id = particle_ids
+
+
+
+    def calculate_stacks_stats(self):
+        """
+        The calibration set statistics is simply a concatenated dataframe of the per-stack stats. Note that this returns
+        the stats for stacks that pass the _clean_stacks filtering. The data for all stacks in the set is stored in the
+        _all_stacks_stats attribute/property.
+
+        Steps:
+            1. Calculate and get the stats for each stack in the calibration set.
+            2. Concatenate each stack to the calibration set dataframe.
+        Returns
+        -------
+        Dataframe of all stacks' stats in the calibration set.
+        """
+        si = 0
+        for stack in self.calibration_stacks.keys():
+            calib_stack_data = self.calibration_stacks[stack].calculate_stats()
+            calib_stack_data.update({'stack_id': stack, 'p_id': self.calibration_stacks[stack].id})
+            if si == 0:
+                df_stacks = pd.DataFrame(data=calib_stack_data, index=[stack])
+                si += 1
+            else:
+                new_stacks = pd.DataFrame(data=calib_stack_data, index=[stack])
+                df_stacks = pd.concat([df_stacks, new_stacks])
+        return df_stacks
+
+    def plot_stacks_self_similarity(self, min_num_layers=0):
+        return plotting.plot_stacks_self_similarity(calib_set=self, min_num_layers=min_num_layers)
+
+    def train_cnn(self,
+                  epochs,
+                  cost_func,
+                  normalize_dataset=True,
+                  normalize_per_sample=False,
+                  transforms=[Resize(180), ToTensor()],
+                  aux_logits=None,
+                  max_sample_size=50,
+                  skip_na=True,
+                  min_stack_len=10,
+                  lr=1e-5,
+                  lambda_=1e-3,
+                  reg_type=None,
+                  batch_size=64,
+                  shuffle_batches=True):
+        """
+
+        Parameters
+        ----------
+        epochs
+        cost_func
+        normalize_dataset
+        normalize_per_sample
+        transforms
+        aux_logits
+        max_sample_size
+        skip_na
+        min_stack_len
+        lr
+        lambda_
+        reg_type
+        batch_size
+        shuffle_batches
+
+        Returns
+        -------
+
+        """
         assert isinstance(epochs, int) and epochs > 0
 
         if reg_type is not None:
@@ -155,13 +359,13 @@ class GdpytCalibrationSet(object):
                                         normalize_dataset=normalize_dataset,
                                         normalize_per_sample=normalize_per_sample)
         dataset.from_calib_set(self, max_size=max_sample_size, min_stack_len=min_stack_len, skip_na=skip_na)
-        #dataset = GdpytTensorDataset(transforms_=transforms, normalize=normalize_inputs)
-        #dataset.from_calib_set(self, max_size=max_sample_size, skip_na=skip_na, min_stack_len=min_stack_len)
+        # dataset = GdpytTensorDataset(transforms_=transforms, normalize=normalize_inputs)
+        # dataset.from_calib_set(self, max_size=max_sample_size, skip_na=skip_na, min_stack_len=min_stack_len)
 
         # Save parameters of train data so that the same processing is applied on test data
         self.cnn_data_params = {'normalize_dataset': normalize_dataset, 'normalize_per_sample': normalize_per_sample,
-                                 'max_size': max_sample_size, 'skip_na': skip_na,
-                                 'shape': dataset.shape, 'stats': dataset.stats}
+                                'max_size': max_sample_size, 'skip_na': skip_na,
+                                'shape': dataset.shape, 'stats': dataset.stats}
 
         if torch.cuda.is_available():
             device = torch.device('cuda')
@@ -194,33 +398,10 @@ class GdpytCalibrationSet(object):
             criterion = cost_func
         else:
             criterion = nn.L1Loss()
-        avg_epoch_loss, std_epoch_loss, model = train_net(model, device, optimizer, criterion, dataloader, epochs=epochs)
+        avg_epoch_loss, std_epoch_loss, model = train_net(model, device, optimizer, criterion, dataloader,
+                                                          epochs=epochs)
         self._train_summary = pd.DataFrame({'Epoch': [i for i in range(epochs)], 'Avg_loss': avg_epoch_loss,
                                             'Sigma_loss': std_epoch_loss})
-
-    def zero_stacks(self, offset=0, exclude_ids=None):
-        for id_, stack in self.calibration_stacks.items():
-            if exclude_ids is not None:
-                if id_ in exclude_ids:
-                    continue
-            else:
-                stack.set_zero(offset=offset)
-
-    def update_particle_ids(self):
-        self._particle_ids = list(self.calibration_stacks.keys())
-
-    def calculate_stacks_stats(self):
-        si = 0
-        for stack in self.calibration_stacks.keys():
-            calib_stack_data = self.calibration_stacks[stack].calculate_stats()
-            calib_stack_data.update({'stack_id': stack, 'p_id': self.calibration_stacks[stack].id})
-            if si == 0:
-                df_stacks = pd.DataFrame(data=calib_stack_data, index=[stack])
-                si += 0
-            else:
-                new_stacks = pd.DataFrame(data=calib_stack_data, index=[stack])
-                df_stacks = pd.concat([df_stacks, new_stacks])
-        return df_stacks
 
     def plot_train_summary(self):
         fig, axes = plt.subplots(nrows=2)
@@ -229,27 +410,6 @@ class GdpytCalibrationSet(object):
         ax[1].plot(self.train_summary['Epoch'], self.train_summary['Sigma_loss'], label=r'$\sigma$ loss')
         plt.tight_layout()
         plt.show()
-
-    def plot_stacks_self_similarity(self, min_num_layers=0):
-        fig, ax = plt.subplots()
-        color = iter(cm.gist_rainbow(np.linspace(0, 1, len(self.calibration_stacks.values()))))
-        min_cm = 0.9
-        for stack in self.calibration_stacks.values():
-            if len(stack.layers) >= min_num_layers:
-                if np.min(stack.self_similarity[:, 1]) < min_cm:
-                    min_cm = np.min(stack.self_similarity[:, 1])
-
-                c = next(color)
-                ax.plot(stack.self_similarity[:, 0], stack.self_similarity[:, 1], color=c, alpha=0.5)
-                ax.scatter(stack.self_similarity[:, 0], stack.self_similarity[:, 1], s=3, color=c, label=stack.id)
-
-        ax.set_xlabel(r'$z$ / h')
-        ax.set_ylabel(r'$S_i$ $\left(|z_{i-1}, z_{i+1}|\right)$')
-
-        ax.set_ylim([min_cm, 1.005])
-        ax.grid(alpha=0.25)
-        if len(self.calibration_stacks.values()) < 15:
-            ax.legend()
 
     @property
     def calibration_stacks(self):
@@ -261,12 +421,28 @@ class GdpytCalibrationSet(object):
         return self._particle_ids
 
     @property
+    def best_stack_id(self):
+        return self._best_stack_id
+
+    @property
+    def template_padding(self):
+        return self._template_padding
+
+    @property
     def min_num_layers(self):
         return self._min_num_layers
 
     @property
+    def all_stacks_stats(self):
+        return self._all_stacks_stats
+
+    @property
     def calib_set_stats(self):
         return self.calculate_stacks_stats()
+
+    @property
+    def self_similarity_method(self):
+        return self._self_similarity_method
 
     @property
     def cnn(self):
@@ -287,20 +463,23 @@ class GdpytImageInference(object):
 
     def _cross_correlation_inference(self, function, use_stack=None, min_cm=0):
         logger.warning('cc inference min_cm {}'.format(min_cm))
-        if function.lower() not in ['ccorr', 'nccorr', 'znccorr', 'barnkob_ccorr']:
+        if function.lower() not in ['ccorr', 'nccorr', 'znccorr', 'barnkob_ccorr', 'bccorr', 'sknccorr']:
             raise ValueError("{} is not implemented or a valid function".format(function))
 
         for image in self.collection.images.values():
             logger.info("Infering image {}".format(image.filename))
             for particle in image.particles:
-                if use_stack is None:
-                    if particle.id in self.calib_set.particle_ids:
-                        stack = self.calib_set.calibration_stacks[particle.id]
-                    else:
-                        stack = self.calib_set.calibration_stacks[7] # TODO: use the best stack instead of a certain stack
-                else:
+                if use_stack:
                     stack = self.calib_set.calibration_stacks[use_stack]
+                elif particle.id in self.calib_set.particle_ids:
+                    stack = self.calib_set.calibration_stacks[particle.id]
+                else:
+                    stack = self.calib_set.calibration_stacks[self.calib_set.best_stack_id]
 
+                # set the stack ID used for z-inference
+                particle.set_inference_stack_id(stack.id)
+
+                # infer z
                 stack.infer_z(particle, function=function, min_cm=min_cm, infer_sub_image=self._infer_sub_image) # Filtered templates are used for correlation calculations
 
     def ccorr(self, use_stack=None, min_cm=0):
@@ -314,6 +493,9 @@ class GdpytImageInference(object):
 
     def bccorr(self, use_stack=None, min_cm=0):
         self._cross_correlation_inference('barnkob_ccorr', use_stack=use_stack, min_cm=min_cm)
+
+    def sknccorr(self, use_stack=None, min_cm=0):
+        self._cross_correlation_inference('sknccorr', use_stack=use_stack, min_cm=min_cm)
 
     def cnn(self, transforms_=(Resize(180), ToTensor()), pretrained=None):
         with torch.no_grad():

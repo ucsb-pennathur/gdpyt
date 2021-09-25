@@ -1,9 +1,11 @@
 import numpy as np
 import cv2
+from matplotlib import pyplot as plt
+from scipy.interpolate import splprep, splev
 from skimage.filters import threshold_mean, threshold_minimum, threshold_triangle
 from skimage.filters import threshold_otsu, threshold_multiotsu, threshold_local
 from skimage.filters import threshold_niblack, threshold_li, threshold_sauvola
-from skimage.morphology import disk, white_tophat, closing, square
+from skimage.morphology import disk, white_tophat, closing, square, binary_closing, binary_dilation, binary_erosion
 from skimage.filters.rank import mean_bilateral
 from skimage.exposure import equalize_adapthist
 from skimage.segmentation import clear_border
@@ -15,20 +17,19 @@ import imutils
 from skimage.filters import gaussian, median
 from skimage.morphology import disk
 
-def apply_threshold(img, parameter, invert=False):
+def apply_threshold(img, parameter, min_particle_size=5, padding=3, invert=False):
     if not len(parameter) == 1:
         raise ValueError("Thresholding parameter must be specified as a dictionary with one key and a list containing"
                          "supplementary arguments for that function as a value")
 
     method = list(parameter.keys())[0]
     if method not in ['none', 'otsu', 'multiotsu', 'local', 'min', 'mean', 'mean_percent', 'median', 'median_percent',
-                      'manual', 'triangle', 'manual_smoothing', 'li', 'niblack', 'sauvola']:
+                      'manual', 'manual_percent', 'triangle', 'manual_smoothing', 'li', 'niblack', 'sauvola']:
         raise ValueError("method must be one of ['none', otsu', 'multiotsu', 'local', 'min',"
                          " 'manual', 'triangle', 'manual_smoothing', 'li', 'niblack', 'sauvola']")
 
-    if method in ['manual', 'manual_smoothing']:
+    if method in ['manual', 'manual_percent', 'manual_smoothing']:
         manual_initial_guess = np.round(img.mean() + np.std(img) * parameter[method][0], 0)
-        print("initial threshold guess: " + str(manual_initial_guess))
 
     if method == 'none':
         thresh_val = 0
@@ -56,7 +57,7 @@ def apply_threshold(img, parameter, invert=False):
         # thresh_img = img > thresh_val -- old: updated 8/14/21
     elif method == 'median_percent':
         thresh_val = np.median(img) + np.median(img) * parameter[method][0]
-        bw = closing(img > thresh_val, square(3))
+        bw = closing(img > thresh_val, square(3)) # TODO: this closing probably removes small particles that i would rather keep
         thresh_img = clear_border(bw)
         # thresh_img = img > thresh_val -- old: updated 8/14/21
     elif method == 'min':
@@ -89,15 +90,41 @@ def apply_threshold(img, parameter, invert=False):
         R = img.std()
         threshval = threshold_sauvola(img, r=R, **kwargs)
         thresh_img = img > threshval
+    elif method == 'manual_percent':
+        thresh_val = parameter[method][0] + parameter[method][0] * parameter[method][1]
+        bw = closing(img > thresh_val, square(3))
+        thresh_img = clear_border(bw)
     elif method == 'manual':
         args = parameter[method]
         if not isinstance(parameter[method], list):
+            threshval = parameter[method]
+        elif len(parameter[method]) == 1:
             threshval = parameter[method]
         else:
             if not len(parameter[method]) == 1:
                 raise ValueError("For manual thresholding only one parameter (the manual threshold) must be specified")
             threshval = manual_initial_guess
-        thresh_img = img > threshval
+
+        # threshold the image
+        noisy_thresh_image = img > threshval
+
+        # apply a small erosion to remove bright spots smaller than particle diameter
+        first_erosion_size = np.min([3, int(np.ceil(min_particle_size/3))])
+        selem1 = disk(first_erosion_size)
+        eroded = binary_erosion(noisy_thresh_image, selem=selem1)
+
+        # apply a large dilation to connect streaks and slightly smooth image
+        dilation_size = np.min([7, min_particle_size])
+        selem2 = disk(dilation_size)
+        dilated = binary_dilation(eroded, selem=selem2)
+
+        # perform an erosion to resize contour to approximate original size
+        second_erosion_size = dilation_size - first_erosion_size
+        selem3 = disk(second_erosion_size)
+        mask_closing = binary_erosion(dilated, selem=selem3)
+
+        # clear the pixel values on border
+        thresh_img = clear_border(mask_closing, buffer_size=1)
 
     if invert:
         thresh_img = ~thresh_img
@@ -106,11 +133,37 @@ def apply_threshold(img, parameter, invert=False):
 
 def identify_contours(particle_mask):
     """
-    Notes - OpenCV is used here because it provides the integer-valued coordinates of the contours. Skimage provides the
+    Notes
+    * OpenCV is used here because it provides the integer-valued coordinates of the contours. Skimage provides the
     floating point value between YES/NO contour pixels and, for this reason, it is not suitable here.
+    * OpenCV uses a (y, x) convention in arrays (I'm pretty sure).
+    """
+    # this is equivalent to a binary closing which can connect small bright cracks
+    """
+    selem1 = disk(2)
+    selem2 = disk(6)
+    selem3 = disk(3)
+    eroded = binary_erosion(particle_mask, selem=selem1)
+    dilated = binary_dilation(eroded, selem=selem2)
+    mask_closing = binary_erosion(dilated, selem=selem3)
+
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(ncols=4, figsize=(11,3))
+    ax1.imshow(particle_mask)
+    ax1.set_title('particle mask')
+    ax2.imshow(eroded)
+    ax2.set_yticks([])
+    ax2.set_title('erosion')
+    ax3.imshow(mask_closing)
+    ax3.set_yticks([])
+    ax3.set_title('eroded, dilate, erode')
+    ax4.imshow(selem2)
+    ax4.set_yticks([])
+    ax4.set_title('filter')
+    plt.show()
     """
 
-    contours = cv2.findContours(particle_mask.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+    #contours = cv2.findContours(particle_mask.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+    contours = cv2.findContours(particle_mask.copy().astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
     contours = imutils.grab_contours(contours)
     bboxes = [cv2.boundingRect(contour) for contour in contours]
 
@@ -159,3 +212,22 @@ def merge_particles(particles):
     new_bbox = cv2.boundingRect(new_contour)
 
     return new_contour, new_bbox
+
+def binary_mask(radius, ndim):
+    "Elliptical mask in a rectangular array from TrackPy's masks.py"
+    radius = validate_tuple(radius, ndim)
+    points = [np.arange(-rad, rad + 1) for rad in radius]
+    if len(radius) > 1:
+        coords = np.array(np.meshgrid(*points, indexing="ij"))
+    else:
+        coords = np.array([points[0]])
+    r = [(coord/rad)**2 for (coord, rad) in zip(coords, radius)]
+
+    return sum(r) <= 1
+
+def validate_tuple(value, ndim):
+    if not hasattr(value, '__iter__'):
+        return (value,) * ndim
+    if len(value) == ndim:
+        return tuple(value)
+    raise ValueError("List length should have same length as image dimensions.")

@@ -26,16 +26,16 @@ from skimage.morphology import disk
 # define filepaths
 CALIB_PATH = '/Users/mackenzie/Desktop/gdpyt-characterization/datasets/JP-EXF01-20/Calibration'
 CALIB_RESULTS_PATH = '/Users/mackenzie/Desktop/gdpyt-characterization/datasets/JP-EXF01-20/Results/Calibration'
-EXPORT_RESULTS_PATH = '/Users/mackenzie/Desktop/gdpyt-characterization/datasets/JP-EXF01-20/Results'
+EXPORT_RESULTS_PATH = '/Users/mackenzie/Desktop/gdpyt-characterization/datasets/JP-EXF01-20/Results/Calibration'
 
 # display options
-SHOW_CALIB_PLOTS = False
+SHOW_CALIB_PLOTS = True
 SAVE_CALIB_PLOTS = True
-SHOW_PLOTS = False
+SHOW_PLOTS = True
 SAVE_PLOTS = True
 
 # define sweep
-NOISE_LEVELS = ['0', '1', '2', '3','4'] #
+NOISE_LEVELS = ['0', '1'] # , '2', '3','4'
 
 # dataset information
 N_CAL = 50.0

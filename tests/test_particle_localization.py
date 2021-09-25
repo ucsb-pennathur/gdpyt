@@ -10,6 +10,7 @@ import scipy.optimize as opt
 import numpy as np
 
 # fit 2D Gaussian
+"""
 # imports
 from gdpyt.subpixel_localization.gaussian import gaussian2D, _gaussian2D, fit, fit_results
 from gdpyt.subpixel_localization.gaussian import *
@@ -115,7 +116,7 @@ coords = grey_dilation(image, separation, percentile, margin, precise=False)
 refined_coords = refine_coords_via_centroid(raw_image=raw_image, image=image, radius=radius, coords=coords,
                                             max_iterations=max_iterations, show_plot=True)
 j=1
-"""
+
 
 # radial variance transform method
 """

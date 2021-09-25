@@ -40,8 +40,15 @@ def generate_sig_settings(settings, folder=None):
 
     return settings_dict, join(folder, 'settings.txt')
 
-def generate_grid_input(settings_file, n_images, grid, range_z=(-43, 43), particle_diameter=2):
-    """ Generates input images with particles arranged in a grid"""
+def generate_grid_input(settings_file, n_images, grid, range_z=(-40, 40), particle_diameter=2,
+                        linear_overlap=False):
+    """
+    Generates input images with particles arranged in a grid
+
+    Options:
+        * linearly spaced particle overlap
+    """
+
     settings_path = Path(settings_file)
     txtfolder = join(settings_path.parent, 'input')
 
@@ -60,12 +67,23 @@ def generate_grid_input(settings_file, n_images, grid, range_z=(-43, 43), partic
 
     for i in range(n_images):
         fname = 'B{0:04d}'.format(i)
-        coordinates = _generate_grid_coordinates(grid, img_shape, z=range_z)
+
+        # option for particle overlap array
+        if linear_overlap:
+            coordinates = _generate_scaled_overlap_paired_random_z_grid_coordinates(grid, img_shape, z=range_z,
+                                                                                    overlap_scale=linear_overlap)
+        else:
+            coordinates = _generate_grid_coordinates(grid, img_shape, z=range_z)
+
         output = _append_particle_diam(coordinates, particle_diameter)
         savepath = join(txtfolder, fname + '.txt')
         np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
 
 def generate_grid_input_from_function(settings_file, n_images, grid, function_z=None, particle_diameter=2):
+    """
+    Generate particle locations on a grid from a function
+    """
+
     assert callable(function_z)
 
     settings_path = Path(settings_file)
@@ -93,7 +111,8 @@ def generate_grid_input_from_function(settings_file, n_images, grid, function_z=
         savepath = join(txtfolder, fname + '.txt')
         np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
 
-def generate_grid_calibration(settings_file, grid, z_levels, particle_diameter=2, create_multiple=None):
+def generate_grid_calibration(settings_file, grid, z_levels, particle_diameter=2, create_multiple=None,
+                              linear_overlap=False):
     """ Generates calibration images with particles arranged in a grid. The difference between an input image is that
     all the particles in a calibration image are at the same height """
 
@@ -114,7 +133,13 @@ def generate_grid_calibration(settings_file, grid, z_levels, particle_diameter=2
     img_shape = (settings_dict['pixel_dim_x'], settings_dict['pixel_dim_y'])
 
     for z in z_levels:
-        coordinates = _generate_grid_coordinates(grid, img_shape, z=z)
+
+        # option for particle overlap array
+        if linear_overlap:
+            coordinates = _generate_scaled_overlap_grid_coordinates(grid, img_shape, z=z, overlap_scale=linear_overlap)
+        else:
+            coordinates = _generate_grid_coordinates(grid, img_shape, z=z)
+
         output = _append_particle_diam(coordinates, particle_diameter)
         if create_multiple is None:
             fname = 'calib_{}'.format(z)
@@ -151,6 +176,110 @@ def _generate_grid_coordinates(grid, imshape, z=None):
     coords = np.hstack([xy_coords, z_coords])
 
     return coords
+
+def _generate_scaled_overlap_grid_coordinates(grid, imshape, z=None, overlap_scale=5):
+
+    assert len(imshape) == 2
+
+    # Particle grid
+    xtot, ytot = imshape
+    n_x, n_y = grid
+    n_particles = n_x * n_y + n_y * (n_x - 2)
+    edge_x = xtot / (n_x + 1)
+    edge_y = ytot / (n_y + 1)
+
+    # Make particle coordinates
+    xy_coords = np.mgrid[edge_x:xtot - edge_x:np.complex(0, n_x),
+                edge_y:ytot - edge_y:np.complex(0, n_y)].reshape(2, -1).T
+
+    # make linearly shifted particle coordinates
+
+    # create cutoff limits (exclude first and last rows to not expand the image size)
+    xl = n_x
+    xh = n_x * (n_y - 1)
+
+    # copy the x-coordinates from original grid
+    xyc = xy_coords[:, 0].copy()
+
+    # calculate the step size for linearly arrayed overlapping
+    grid_step_size = (xyc[11] - xyc[0]) / xyc[0] * overlap_scale
+
+    # add x-dependent spacing to particles
+    xyc = xyc[:] + (xyc[:] - xyc[0]) / xyc[0] * overlap_scale
+
+    # stack the new x-coordinates with the original y-coordinates
+    xy_overlap_coords = np.vstack((xyc, xy_coords[:, 1])).T
+
+    # grab only the inner columns
+    xy_overlap_coords = xy_overlap_coords[xl:xh]
+
+    # stack the arrays to overlap particles
+    xyo_coords = np.vstack((xy_coords, xy_overlap_coords))
+
+    if z is None:
+        return xyo_coords
+
+    if isinstance(z, int) or isinstance(z, float):
+        z_coords = z * np.ones((n_particles, 1))
+    else:
+        z_coords = np.random.uniform(z[0], z[1], size=(n_particles, 1))
+    coords = np.hstack([xyo_coords, z_coords])
+
+    return coords
+
+def _generate_scaled_overlap_paired_random_z_grid_coordinates(grid, imshape, z=None, overlap_scale=5):
+    assert len(imshape) == 2
+
+    # Particle grid
+    xtot, ytot = imshape
+    n_x, n_y = grid
+    n_particles = n_x * n_y
+    edge_x = xtot / (n_x + 1)
+    edge_y = ytot / (n_y + 1)
+
+    # Make particle coordinates
+    xy_coords = np.mgrid[edge_x:xtot - edge_x:np.complex(0, n_x),
+                edge_y:ytot - edge_y:np.complex(0, n_y)].reshape(2, -1).T
+
+    # make linearly shifted particle coordinates
+
+    # create cutoff limits (exclude first and last rows to not expand the image size)
+    xl = n_x
+    xh = n_x * (n_y - 1)
+
+    # copy the x-coordinates from original grid
+    xyc = xy_coords[:, 0].copy()
+
+    # calculate the step size for linearly arrayed overlapping
+    grid_step_size = (xyc[11] - xyc[0]) / xyc[0] * overlap_scale
+
+    # add x-dependent spacing to particles
+    xyc = xyc[:] + (xyc[:] - xyc[0]) / xyc[0] * overlap_scale
+
+    # stack the new x-coordinates with the original y-coordinates
+    xy_overlap_coords = np.vstack((xyc, xy_coords[:, 1])).T
+
+    if z is None:
+        return xy_coords
+
+    if isinstance(z, int) or isinstance(z, float):
+        z_coords = z * np.ones((n_particles, 1))
+    else:
+        z_coords = np.random.uniform(z[0], z[1], size=(n_particles, 1))
+
+    # stack the original particles with a random z-height
+    coords = np.hstack([xy_coords, z_coords])
+
+    # stack the paired overlapping particles with the corresponding z-height as the original particle
+    overlap_coords = np.hstack([xy_overlap_coords, z_coords])
+
+    # grab only the inner columns of the overlap particles
+    overlap_coords = overlap_coords[xl:xh]
+
+    # stack the original particles and overlapped particles with matching z-heights together
+    xyo_coords = np.vstack((coords, overlap_coords))
+
+    return xyo_coords
 
 def _generate_random_coordinates(density, imshape, particle_d, dpm, z=None):
     m_per_px = 1 / dpm

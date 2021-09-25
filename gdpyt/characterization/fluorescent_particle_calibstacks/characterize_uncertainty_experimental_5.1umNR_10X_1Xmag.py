@@ -33,7 +33,6 @@ from skimage.morphology import disk
 # define filepaths
 CALIB_PATH = '/Users/mackenzie/Desktop/gdpyt-characterization/calibration/5.1umNR_HighInt_0.06XHg/10X_1Xmag'
 CALIB_RESULTS_PATH = '/Users/mackenzie/Desktop/gdpyt-characterization/calibration/5.1umNR_HighInt_0.06XHg/results'
-
 EXPORT_RESULTS_PATH = '/Users/mackenzie/Desktop/gdpyt-characterization/calibration/5.1umNR_HighInt_0.06XHg/results'
 
 # display options
@@ -79,7 +78,7 @@ MEDIAN_DISK = 3  # size of median disk filter - [1, 1.5, 2, 2.5, 3, 4,]
 CALIB_PROCESSING = {'median': {'args': [disk(MEDIAN_DISK), None, 'wrap']}} # {'none': {'args': []}}
 PROCESSING = {'none': {'args': []}} # {'median': {'args': [disk(MEDIAN_DISK), None, 'wrap']}}
 MEDIAN_PERCENT = 0.05  # percent additional threshold value from median value
-THRESHOLD =  {'otsu': []}  # {'median_percent': [MEDIAN_PERCENT]} #
+THRESHOLD =  {'median_percent': [MEDIAN_PERCENT]} # {'otsu': []}  #
 
 # similarity
 MIN_STACKS = N_CAL * 1 // 2
@@ -124,7 +123,7 @@ calib_col = GdpytImageCollection(CALIB_IMG_PATH,
                                  template_padding=TEMPLATE_PADDING,
                                  folder_ground_truth=None,
                                  if_img_stack_take='subset',
-                                 take_subset_mean=[1, 2],
+                                 take_subset_mean=[1, 4],
                                  inspect_contours_for_every_image=False)
 
 # Calibration image filename to z position dictionary
@@ -228,7 +227,7 @@ if SAVE_CALIB_PLOTS or SHOW_CALIB_PLOTS:
         plt.show()
 
     # plot calibration images with identified particles
-    plot_calib_col_imgs = [10, 15, 20, 30, 40, 50, 60, 70]
+    plot_calib_col_imgs = [40, 50, 60, 70, 80, 85, 90, 95]
     fig, ax = plt.subplots(ncols=8, figsize=(16, 4))
     for i, img in enumerate(plot_calib_col_imgs):
         img = CALIB_IMG_STRING + str(img) + '.tif'
@@ -284,7 +283,7 @@ if SAVE_CALIB_PLOTS or SHOW_CALIB_PLOTS:
             plt.show()
 
         # plot 3D calibration stack for a single particle
-        calib_set.calibration_stacks[id].plot_3d_stack(intensity_percentile=(20, 99), stepsize=N_CAL//15, aspect_ratio=2.5)
+        calib_set.calibration_stacks[id].plot_3d_stack(intensity_percentile=(20, 99), stepsize=N_CAL//10, aspect_ratio=2.5)
         plt.suptitle(save_calib_pid)
         plt.tight_layout()
         if SAVE_CALIB_PLOTS is True:
