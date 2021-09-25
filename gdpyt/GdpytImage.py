@@ -10,7 +10,7 @@ from skimage.restoration import denoise_bilateral, denoise_nl_means, estimate_si
 from skimage.metrics import peak_signal_noise_ratio
 
 from skimage.exposure import equalize_adapthist
-from skimage.segmentation import clear_border
+from skimage.segmentation import clear_border as sk_clear_borders
 from skimage.measure import label, regionprops
 from skimage.draw import rectangle_perimeter, polygon
 
@@ -81,9 +81,11 @@ class GdpytImage(object):
             out_str += '{}: {} \n'.format(key, str(val))
         return out_str
 
-    def _add_particle(self, id_, contour, bbox, particle_mask):
-        self._particles.append(GdpytParticle(self._raw, self._filtered, id_, contour, bbox,
-                                             particle_mask_on_image=particle_mask))
+    def _add_particle(self, id_, contour, bbox, particle_mask, particle_collection_type=None, location=None):
+        self._particles.append(GdpytParticle(self.raw, self.filtered, id_, contour, bbox,
+                                             particle_mask_on_image=particle_mask,
+                                             particle_collection_type=particle_collection_type,
+                                             location=location))
 
     def _update_processing_stats(self, names, values):
         if not isinstance(names, list):
@@ -101,9 +103,9 @@ class GdpytImage(object):
 
     def draw_particles(self, raw=True, thickness=2, draw_id=True, draw_bbox=True):
         if raw:
-            canvas = self._raw.copy()
+            canvas = self.raw.copy()
         else:
-            canvas = self._filtered.copy()
+            canvas = self.filtered.copy()
 
         max_val = int(canvas.max())
         color = (max_val, max_val, max_val)
@@ -157,6 +159,9 @@ class GdpytImage(object):
 
     def filter_image(self, filterspecs, force_rawdtype=True):
         """
+        Steps:
+            1. clear borders
+
         This is an image filtering function. The argument filterdict are similar to the arguments of the
         image_smoothing function.
         e.g. filterdict: {'median': 5, 'bilateral': 4, 'gaussian': 5}
@@ -165,15 +170,15 @@ class GdpytImage(object):
 
         This method should assign self._processed and self._processing_stats
         """
+        img_copy = self._raw.copy()
+        raw_dtype = img_copy.dtype
+
         valid_filters = ['none', 'median', 'mean_bilateral', 'gaussian', 'white_tophat', 'equalize_adapthist']
         #TODO: - there are several 'denoising' filters that would be useful to investigate.
         #   > particularly the skimage.restoration.denoise_bilateral function which perserves edges.
         #   > see more here: https://scikit-image.org/docs/dev/auto_examples/filters/plot_denoise.html#sphx-glr-auto-examples-filters-plot-denoise-py
         #   > there are very exciting results that perserve texture shown in the example below:
         #   > see here: https://scikit-image.org/docs/dev/auto_examples/filters/plot_nonlocal_means.html#sphx-glr-auto-examples-filters-plot-nonlocal-means-py
-
-        img_copy = self._raw.copy()
-        raw_dtype = img_copy.dtype
 
         for process_func in filterspecs.keys():
             if process_func not in valid_filters:
@@ -209,16 +214,19 @@ class GdpytImage(object):
         return ret_particle
 
     def identify_particles(self, thresh_specs, min_size=None, max_size=None, shape_tol=0.1, overlap_threshold=0.3,
-                           padding=5, inspect_contours_for_every_image=False):
+                           padding=2, inspect_contours_for_every_image=False, image_collection_type=None):
         if shape_tol is not None:
             assert 0 < shape_tol < 1
-        particle_mask = apply_threshold(self.filtered, parameter=thresh_specs).astype(np.uint8)
-        self._masked = particle_mask
+        particle_mask = apply_threshold(self.filtered, parameter=thresh_specs, min_particle_size=min_size, padding=padding).astype(np.uint16)
+
         # Identify particles
-        contours, bboxes = identify_contours(particle_mask)
+        contours, bboxes = identify_contours(particle_mask.astype(np.uint8))
         logger.debug("{} contours in thresholded image".format(len(contours)))
         contours, bboxes = self.merge_overlapping_particles(contours, bboxes, overlap_thresh=overlap_threshold)
         logger.debug("{} contours in thresholded image after merging of overlapping".format(len(contours)))
+
+        # remove particles that are too close together
+        # contours, bboxes = self.remove_nearby_particles(contours, bboxes, threshold_distance=10)
 
         # storage lists
         skipped_cnts = []
@@ -230,19 +238,23 @@ class GdpytImage(object):
         id_ = 0
         # Sort contours and bboxes by x-coordinate:
         for cont_bbox in sorted(zip(contours, bboxes), key=lambda b: b[1][0], reverse=True):
+
             contour = cont_bbox[0]
+
+            # get contour area and perimeter
             contour_area = abs(cv2.contourArea(contour))
-            # get perimeter
             contour_perim = cv2.arcLength(contour, True)
 
             # If specified, check if contour is too small or too large. If true, skip the creation of the particle
             if min_size is not None:
                 if contour_area < min_size:
                     skipped_cnts.append(contour)
+                    print("Skipped because contour area {} < {} threshold".format(contour_area, min_size))
                     continue
             if max_size is not None:
                 if contour_area > max_size:
                     skipped_cnts.append(contour)
+                    print("Skipped because contour area {} > {} threshold".format(contour_area, max_size))
                     continue
 
             bbox = cont_bbox[1]
@@ -250,20 +262,31 @@ class GdpytImage(object):
             if shape_tol is not None:
                 # Discard contours that are clearly not a circle just by looking at the aspect ratio of the bounding box
                 bbox_ar = bbox[2] / bbox[3]
-                jj=abs(np.maximum(bbox_ar, 1 / bbox_ar) - 1)
-                if abs(np.maximum(bbox_ar, 1 / bbox_ar) - 1) > shape_tol:
+                bbox_aspect_ratio = abs(np.maximum(bbox_ar, 1 / bbox_ar) - 1)
+                if bbox_ar < shape_tol:
                     skipped_cnts.append(contour)
+                    print("Skipped because bbox aspect ratio {} < {} shape tolerance".format(bbox_ar, shape_tol))
                     continue
                 # Check if circle by calculating thinness ratio
-                tr = 4 * np.pi * contour_area / contour_perim**2
-                logging.debug("bbox_ar: {}, circ {}".format(bbox_ar, tr))
-                j = abs(np.maximum(tr, 1 / tr) - 1)
-                if abs(np.maximum(tr, 1 / tr) - 1) > shape_tol:
-                    skipped_cnts.append(contour)
-                    continue
+                bbox_tr = 4 * np.pi * contour_area / contour_perim**2
+                bbox_thinness = abs(np.maximum(bbox_tr, 1 / bbox_tr) - 1)
+                if bbox_tr < shape_tol:
+                    #skipped_cnts.append(contour)
+                    #print("Skipped because bbox thinness {} < {} shape tolerance".format(bbox_tr, shape_tol))
+                    #continue
+                    print("Would've skipped because bbox thinness {} < {} shape tolerance but thinness filter is off".format(bbox_tr, shape_tol))
 
-            # pad the bounding box to ensure the entire particle is captured
-            bbox = [bbox[0] - padding, bbox[1] - padding, bbox[2] + padding * 2, bbox[3] + padding * 2]
+            bbox, bbox_center = self.pad_and_center_contour(contour, bbox, padding=padding)
+
+            # discard contours that are too close to the image borders to include the desired padding
+            if bbox[0] - padding < 1 or bbox[1] - padding < 1:
+                skipped_cnts.append(contour)
+                print("Skipped because template + padding near the image borders")
+                continue
+            elif bbox[0] + bbox[2] + padding >= self.shape[1] or bbox[1] + bbox[3] + padding >= self.shape[0]:
+                skipped_cnts.append(contour)
+                print("Skipped because template + padding near the image borders")
+                continue
 
             # Add data for contour inspection
             contour_areas.append(contour_area)
@@ -272,10 +295,12 @@ class GdpytImage(object):
             passing_ids.append(id_)
 
             # Add particle
-            self._add_particle(id_, contour, bbox, particle_mask)
-            id_ += 1
+            self._add_particle(id_, contour, bbox, particle_mask, particle_collection_type=image_collection_type,
+                               location=bbox_center)
+            id_ = id_ + 1
 
         # Code to plot all the contours and bounding boxes for every image
+        """
         if inspect_contours_for_every_image:
             img = np.zeros_like(self.raw, dtype=np.uint16)
             for con_box in sorted(zip(contours, bboxes), key=lambda b: b[1][0], reverse=True):
@@ -301,7 +326,7 @@ class GdpytImage(object):
                     cv2.putText(img, "ID: {}".format(con_box[2]), [x, y], cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                                 (2 ** 13, 2 ** 13, 2 ** 13), 2)
             fig, ax = plt.subplots(ncols=3, figsize=(12,4))
-            ax[0].imshow(self._filtered, cmap='viridis')
+            ax[0].imshow(self.filtered, cmap='viridis')
             ax[0].set_title('filtered')
             ax[0].set_xlabel('x')
             ax[0].set_ylabel('y')
@@ -312,6 +337,7 @@ class GdpytImage(object):
             ax[2].set_title('{} - mode=wrap'.format(self.filename))
             ax[2].axis('off')
             plt.show()
+            """
 
         # Calculate contour statistics
         if len(contour_areas) > 0:
@@ -325,6 +351,21 @@ class GdpytImage(object):
             if max_contour_area > max_size * 0.75:
                 print("Max. contour area [input, measured] = [{}, {}]".format(max_size, max_contour_area))
                 print("Mean contour area: {} +/- {}".format(mean_contour_area, std_contour_area * 2))
+
+        # set image attributes
+        self._masked = particle_mask
+        self._mean_contour_area = mean_contour_area
+        self._std_contour_area = std_contour_area
+
+        # calculate image statistics
+        self.calculate_image_statistics()
+
+    def calculate_image_statistics(self):
+
+        # initialize variables
+        particle_mask = self._masked
+        mean_contour_area = self._mean_contour_area
+        std_contour_area = self._std_contour_area
 
         # Calculate image statistics
         background_mask = particle_mask.astype(bool)
@@ -354,10 +395,19 @@ class GdpytImage(object):
         mean_signal_f = img_f_mask.mean()
         mean_background_f = img_f_mask_inv.mean()
         std_background_f = img_f_mask_inv.std()
+
+        # background can be zero for noise=0 calibration datasets so make == 1 for simplicity
+        if std_background_f < 1:
+            std_background_f = 1
+
         snr_filtered = (mean_signal_f - mean_background_f) / std_background_f
         """
         Signal-to-noise ratio (Barnkob & Rossi 2020): SNR = mean particle image signal / standard deviation of noise
         """
+
+        # the snr is capped at 250 b/c greater than this is meaningless
+        if snr_filtered > 250:
+            snr_filtered = 250
 
         # calculate pixel density (# of pixels in particles / # of pixels in image) for filtered image
         pixel_density = background_mask.sum() / background_mask.size
@@ -376,6 +426,7 @@ class GdpytImage(object):
                 [mean_signal_f, mean_background_f, std_background_f, snr_filtered, pixel_density, particle_density,
                  percent_particles_idd, self.true_num_particles, mean_contour_area, std_contour_area])
         else:
+            raise ValueError("why are there zero particles for this image?")
             #TODO: add statistics for contours that did not pass--so I can understand why they didn't pass.
             self._update_processing_stats(
                 ['mean_signal', 'mean_background', 'std_background', 'snr_filtered', 'pixel_density',
@@ -441,7 +492,8 @@ class GdpytImage(object):
                 image = page.asarray()
 
 
-    def merge_duplicate_particles(self, thresh_specs=None):
+    def merge_duplicate_particles(self):
+        # TODO: this should be inspected more closely.
         unique_ids = self.unique_ids(counts=True)
         duplicate_ids = unique_ids[unique_ids['count'] > 1].index.tolist()
 
@@ -506,6 +558,52 @@ class GdpytImage(object):
 
         return merged_cnts, merged_bboxes
 
+    def pad_and_center_contour(self, contour, bbox, padding=2):
+        """
+        Steps:
+            1. Pad and size the bounding box to be a square of odd-numbered side lengths.
+            2. Center the bounding box on the computed contour center.
+        Parameters
+        ----------
+        contour
+        bbox
+        padding
+
+        Returns
+        -------
+
+        """
+        # make the bounding box a square (w = h)
+        if bbox[2] > bbox[3]:
+            bbox = (bbox[0], bbox[1], bbox[2], bbox[2])
+        if bbox[3] > bbox[2]:
+            bbox = (bbox[0], bbox[1], bbox[3], bbox[3])
+
+        # make the bounding box dimensions odd (w, h == odd number) to center the particle image on center pixel
+        assert bbox[2] == bbox[3]
+        if bbox[2] % 2 == 0:
+            bbox = (bbox[0], bbox[1], bbox[2] + 1, bbox[3] + 1)
+
+        # pad the bounding box to ensure the entire particle is captured
+        bbox = [bbox[0] - padding, bbox[1] - padding, bbox[2] + padding * 2, bbox[3] + padding * 2]
+
+        # compute center from contour
+        M = cv2.moments(contour)
+        cX = int(M["m10"] / M["m00"]) # note, x is in plotting coordinates (x would be columns in array)
+        cY = int(M["m01"] / M["m00"]) # note, y is in plotting coordinates (y would be rows in array)
+
+        # center bounding box on computed contour center
+        bbox = [cX - int(np.floor(bbox[2]/2)), cY - int(np.floor(bbox[3]/2)), bbox[2], bbox[3]]
+
+        return bbox, (cX, cY)
+
+    def remove_nearby_particles(self, cnts, bboxes, threshold_distance=10):
+
+        for bbox_cnt in sorted(zip(cnts, bboxes), key=lambda b: b[1][2] * b[1][3], reverse=True):
+            cnt = bbox_cnt[0]
+            bbox = bbox_cnt[1]
+            cx = float(bbox[2] - bbox[0])
+            cy = float(bbox[3] - bbox[1])
 
     def particle_coordinates(self, id_=None):
         coords = []
@@ -563,23 +661,48 @@ class GdpytImage(object):
 
         return cms
 
-    def set_z(self, z):
+    def set_true_z(self, z):
         assert isinstance(z, float)
+
+        # set the z-value of the image
         self._z = z
-        # If the image is set to be at a certain height, all the particles in it are assigned that height
+
+        # If the image is set to be at a certain height, all the particles' true_z are assigned that height
         for particle in self.particles:
-            particle.set_z(z)
             particle.set_true_z(z=z)
+
+
+    def set_z(self, z):
+        """
+        This sets both the particles' true_z and z value to input: z.
+        """
+        assert isinstance(z, float)
+
+        # set the z-value of the image
+        self._z = z
+
+        # If the image is set to be at a certain height, all the particles' true_z are assigned that height
+        for particle in self.particles:
+
+            # only set particle true_z-coordinate if it hasn't already been set
+            if particle.z_true is None:
+                particle.set_true_z(z=z)
+
+            # only set particle z-coordinate if it hasn't already been set
+            if particle.z is None:
+                particle.set_z(z)
 
     def add_particles_in_image(self):
         for p in self.particles:
             p.add_particle_in_image(img_id=self.z)
 
-    def set_true_num_particles(self, num, data=None):
+    def set_true_num_particles(self, num=None, data=None):
         if data is not None:
             self._true_num_particles = len(data)
-        else:
+        elif num is not None:
             self._true_num_particles = num
+        else:
+            raise ValueError("num and data cannot both be None. num or data must contain true number of particles")
 
     def unique_ids(self, counts=True):
         unique_ids = pd.DataFrame()

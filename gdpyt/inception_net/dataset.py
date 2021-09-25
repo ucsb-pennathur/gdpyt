@@ -91,7 +91,7 @@ class GdpytInceptionDataset(Dataset):
     def _load_calib_stack(self, stack, skip_na=True):
         all_ = []
         for particle in stack.particles:
-            particle.use_raw(True)
+            particle.set_use_raw(True)
             if stack.shape == self.shape:
                 template = particle.get_template()
             else:

@@ -394,3 +394,60 @@ def where_close(pos, separation, intensity=None):
                                            np.sum(pos_rescaled[index_1], 1),
                                            index_1, index_0)
     return np.unique(to_drop)
+
+def plot_2D_image_and_center(particle, good_fit='black'):
+    """
+    Plot image and centroid-found center.
+
+    Notes:
+        *
+    Parameters
+    ----------
+
+    Returns
+    -------
+
+    """
+    image = particle.template
+    xc = particle._location_subpixel[0]
+    yc = particle._location_subpixel[1]
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+
+    # plot location of center
+    ax.scatter(xc, yc, s=100, marker='*', color=good_fit, alpha=0.5, label=r'$p_{xc,yc}$' +
+                                '(Mass={})'.format(int(np.round(particle._fitted_centroid_on_template['mass'], -1))))
+
+    ax.axvline(x=xc, color=good_fit, alpha=0.35, linestyle='--')
+    ax.axhline(y=yc, color=good_fit, alpha=0.35, linestyle='--')
+
+    ax.set_title(r'$p_{xc, yc}$' + '(sub-pix) = ({}, {}) \n center = {}, {}'.format(particle.location[0], particle.location[1], np.round(xc, 2), np.round(yc, 2)))
+
+    ax.set_xlim([0, image.shape[0] - 0.5])
+    ax.set_ylim([0, image.shape[1] - 0.5])
+    ax.legend(fontsize=10, bbox_to_anchor=(1, 1), loc='upper left', )
+
+    # Major ticks
+    ax.set_xticks(np.arange(0, image.shape[0] + 1, 2))
+    ax.set_yticks(np.arange(0, image.shape[1] + 1, 2))
+
+    # Labels for major ticks
+    ax.set_xticklabels(np.arange(0, image.shape[0] + 1, 2))
+    ax.set_yticklabels(np.arange(0, image.shape[0] + 1, 2))
+
+    # Minor ticks
+    ax.set_xticks(np.arange(-0.5, image.shape[0], 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, image.shape[1], 1), minor=True)
+
+    # invert the y-axis
+    plt.gca().invert_yaxis()
+
+    # show the image last
+    ax.imshow(image, cmap='viridis', interpolation='none')
+
+    # Gridlines based on minor ticks
+    ax.grid(which='minor', color='gray', alpha=0.125, linestyle='-', linewidth=1)
+    # ax.grid(color='gray', alpha=0.125)
+
+    return fig
