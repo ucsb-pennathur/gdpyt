@@ -1,5 +1,7 @@
 import cv2
+from os.path import join
 from matplotlib import pyplot as plt
+import matplotlib.patches as mpatches
 
 from skimage import io
 from skimage.filters import median, gaussian
@@ -11,13 +13,13 @@ from skimage.metrics import peak_signal_noise_ratio
 
 from skimage.exposure import equalize_adapthist
 from skimage.segmentation import clear_border as sk_clear_borders
-from skimage.measure import label, regionprops
+from skimage.measure import label, regionprops, regionprops_table, find_contours
 from skimage.draw import rectangle_perimeter, polygon
 
 import numpy as np
 import numpy.ma as ma
 import pandas as pd
-from .particle_identification import apply_threshold, identify_contours, identify_circles, merge_particles
+from .particle_identification import apply_threshold, identify_contours, identify_contours_sk, merge_particles
 from .GdpytParticle import GdpytParticle
 from os.path import isfile, basename
 import time
@@ -70,6 +72,11 @@ class GdpytImage(object):
         # This dictionary is filled up with the identify_particles method
         self._particles = []
         self._z = None
+
+        # contour stats
+        self.regionprops_table = None
+        self._mean_contour_area = None
+        self._std_contour_area = None
 
     def __repr__(self):
         class_ = 'GdpytImage'
@@ -124,18 +131,21 @@ class GdpytImage(object):
 
     def crop_image(self, cropspecs):
         """
-        This crops the image. The argument cropsize is a dictionary of xmin, xmax, ymin, ymax and values.
-        :param cropsize:
-        :return:
+        This crops the image. The argument cropspecs is a dictionary of xmin, xmax, ymin, ymax and values.
+        :param cropspecs:
         """
-        valid_crops = ['xmin', 'xmax', 'ymin', 'ymax']
+        valid_crops = ['xmin', 'xmax', 'ymin', 'ymax', 'pad']
 
         for crop_func in cropspecs.keys():
             if crop_func not in valid_crops:
                 raise ValueError("{} is not a valid crop dimension. Use: {}".format(crop_func, valid_crops))
 
-        self._original = self._raw.copy()
+        if self._original is None:
+            self._original = self._raw.copy()
         self._raw = self._original[cropspecs['ymin']:cropspecs['ymax'], cropspecs['xmin']:cropspecs['xmax']]
+
+        if 'pad' in cropspecs.keys():
+            self._raw = np.pad(self._raw, pad_width=cropspecs['pad'], mode='constant', constant_values=np.min(self._raw))
 
     def subtract_background(self, background_subtraction, background_img):
         """
@@ -180,6 +190,8 @@ class GdpytImage(object):
         #   > there are very exciting results that perserve texture shown in the example below:
         #   > see here: https://scikit-image.org/docs/dev/auto_examples/filters/plot_nonlocal_means.html#sphx-glr-auto-examples-filters-plot-nonlocal-means-py
 
+        if len(filterspecs) == 0:
+            img = img_copy
         for process_func in filterspecs.keys():
             if process_func not in valid_filters:
                 raise ValueError("{} is not a valid filter. Implemented so far are {}".format(process_func, valid_filters))
@@ -212,6 +224,163 @@ class GdpytImage(object):
             logger.warning("In image {}, {} particles with ID {} were found".format(self.filename, len(ret_particle), id_))
 
         return ret_particle
+
+    def identify_particles_sk(self, thresh_specs, min_size=None, max_size=None, shape_tol=0.1,
+                              overlap_threshold=0.3, same_id_threshold=10,
+                              padding=2, inspect_contours_for_every_image=False, image_collection_type=None,
+                              particle_id_image=None):
+        """
+        Method:
+            1. apply threshold
+            2. Identify contours
+            3. Sort contours:
+                3.1. if min_siz < area < max_size
+                3.2. if aspect ratio is not square
+                3.3. if thinness ratio is not a circle
+                3.4. if too close to the image borders
+
+        """
+
+        if shape_tol is not None:
+            assert 0 < shape_tol < 1
+
+        if particle_id_image is not None:
+            """ Using static templates in this case """
+            particle_mask = apply_threshold(particle_id_image, parameter=thresh_specs, min_particle_size=min_size,
+                                            padding=padding).astype(np.uint16)
+        else:
+            """ Using dynamic templates in this case """
+            particle_mask = apply_threshold(self.filtered, parameter=thresh_specs, min_particle_size=min_size,
+                                            padding=padding).astype(np.uint16)
+
+        # identify particles
+        label_image, regions, all_contour_coords = identify_contours_sk(particle_mask, self.filtered, same_id_threshold,
+                                                                        self.filename)
+
+        # store the regionprops table
+        regionprops_data = regionprops_table(label_image, self.filtered,
+                                properties=['label', 'area', 'bbox', 'centroid', 'weighted_centroid', 'local_centroid',
+                                            'weighted_local_centroid', 'max_intensity', 'mean_intensity',
+                                            'minor_axis_length', 'major_axis_length'])
+        regionprops_data = pd.DataFrame(regionprops_data)
+        self.regionprops_table = regionprops_data
+
+        # filters regions (contours)
+        skipped_contours = []
+        passing_ids = []
+        contour_areas = []
+        id_ = 0
+
+        # Sort contours and bboxes by x-coordinate:
+        for region, contour_coords in sorted(zip(regions, all_contour_coords), key=lambda x: x[0].centroid[1]):
+
+            # filter on area
+            area = region.area
+            if area < min_size or area > max_size:
+                skipped_contours.append(region.label)
+                continue
+
+            # filter on aspect ratio
+            if region.minor_axis_length < 2:
+                logger.warning("Region skipped b/c minor axis length {} < 2".format(aspect_ratio))
+                skipped_contours.append(region.label)
+                continue
+            aspect_ratio = region.major_axis_length / region.minor_axis_length
+            if aspect_ratio > 6:
+                logger.warning("Region skipped b/c aspect ratio = {} > 6.".format(aspect_ratio))
+                skipped_contours.append(region.label)
+                continue
+
+            # filter on circularity
+            solidity = region.solidity
+            """if solidity < 0.5:
+                skipped_contours.append(region.label)
+                continue"""
+
+            # filter on eccentricity
+            eccentricity = region.eccentricity
+            """if eccentricity > 0.5:
+                skipped_contours.append(region.label)
+                continue"""
+
+            # adjust the bounding box (bbox) to work with GdpytParticle (note: x0, y0, w0, h0 = self.bbox)
+            min_row, min_col, max_row, max_col = region.bbox
+            bbox = (min_col, min_row, max_col - min_col, max_row - min_row)
+
+            # find the contour of the region slice
+            # contour_coords = find_contours(region.filled_image)
+            """h = region.coords
+            h1, h2 = h[:, 0], h[:, 1]
+            contour_coords = np.vstack((h2, h1)).T"""
+
+            cX = int(np.round(regionprops_data[regionprops_data['label'] == region.label]['weighted_centroid-1'].item(), 0))
+            cY = int(np.round(regionprops_data[regionprops_data['label'] == region.label]['weighted_centroid-0'].item(), 0))
+
+            bbox, bbox_center = self.pad_and_center_region(cX, cY, bbox, padding=padding)
+
+            # discard contours that are too close to the image borders to include the desired padding
+            if bbox[0] - padding < 1 or bbox[1] - padding < 1:
+                skipped_contours.append(region.label)
+                print("Skipped because template + padding near the image borders")
+                continue
+            elif bbox[0] + bbox[2] + padding >= self.shape[1] or bbox[1] + bbox[3] + padding >= self.shape[0]:
+                skipped_contours.append(region.label)
+                print("Skipped because template + padding near the image borders")
+                continue
+
+            # Add data for contour inspection
+            contour_areas.append(area)
+            passing_ids.append(id_)
+
+            # option to plot identified contours and bounding boxes
+            """show_plots = False
+            if show_plots is True:
+                fig, ax = plt.subplots(figsize=(6,2))
+                ax.imshow(self._filtered)
+                minr, minc, maxr, maxc = region.bbox
+                rect = mpatches.Rectangle((minc, minr), maxc - minc, maxr - minr, fill=False, edgecolor='red', linewidth=2)
+                ax.add_patch(rect)
+                ax.set_title("Contour ID {}, bbox (x, y, w, h) = ({})".format(id_, bbox))
+                plt.suptitle(self.filename)
+                savedir = '/Users/mackenzie/Desktop/dumpfigures/particle_segmentation'
+                plt.savefig(join(savedir, '{}_contourID{}.png'.format(self.filename[:-4], id_)))
+                plt.show()
+                plt.close()
+
+                fig, ax = plt.subplots(figsize=(5, 5))
+                ax.imshow(region.intensity_image)
+                ax.set_title("{}, contour ID {}".format(self.filename, id_))
+                savedir = '/Users/mackenzie/Desktop/dumpfigures/particle_segmentation'
+                plt.savefig(join(savedir, '{}_template_contourID{}.png'.format(self.filename[:-4], id_)))
+                plt.show()
+                plt.close()"""
+
+            # Add particle
+            self._add_particle(id_, contour_coords, bbox, particle_mask, particle_collection_type=image_collection_type,
+                               location=(cX, cY))
+            id_ = id_ + 1
+
+
+        # Calculate contour statistics
+        if len(contour_areas) > 0:
+            min_contour_area = np.min(contour_areas)
+            max_contour_area = np.max(contour_areas)
+            mean_contour_area = np.mean(contour_areas)
+            std_contour_area = np.round(np.std(contour_areas), 1)
+            if min_contour_area < min_size * 1.5:
+                print("Min. contour area [input, measured] = [{}, {}]".format(min_size, min_contour_area))
+                print("Mean contour area: {} +/- {}".format(mean_contour_area, std_contour_area * 2))
+            if max_contour_area > max_size * 0.75:
+                print("Max. contour area [input, measured] = [{}, {}]".format(max_size, max_contour_area))
+                print("Mean contour area: {} +/- {}".format(mean_contour_area, std_contour_area * 2))
+
+            # set image attributes
+            self._masked = particle_mask
+            self._mean_contour_area = mean_contour_area
+            self._std_contour_area = std_contour_area
+
+            # calculate image statistics
+            self.calculate_image_statistics()
 
     def identify_particles(self, thresh_specs, min_size=None, max_size=None, shape_tol=0.1, overlap_threshold=0.3,
                            padding=2, inspect_contours_for_every_image=False, image_collection_type=None):
@@ -284,6 +453,8 @@ class GdpytImage(object):
                 print("Skipped because template + padding near the image borders")
                 continue
             elif bbox[0] + bbox[2] + padding >= self.shape[1] or bbox[1] + bbox[3] + padding >= self.shape[0]:
+                h = bbox[0] + bbox[2] + padding
+                j = bbox[1] + bbox[3] + padding
                 skipped_cnts.append(contour)
                 print("Skipped because template + padding near the image borders")
                 continue
@@ -491,9 +662,10 @@ class GdpytImage(object):
                     _ = tag.name, tag.value
                 image = page.asarray()
 
-
     def merge_duplicate_particles(self):
-        # TODO: this should be inspected more closely.
+        """
+        Merge particles with matching ID's
+        """
         unique_ids = self.unique_ids(counts=True)
         duplicate_ids = unique_ids[unique_ids['count'] > 1].index.tolist()
 
@@ -558,6 +730,40 @@ class GdpytImage(object):
 
         return merged_cnts, merged_bboxes
 
+    def pad_and_center_region(self, cX, cY, bbox, padding=2):
+        """
+        Steps:
+            1. Pad and size the bounding box to be a square of odd-numbered side lengths.
+            2. Center the bounding box on the computed contour center.
+        Parameters
+        ----------
+        contour
+        bbox
+        padding
+
+        Returns
+        -------
+
+        """
+        # make the bounding box a square (w = h)
+        if bbox[2] > bbox[3]:
+            bbox = (bbox[0], bbox[1], bbox[2], bbox[2])
+        if bbox[3] > bbox[2]:
+            bbox = (bbox[0], bbox[1], bbox[3], bbox[3])
+
+        # make the bounding box dimensions odd (w, h == odd number) to center the particle image on center pixel
+        assert bbox[2] == bbox[3]
+        if bbox[2] % 2 == 0:
+            bbox = (bbox[0], bbox[1], bbox[2] + 1, bbox[3] + 1)
+
+        # pad the bounding box to ensure the entire particle is captured
+        bbox = [bbox[0] - padding, bbox[1] - padding, bbox[2] + padding * 2, bbox[3] + padding * 2]
+
+        # center bounding box on computed contour center
+        bbox = [cX - int(np.floor(bbox[2]/2)), cY - int(np.floor(bbox[3]/2)), bbox[2], bbox[3]]
+
+        return bbox, (cX, cY)
+
     def pad_and_center_contour(self, contour, bbox, padding=2):
         """
         Steps:
@@ -605,13 +811,15 @@ class GdpytImage(object):
             cx = float(bbox[2] - bbox[0])
             cy = float(bbox[3] - bbox[1])
 
-    def particle_coordinates(self, id_=None):
+    def particle_coordinates(self, id_=None, skip_id_=None):
         coords = []
         no_z_count = 0
         for particle in self.particles:
             if id_ is not None:
                 assert isinstance(id_, list)
                 if particle.id not in id_:
+                    continue
+                if particle.id in skip_id_:
                     continue
             x, y = particle.location
             if particle.z is None:

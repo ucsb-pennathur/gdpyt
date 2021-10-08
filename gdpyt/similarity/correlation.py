@@ -6,6 +6,10 @@ from scipy.optimize import curve_fit
 from skimage.feature import match_template
 import numpy as np
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def cross_correlation_equal_shape(img1, img2):
     if not (img1.shape == img2.shape):
@@ -48,13 +52,21 @@ def sk_norm_cross_correlation(img1, img2):
         2. Pass the appropriate image and template into the skimage-based template matching method.
         3. Get the peak correlation value and the x, y coordinates where the peak match was found.
     """
-    if img1.size > img2.size:
+    if img1.size >= img2.size:
         result = match_template(img1, img2)
-    else:
+
+    elif img2.shape[0] > img1.shape[0] and img2.shape[1] > img1.shape[1]:
         result = match_template(img2, img1)
+
+    else:
+        logger.warning("Unable to correlate mismatched templates: (img1, img2): ({}, {})".format(img1.shape, img2.shape))
+        result = np.nan
+
     cm = np.max(result)
-    ij = np.unravel_index(np.argmax(result), result.shape)
-    x, y = ij[::-1] # x,y coordinates in the image space where the highest correlation was found
+
+    # x,y coordinates in the image space where the highest correlation was found
+    """ij = np.unravel_index(np.argmax(result), result.shape)
+    x, y = ij[::-1] """
 
     return cm
 

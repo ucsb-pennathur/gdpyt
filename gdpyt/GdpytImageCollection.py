@@ -1,3 +1,5 @@
+import matplotlib.pyplot as plt
+
 from .GdpytImage import GdpytImage
 from .GdpytCalibrationSet import GdpytCalibrationSet
 from gdpyt.utils.plotting import *
@@ -31,7 +33,8 @@ class GdpytImageCollection(object):
                  stacks_use_raw=False, infer_sub_image=True, measurement_depth=None, true_num_particles=None,
                  if_img_stack_take='mean', take_subset_mean=None, inspect_contours_for_every_image=False,
                  template_padding=3, file_basestring=None, same_id_threshold=10, image_collection_type=None,
-                 calibration_stack_z_step=None, baseline=None):
+                 calibration_stack_z_step=None,
+                 baseline=None, hard_baseline=False, particle_id_image=None, static_templates=False):
         """
 
         Parameters
@@ -76,6 +79,7 @@ class GdpytImageCollection(object):
 
         # image collection data
         self.in_focus_z = None
+        self._in_focus_area = None
         self.in_focus_coords = None
         self._particle_ids = None
         self._true_num_particles = true_num_particles
@@ -100,6 +104,9 @@ class GdpytImageCollection(object):
         self._inspect_contours_for_every_image = inspect_contours_for_every_image
 
         # toggles for calibration stacks and inference
+        self.baseline = baseline
+        self._static_templates = static_templates
+        self.particle_id_image = particle_id_image
         self._template_padding = template_padding
         self._stacks_use_raw = stacks_use_raw
         self._infer_sub_image = infer_sub_image
@@ -143,19 +150,24 @@ class GdpytImageCollection(object):
 
         # Define the thresholding done on all the images in this collection
         if thresholding_specs is None:
+            raise ValueError("Are you sure you want no thresholding?")
             self._thresholding_specs = {'otsu': []}
         else:
             self._thresholding_specs = thresholding_specs
+
+        # calculate the average of all images in the collection
+        # self._calculate_mean_image()
 
         # filter and identify contours
         self.filter_images()
         self.identify_particles()
 
         # uniformize particle ids across all images in the collection
+        self._hard_baseline = hard_baseline
         self.uniformize_particle_ids(baseline=baseline)
 
         self.identify_particles_ground_truth()
-        #self.refine_particles_ground_truth()
+        self.refine_particles_ground_truth()
 
     def __len__(self):
         return len(self.images)
@@ -193,22 +205,73 @@ class GdpytImageCollection(object):
         if subset is None:
             pass
         else:
-            if len(subset) == 2:
-                base_string = self._file_basestring
+            base_string = self._file_basestring
+            all_files = listdir(self._folder)
+            save_files = []
+
+            for file in all_files:
+                if file.endswith(self._filetype):
+                    if file in exclude:
+                        continue
+                    save_files.append(file)
+
+            # if subset is an integer, this indicates the total number of files to include.
+            #   Note: the files are randomly selected from the collection.
+            if len(subset) == 1:
+                random_files = [rf for rf in random.sample(set(save_files), subset)]
+                for f in save_files:
+                    if f not in random_files:
+                        exclude.append(f)
+
+            # if subset is a two element list, this indicates a start and stop range for z-values.
+            elif len(subset) == 2:
                 start = subset[0]
                 stop = subset[1]
-                all_files = listdir(self._folder)
-                save_files = []
-                for file in all_files:
-                    if file.endswith(self._filetype):
-                        if file in exclude:
-                            continue
-                        save_files.append(file)
                 for f in save_files:
                     search_string = base_string + '(.*)' + self._filetype
                     file_index = float(re.search(search_string, f).group(1))
                     if file_index < start or file_index > stop:
                         exclude.append(f)
+
+            # if subset is a three element list, this indicates a start and stop z-range and sampling rate.
+            elif len(subset) == 3:
+
+                protected_files = []
+                # we always want to include the baseline or particle_id_image in the image collection.
+                if self.baseline is not None:
+                    if isinstance(self.baseline, GdpytCalibrationSet):
+                        pass
+                    else:
+                        protected_files.append(self.baseline)
+                if self.particle_id_image is not None:
+                    protected_files.append(self.particle_id_image)
+
+                start = subset[0]
+                stop = subset[1]
+                subset_files = []
+                subset_index = []
+
+                # get files within subset z-coordinates
+                for f in save_files:
+                    search_string = base_string + '(.*)' + self._filetype
+                    file_index = float(re.search(search_string, f).group(1))
+                    if file_index >= start or file_index <= stop:
+                        subset_files.append(f)
+                        subset_index.append(file_index)
+
+                # sort the zipped list of files and indices (floats for the file's z-coordinate)
+                sorted_subset = sorted(list(zip(subset_files, subset_index)), key=lambda x: x[1])
+
+                # sample the list according to the third element in subset
+                sorted_files, sorted_indices = map(list, zip(*sorted_subset))
+                n_sampling = subset[2]
+                sampled_sorted_subset_files = sorted_files[::n_sampling]
+
+                # append files not sampled to exclude
+                for f in save_files:
+                    if f not in sampled_sorted_subset_files + protected_files:
+                        exclude.append(f)
+
             else:
                 raise ValueError("Collecting multiple subsets is not implemented at the moment.")
 
@@ -229,7 +292,7 @@ class GdpytImageCollection(object):
                 number_of_files += 1
 
         save_files = sorted(save_files,
-                            key=lambda filename: int(filename.split(self.file_basestring)[-1].split('.')[0]))
+                            key=lambda filename: float(filename.split(self.file_basestring)[-1].split('.')[0]))
 
         logger.warning(
             "Found {} files with filetype {} in folder {}".format(len(save_files), self.filetype, self.folder))
@@ -260,7 +323,7 @@ class GdpytImageCollection(object):
             self._files_ground_truth = save_files
 
     def create_calibration(self, name_to_z, dilate=True, template_padding=0, min_num_layers=None,
-                           self_similarity_method='bccorr', exclude=[]):
+                           self_similarity_method='sknccorr', exclude=[]):
         """
         This method:
             1. creates a calibration set from the image collection.
@@ -278,9 +341,12 @@ class GdpytImageCollection(object):
                                    min_num_layers=min_num_layers, self_similarity_method=self_similarity_method,
                                    exclude=exclude)
 
-        # find the in-focus coordinates of all particles and set the in_focus_z attribute
-        # self.find_particle_in_focus_z()
-        # self.find_collection_in_focus_z()
+        # find the in-focus coordinates of all particles and set the particle's in-focus z-coordinate and area
+        self.find_particle_in_focus_z(use_true_z=False)
+
+        # determine the z-coordinate where most particles are in focus and set this as the collection in_focus_z
+        self.find_collection_z_of_min_area()
+        # self.find_collection_in_focus_z() --> This function doesn't seem to work and is a duplicate of ^
 
         return calibration_set
 
@@ -320,6 +386,8 @@ class GdpytImageCollection(object):
                 image = np.where(image < vmax, image, vmax)  # clip upper percentile
                 image = np.where(image > vmin, image, vmin)  # clip lower percentile
                 background_img = np.where(image < background_img, image, background_img)  # take min value
+            else:
+                raise ValueError("{} background subtraction method is not yet implemented".format(self._background_subtraction))
 
         # store background image
         self._background_img = background_img
@@ -329,18 +397,86 @@ class GdpytImageCollection(object):
             image.subtract_background(self._background_subtraction, self._background_img)
             logger.warning("Background subtraction image {}".format(image.filename))
 
+    def _calculate_mean_image(self):
+        """ Calculate the mean image by summing across all images and dividing by the number of images """
+
+        background_add = np.zeros_like(self.images[self.baseline].raw, dtype=np.uint16)
+        for i in self.images.values():
+            background_add = background_add + i.raw.copy()
+
+        background_mean_float = np.divide(background_add, len(self.images))
+
+        background_mean = np.rint(background_mean_float).astype(np.uint16)
+
+        fig, ax = plt.subplots()
+        ax.imshow(background_mean)
+        ax.set_title('Max, Mean = {}, {}'.format(np.max(background_mean), np.mean(background_mean)))
+        plt.show()
+
+        self.mean_image = background_mean
+
     def filter_images(self):
         for image in self.images.values():
             image.filter_image(self._processing_specs)
             logger.warning("Filtered image {}".format(image.filename))
 
     def identify_particles(self):
+        """
+        Options for identifying particles:
+
+        Calibration Collection:
+            1. if a baseline is passed:
+                1.1 if static_templates is True:
+                    assign particle ID's based on baseline image (where baseline image is static)
+                1.2 if static templates is False:
+                    assign particle ID's based on baseline image (where baseline image is dynamic)
+            2. if a baseline is not passed:
+                assign particle ID's randomly (the templates are dynamic)
+
+        Test Collection:
+            1. if baseline is a CalibrationSet:
+                1.1 if static_templates is True:
+                    assign particle ID's based on the baseline image (where baseline image is static)
+                1.2 if static templates is False:
+                    assign particle ID's randomly (the templates are dynamic)
+            2. if baseline is an image:
+                2.1 if static_templates is True:
+                    assign particle ID's based on baseline image (where baseline image is static)
+                2.2 if static templates is False:
+                    assign particle ID's randomly (the templates are dynamic)
+            3. if baseline is None:
+                3.1 if static_templates is True:
+                    assign particle ID's based on baseline image (where baseline image is static)
+                3.2 if static templates is False:
+                    assign particle ID's randomly (the templates are dynamic)
+        """
+
+        if self._image_collection_type == 'calibration':
+                if self._static_templates is True:
+                    particle_identification_image = self.images[self.baseline].filtered
+                else:
+                    particle_identification_image = None
+        elif self._image_collection_type == 'test':
+            if isinstance(self.baseline, GdpytCalibrationSet):
+                if self._static_templates is True:
+                    particle_identification_image = self.images[self.particle_id_image].filtered
+                else:
+                    particle_identification_image = None
+            elif self._static_templates is True:
+                particle_identification_image = self.images[self.baseline].filtered
+            else:
+                particle_identification_image = None
+        else:
+            raise ValueError("Image collection must either be 'calibration' or 'test'.")
+
         for image in self.images.values():
-            image.identify_particles(self._thresholding_specs,
-                                     min_size=self._min_particle_size, max_size=self._max_particle_size,
-                                     shape_tol=self._shape_tol, overlap_threshold=self._overlap_threshold,
-                                     inspect_contours_for_every_image=self._inspect_contours_for_every_image,
-                                     padding=self._template_padding, image_collection_type=self._image_collection_type)
+            image.identify_particles_sk(self._thresholding_specs,
+                                        min_size=self._min_particle_size, max_size=self._max_particle_size,
+                                        shape_tol=self._shape_tol, overlap_threshold=self._overlap_threshold,
+                                        same_id_threshold=self._same_id_threshold,
+                                        inspect_contours_for_every_image=self._inspect_contours_for_every_image,
+                                        padding=self._template_padding, image_collection_type=self._image_collection_type,
+                                        particle_id_image=particle_identification_image)
             logger.info("Identified {} particles on image {}".format(len(image.particles), image.filename))
 
     def _set_measurement_depth(self, measurement_depth):
@@ -358,6 +494,7 @@ class GdpytImageCollection(object):
         elif self._calibration_stack_z_step and self._image_collection_type == 'calibration':
             self._measurement_depth = self._total_number_of_files * self._calibration_stack_z_step
             self._measurement_range = len(self._files) * self._calibration_stack_z_step
+
         else:
             raise ValueError("If this is a calibration collection, then the measurement depth should be set by the "
                              "total number of calibration images * z-step per calibration image. If this is a test"
@@ -393,6 +530,8 @@ class GdpytImageCollection(object):
                     x_true = ground_truth_xyz[result[1][0][0]][0]
                     y_true = ground_truth_xyz[result[1][0][0]][1]
                     z_true = ground_truth_xyz[result[1][0][0]][2]
+                    if z_true == 0.0:
+                        z_true = float(0.000001)
                     p._set_location_true(x=x_true, y=y_true, z=z_true)
 
         else:
@@ -409,35 +548,24 @@ class GdpytImageCollection(object):
             pass
 
         elif self._folder_ground_truth is not None:
-            raise ValueError("This section requires significant more testing before use")
-            values = []
-            particles_ids = []
-            for img in self.images.values():
-                for p in img.particles:
-                    values.append([p.id, p.z_true, p.area])
-                    particles_ids.append(p.id)
+            pass
 
-            df = pd.DataFrame(data=values, columns=['id', 'true_z', 'area'])
+            # find the in-focus coordinates of all particles and set the particle's in-focus z-coordinate and area
+            # self.find_particle_in_focus_z(use_true_z=True)
 
-            df_min_area = df.groupby(by='area').mean()
-            df_min_area_z = df_min_area.true_z.iloc[0]
+            # determine the z-coordinate where most particles are in focus and set this as the collection in_focus_z
+            # self.find_collection_z_of_min_area()
 
-            if self.image_collection_type == 'calib':
-                self.z_of_min_area = df_min_area_z
-
-            if self.image_collection_type == 'test':
+            """if self.image_collection_type == 'test':
                 df_min_area_z_offset = 0.49125 - df_min_area_z  # TODO: fix this, it should be taken from the calibration stack
                 logger.warning("USING Z-OFFSET VALUE OF 0.49125!!")
 
                 for img in self.images.values():
                     for p in img.particles:
                         new_z_true = p.z_true + df_min_area_z_offset
-                        p._set_true_z(new_z_true)
+                        p._set_true_z(new_z_true)"""
 
-        else:
-            pass
-
-    def uniformize_particle_ids(self, baseline=None, uv=[[0, 0]], baseline_img=None):
+    def uniformize_particle_ids_and_groups(self, baseline=None, baseline_img=None, hard_baseline=False,  uv=None):
         """
         Parameters
         ----------
@@ -446,6 +574,9 @@ class GdpytImageCollection(object):
         uv: a simulated displacement between images
         baseline_img: should be the filename (e.g. calib_23.tif) of the image file to use as the baseline for ID assignment
         """
+        if uv is None:
+            uv = [[0, 0]]
+
         baseline_locations = []
         # If a calibration set is given as the baseline, the particle IDs in this collection are assigned based on
         # the location and ID of the calibration set. This should always be done when the collection contains target images
@@ -511,6 +642,170 @@ class GdpytImageCollection(object):
                 next_id = len(baseline_locations)
                 continue
 
+            # TODO: set NearestNeighbors(n_neighbors=2) and if a particle center is within an "overlap_range" then,
+            # merge those contours and maintain that particle's ID. Do this same function for the other merged particle
+            # (i.e. maintain it's ID but merge the contours).
+
+            # NearestNeighbors(x+u,y+v): previous location (x,y) + displacement guess (u,v)
+            nneigh = NearestNeighbors(n_neighbors=2, algorithm='ball_tree').fit(baseline_locations.values + uv)
+            # NOTE: the displacement guess (u,v) could incorporate a "time" variable (image number or time data)
+            # such that [u_i,v_i] = [u(t), v(t)] in order to better match time-dependent or periodic displacements.
+
+            distances, indices = nneigh.kneighbors(np.array(locations))
+
+            remove_p_not_in_calib = []
+            for distance, idx, particle in zip(distances, indices, particles):
+                # If the particle is close enough to a particle of the baseline, give that particle the same ID as the
+                # particle in the baseline
+                """
+                Maintaining single particle identification throughout contour merging due to defocused image overlap:
+                    1. if the identified contour center is close enough to a single baseline particle:
+                        1.1 assign it the same ID and,
+                        1.2 update the baseline location.
+                    2. if the identified contour center is close enough to two (or more) baseline particles:
+                        2.1 create two (or more) new particles at the location of the previous baseline with the
+                        previous bounding box size.
+                        2.2 do not update the baseline location.
+                """
+                # get the number of nearby particles
+                dist_close = [d for d in distance if d < self._same_id_threshold]
+                num_close = len(dist_close)
+
+                indic = 0
+                for dist_i, idx_i in zip(distance, idx):
+
+                    if dist_i < 15:
+
+                        indic += 1
+
+                        particle.set_id(baseline_locations.index.values[idx_i.squeeze()])
+
+                        if num_close == 1:
+                            baseline_locations.loc[particle.id, ('x', 'y')] = (particle.location[0], particle.location[1])
+                        else:
+                            baseline_locations.loc[particle.id, ('x', 'y')] = (particle.location[0], particle.location[1])
+
+
+                    elif indic == 0:
+                        # If the particle is not in the baseline, we may remove it via two methods:
+                        #   1. if the baseline is a CalibrationSet, as including will significantly reduce accuracy.
+                        #   2. if we designate a "hard baseline" where we don't want to add new particles.
+
+                        # filter if not in CalibrationSet baseline:
+                        if isinstance(baseline, GdpytCalibrationSet):
+                            remove_p_not_in_calib.append(particle)
+                            logger.warning("Removed particle {} at location {} b/c not in Calibration Set baseline".format(particle.id,
+                                                                                                           particle.location))
+                            continue
+
+                        # filter if not in "hard baseline":
+                        if self._hard_baseline is True or hard_baseline is True:
+                            remove_p_not_in_calib.append(particle)
+                            logger.warning(
+                                "Removed particle {} at location {} b/c not in hard baseline".format(particle.id,
+                                                                                                                particle.location))
+                            continue
+
+                        # else, assign it a new, non-existent id and add it to the baseline for subsequent images
+                        logger.warning("File {}: New IDs: {}".format(file, next_id))
+                        particle.set_id(next_id)
+                        assert (next_id not in baseline_locations.index)
+                        baseline_locations = baseline_locations.append(
+                            pd.DataFrame({'x': particle.location[0], 'y': particle.location[1]},
+                                         index=[particle.id]))
+                        next_id += 1
+
+            for p in remove_p_not_in_calib:
+                logger.warning("Removing particle particle {}".format(p.id))
+                # TODO: note this is changed
+                if p in image.particles:
+                    image.particles.remove(p)
+            # The nearest neighbor mapping creates particles with duplicate IDs under some circumstances
+            # These need to be merged to one giant particle
+            image.merge_duplicate_particles()
+
+    def uniformize_particle_ids(self, baseline=None, baseline_img=None, uv=None):
+        """
+        Parameters
+        ----------
+        baseline: only use in RARE cases where you already have the location of the particles and their IDs.
+        threshold: maximum x-y displacement between images to be assigned the same ID.
+        uv: a simulated displacement between images
+        baseline_img: should be the filename (e.g. calib_23.tif) of the image file to use as the baseline for ID assignment
+        """
+
+        if uv is None:
+            uv = [[0, 0]]
+
+        baseline_locations = []
+        # If a calibration set is given as the baseline, the particle IDs in this collection are assigned based on
+        # the location and ID of the calibration set. This should always be done when the collection contains target images
+        if baseline is not None:
+            if isinstance(baseline, GdpytCalibrationSet):
+                for stack in baseline.calibration_stacks.values():
+                    baseline_locations.append(pd.DataFrame({'x': stack.location[0], 'y': stack.location[1]},
+                                                           index=[stack.id]))
+                skip_first_img = False
+
+            elif isinstance(baseline, GdpytImage):
+                baseline_img = baseline
+
+                for particle in baseline_img.particles:
+                    baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'y': particle.location[1]},
+                                                           index=[particle.id]))
+                skip_first_img = False
+            elif isinstance(baseline, str):
+                baseline_img = self.images[baseline]
+                for particle in baseline_img.particles:
+                    baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'y': particle.location[1]},
+                                                           index=[particle.id]))
+                skip_first_img = False
+            else:
+                raise TypeError("Invalid type for baseline")
+
+        # If no baseline is given, the particle IDs are assigned based on the IDs and location of the particles in the
+        # baseline_img or else the first image
+        else:
+            index = 0
+            if baseline_img is not None:
+                index = self._files.index(baseline_img)
+            baseline_img = self._files[index]
+            baseline_img = self.images[baseline_img]
+
+            for particle in baseline_img.particles:
+                baseline_locations.append(pd.DataFrame({'x': particle.location[0], 'y': particle.location[1]},
+                                                       index=[particle.id]))
+
+            skip_first_img = True
+
+        if len(baseline_locations) == 0:
+            baseline_locations = pd.DataFrame()
+            next_id = None
+        else:
+            baseline_locations = pd.concat(baseline_locations).sort_index()
+            # The next particle that can't be matched to a particle in the baseline gets this id
+            next_id = len(baseline_locations)
+
+        for i, file in enumerate(self._files):
+            if (i == 0) and skip_first_img:
+                continue
+            image = self.images[file]
+            # Convert to list because ordering is important
+            particles = [particle for particle in image.particles]
+            locations = [list(p.location) for p in particles]
+
+            if len(locations) == 0:
+                continue
+            if baseline_locations.empty:
+                dfs = [pd.DataFrame({'x': p.location[0], 'y': p.location[1]}, index=[p.id]) for p in particles]
+                baseline_locations = pd.concat(dfs)
+                next_id = len(baseline_locations)
+                continue
+
+            # TODO: set NearestNeighbors(n_neighbors=2) and if a particle center is within an "overlap_range" then,
+            # merge those contours and maintain that particle's ID. Do this same function for the other merged particle
+            # (i.e. maintain it's ID but merge the contours).
+
             # NearestNeighbors(x+u,y+v): previous location (x,y) + displacement guess (u,v)
             nneigh = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(baseline_locations.values + uv)
             # NOTE: the displacement guess (u,v) could incorporate a "time" variable (image number or time data)
@@ -532,13 +827,26 @@ class GdpytImageCollection(object):
                     # successful identification, we update the "current" location of that particle ID.
 
                 else:
-                    # If the particle is not in the baseline, assign it a new, non-existent id and add it to the baseline
-                    # for the subsequent images
+                    # If the particle is not in the baseline, we may remove it via two methods:
+                    #   1. if the baseline is a CalibrationSet, as including will significantly reduce accuracy.
+                    #   2. if we designate a "hard baseline" where we don't want to add new particles.
+
+                    # filter if not in CalibrationSet baseline:
                     if isinstance(baseline, GdpytCalibrationSet):
                         remove_p_not_in_calib.append(particle)
-                        logger.warning("Removed particle {} at location {} b/c not in baseline".format(particle.id,
+                        logger.warning("Removed particle {} at location {} b/c not in Calibration Set baseline".format(particle.id,
                                                                                                        particle.location))
                         continue
+
+                    # filter if not in "hard baseline":
+                    elif self._hard_baseline is True:
+                        remove_p_not_in_calib.append(particle)
+                        logger.warning(
+                            "Removed particle {} at location {} b/c not in hard baseline".format(particle.id,
+                                                                                                            particle.location))
+                        continue
+
+                    # else, assign it a new, non-existent id and add it to the baseline for subsequent images
                     logger.warning("File {}: New IDs: {}".format(file, next_id))
                     particle.set_id(next_id)
                     assert (next_id not in baseline_locations.index)
@@ -547,6 +855,7 @@ class GdpytImageCollection(object):
                                      index=[particle.id]))
                     next_id += 1
             for p in remove_p_not_in_calib:
+                logger.warning("Removing particle particle {}".format(p.id))
                 image.particles.remove(p)
             # The nearest neighbor mapping creates particles with duplicate IDs under some circumstances
             # These need to be merged to one giant particle
@@ -584,14 +893,13 @@ class GdpytImageCollection(object):
 
         return calib_set.infer_z(self, infer_sub_image=infer_sub_image)
 
-    def get_particles_in_image(self, particle_id=None):
+    def get_particles_in_images(self, particle_id=None):
         # get particles in every image
         coords = []
         for img in self.images.values():
             [coords.append([p.id, p.z, p.z_true]) for p in img.particles]
+
         df = pd.DataFrame(data=coords, columns=['id', 'z', 'true_z'])
-        df['z'] = df['z'].round(3)  # TODO: note that this was changed from rounding to the 2nd decimal
-        df['true_z'] = df['true_z'].round(3)
 
         if particle_id is None:
             return df
@@ -599,7 +907,7 @@ class GdpytImageCollection(object):
             return df.loc[df['id'].isin(particle_id)]
 
     def get_unique_particle_ids(self):
-        df = self.get_particles_in_image()
+        df = self.get_particles_in_images()
         unique_ids = df.id.unique()
         self._particle_ids = unique_ids
         return unique_ids
@@ -622,7 +930,7 @@ class GdpytImageCollection(object):
             self._max_particle_size = max
         self.identify_particles()
 
-    def find_particle_in_focus_z(self):
+    def find_particle_in_focus_z(self, use_true_z=False):
         """
         Find the z-coordinate of minimum area for each particle in the collection and set the particle's in_focus_plane
         attribute.
@@ -631,6 +939,8 @@ class GdpytImageCollection(object):
             1. get image collection particle ID's.
             2. for each particle ID, loop through all of the images that the particle appears and append its
             z-coordinate and area.
+                NOTE: for test collections with ground_truth, the true_z-coordinate is used because the particle's
+                 z-coordinate hasn't been inferred and using the inferred z-coordinate would also introduce errors.
             3. get the index where the minimum particle area occurs.
             4.
 
@@ -657,8 +967,13 @@ class GdpytImageCollection(object):
                     # append the in-focus data to lists
                     if particle.id == pid:
 
-                        # get particle z-coordinate and area
-                        zs.append(particle.z)
+                        # get particle z-coordinate
+                        if use_true_z:
+                            zs.append(particle.z_true)
+                        else:
+                            zs.append(particle.z)
+
+                        # get particle area
                         areas.append(particle.area)
 
 
@@ -669,14 +984,22 @@ class GdpytImageCollection(object):
             amin_index = int(np.argmin(areas))
 
             # create lower and upper bounds (+/- 5 images) - Note, 5 images were chosen to smooth out the contour noise
-            lower_index = int(np.round(amin_index - 5))
-            upper_index = int(np.round(amin_index + 5))
+            # UPDATED 9/25: to 1 images
+            if self.image_collection_type == 'calibration':
+                fit_pad = 1
+            else:
+                fit_pad = 2
+
+            lower_index = int(np.round(amin_index - fit_pad, 0))
+            upper_index = int(np.round(amin_index + fit_pad, 0))
 
             # ensure lower and upper bounds don't exceed data space
             if lower_index < 0:
                 lower_index = 0
+                upper_index = 1 + fit_pad
             if upper_index > len(areas) - 1:
                 upper_index = len(areas) - 1
+                lower_index = len(areas) - 2 - fit_pad
 
             # if there are at least three points, perform parabolic interpolation
             if len(zs) > 3 and len(areas) > 3:
@@ -689,9 +1012,22 @@ class GdpytImageCollection(object):
                 areas_interp = parabola(z_local, *popt)
 
                 # find the z-coordinate where the interpolated area is minimized
-                h = np.argmin(areas_interp)
                 z_zero = z_local[np.argmin(areas_interp)]
                 areas_zero = np.min(areas_interp)
+
+                if self.image_collection_type == 'calibration' and len(particle_ids) == 1:
+                    fig, ax = plt.subplots()
+                    ax.scatter(zs[lower_index:upper_index + 1], areas[lower_index:upper_index + 1], color='tab:blue',
+                               alpha=0.75, label='particle area')
+                    ax.plot(z_local, areas_interp, color='black', alpha=0.5, label='interpolated')
+                    ax.scatter(z_zero, areas_zero, s=50, color='red', marker='.', label='min')
+                    ax.set_xlabel('z')
+                    ax.set_ylabel('area')
+                    ax.grid(alpha=0.25)
+                    ax.set_title('Find particles in focus z')
+                    savedir = '/Users/mackenzie/Desktop/dumpfigures'
+                    savename = 'particle_interpolated_z_of_min_area.png'
+                    plt.savefig(join(savedir, savename))
 
             # if less than three points, get the minimum of the areas
             else:
@@ -745,39 +1081,157 @@ class GdpytImageCollection(object):
         in_focus_coords = np.stack((ids, xs, ys, zs, areas)).T
 
         # store in-focus data as DataFrame
-        df_in_focus = pd.DataFrame(data=in_focus_coords, columns=['id', 'x', 'y', 'z', 'area'])
+        df_in_focus = pd.DataFrame(data=in_focus_coords, columns=['id', 'x', 'y', 'z', 'area'], dtype=float)
         df_in_focus = df_in_focus.sort_values(by='z')
         self.in_focus_coords = df_in_focus
 
-        # remove outliers by removing the outer 10th percentile in the z-coordinate array
-        clipped_in_focus_z = df_in_focus.z[(df_in_focus['z'] > df_in_focus.z.quantile(0.20)) &
-                                           (df_in_focus['z'] < df_in_focus.z.quantile(0.80))]
-        clipped_in_focus_area = df_in_focus.area[(df_in_focus['z'] > df_in_focus.z.quantile(0.20)) &
-                                              (df_in_focus['z'] < df_in_focus.z.quantile(0.80))]
+        if len(df_in_focus.id.unique()) < 15:
+            # get the minimum area and in_focus_z by taking the median of the filtered dataset
+            in_focus_zs = df_in_focus.z
+            in_focus_areas = df_in_focus.area
+        else:
+            # remove outliers by removing the outer 20th percentile in the z-coordinate array
+            in_focus_zs = df_in_focus.z[(df_in_focus['z'] > df_in_focus.z.quantile(0.20)) &
+                                               (df_in_focus['z'] < df_in_focus.z.quantile(0.80))]
+            in_focus_areas = df_in_focus.area[(df_in_focus['z'] > df_in_focus.z.quantile(0.20)) &
+                                                  (df_in_focus['z'] < df_in_focus.z.quantile(0.80))]
 
         # sort the filtered data
-        clipped_in_focus_z = clipped_in_focus_z.sort_values()
-        clipped_in_focus_area = clipped_in_focus_area.sort_values()
-
-        # TODO: find minimum area and in_focus_z by fitting a Gaussian distribution
-        """
-        # stack into 2D array
-        clipped_data = pd.DataFrame([clipped_in_focus_z, clipped_in_focus_area]).T
-        clipped_data = clipped_data.to_numpy()
-
-        # fit 1D Gaussian distribution to further reduce outliers
-        popt, pcov = curve_fit(gaussian1D, clipped_in_focus_z, clipped_in_focus_area)
-        f = gaussian1D(clipped_in_focus_z, popt[0], popt[1], popt[2])
-        
-        # fit 2D Gaussian
-        guess_prms = [(np.median(clipped_in_focus_z), np.median(clipped_in_focus_area), 1, 1, 1)]
-        fit_image, popt, pcov, X, Y, rms, padding = fit_gaussian_subpixel(image=clipped_data, guess_params=guess_prms,
-                                                                          pad=0)
-        """
+        in_focus_zs = in_focus_zs.sort_values()
+        in_focus_areas = in_focus_areas.sort_values()
 
         # get the minimum area and in_focus_z by taking the median of the filtered dataset
-        in_focus_z = np.median(clipped_in_focus_z)
-        in_focus_area = np.median(clipped_in_focus_area)
+        in_focus_z = np.median(in_focus_zs)
+        in_focus_area = np.median(in_focus_areas)
+
+        # store the mean interpolated in_focus_z coordinate as the collection's in_focus_z coordinate.
+        self.in_focus_z = in_focus_z
+        self._in_focus_area = in_focus_area
+
+        show_plot = True
+        if show_plot:
+            fig, ax = plt.subplots()
+            ax.scatter(in_focus_zs, in_focus_areas, color='tab:blue', alpha=0.75, label='particle area')
+            ax.scatter(in_focus_z, in_focus_area, s=50, color='red', marker='.', label='min = median(area)')
+            ax.set_xlabel('z')
+            ax.set_ylabel('area')
+            ax.grid(alpha=0.25)
+
+            ax.set_title("Calibration collection mininum area {} at z_true = {}".format(in_focus_area, in_focus_z))
+            plt.tight_layout()
+
+            savedir = '/Users/mackenzie/Desktop/dumpfigures/'
+            savefigpath = join(savedir + '_calibration_collection_minimum_z_area.png')
+            fig.savefig(fname=savefigpath, bbox_inches='tight')
+            plt.close()
+
+    def find_collection_z_of_min_area(self):
+        """
+        Find the z-coordinate of the minimum area for all particles in a collection
+
+        NOTE:
+            * uses the particle's true_z coordinate and thus is currently only applicable to ground_truth datasets.
+
+        Usages:
+            * To determine the "focal plane" for collections with unknown or random particle z-coordiantes.
+        """
+
+        # get list of all particle ID's in collection
+        particle_ids = self.particle_ids.tolist()
+
+        # initialize lists for particle: ID, x,y-coordinates, and interpolated in_focus z-coordinate and area.
+        img_ids = []
+        ids = []
+        xs = []
+        ys = []
+        zss = []
+        areass = []
+
+        # loop through particle ID list
+        for img in self.images.values():
+            img_id = float(img.filename.split(self.file_basestring)[-1].split('.tif')[0])
+            for particle in img.particles:
+                img_ids.append(img_id)
+                ids.append(particle.id)
+                xs.append(particle.location[0])
+                ys.append(particle.location[1])
+                zss.append(particle.z_true)
+                areass.append(particle.area)
+
+        # stack lists into array
+        coords = np.stack((img_ids, ids, xs, ys, zss, areass)).T
+
+        # store data as DataFrame
+        df = pd.DataFrame(data=coords, columns=['img_id', 'id', 'x', 'y', 'z', 'area'], dtype=float)
+        df = df.groupby(by='z').mean().reset_index()
+
+        # remove outliers by removing the outer 2 percentile in the z-coordinate array
+        # df = df[(df['area'] > df.area.quantile(0.00025))]
+
+        zs = df.z.to_numpy()
+        areas = df.area.to_numpy()
+
+        # get index of minimum area
+        amin_index = int(np.argmin(areas))
+
+        # create lower and upper bounds (+/- 2 images)
+        fit_pad = np.max([1, int(len(zs) * 0.0125)])
+
+        lower_index = int(np.round(amin_index - fit_pad, 0))
+        upper_index = int(np.round(amin_index + fit_pad, 0))
+
+        # ensure lower and upper bounds don't exceed data space
+        if lower_index < 0:
+            lower_index = 0
+            upper_index = 1 + fit_pad
+        if upper_index > len(areas) - 1:
+            upper_index = len(areas) - 1
+            lower_index = len(areas) - 2 - fit_pad
+
+        # if there are at least three points, perform parabolic interpolation
+        if len(zs) > 3 and len(areas) > 3:
+
+            # fit a parabola
+            popt, pcov = curve_fit(parabola, zs[lower_index:upper_index + 1], areas[lower_index:upper_index + 1])
+
+            # create interpolation space and get resulting parabolic curve
+            z_local = np.linspace(zs[lower_index], zs[upper_index], 50)
+            areas_interp = parabola(z_local, *popt)
+
+            # find the z-coordinate where the interpolated area is minimized
+            z_zero = z_local[np.argmin(areas_interp)]
+            areas_zero = np.min(areas_interp)
+
+            show_plot = True
+            if show_plot:
+                fig, ax = plt.subplots()
+                ax.scatter(zs[lower_index:upper_index + 1], areas[lower_index:upper_index + 1], color='tab:blue',
+                           alpha=0.75, label='particle area')
+                ax.plot(z_local, areas_interp, color='black', alpha=0.5, label='interpolated')
+                ax.scatter(z_zero, areas_zero, s=50, color='red', marker='.', label='min')
+                ax.set_xlabel('z')
+                ax.set_ylabel('area')
+                ax.grid(alpha=0.25)
+
+                ax.set_title("Min area {} at z_true = {}".format(areas[amin_index], zs[amin_index]))
+                plt.suptitle("{} collection mininum interpolated area {} at z_true = {}".format(self._image_collection_type,
+                                                                                                np.round(areas_zero, 3),
+                                                                                                np.round(z_zero, 3)))
+                plt.tight_layout()
+
+                savedir = '/Users/mackenzie/Desktop/dumpfigures/'
+                savefigpath = join(savedir + '_{}_collection_minimum_z_area.png'.format(self._image_collection_type))
+                fig.savefig(fname=savefigpath, bbox_inches='tight')
+                plt.close()
+
+        # if less than three points, get the minimum of the areas
+        else:
+            z_zero = zs[np.argmin(areas)]
+            areas_zero = np.min(areas)
+
+        # round the z-coordinate and area to a reasonable value
+        in_focus_z = np.round(z_zero, 3)
+        in_focus_area = np.round(areas_zero, 1)
 
         # store the mean interpolated in_focus_z coordinate as the collection's in_focus_z coordinate.
         self.in_focus_z = in_focus_z
@@ -858,7 +1312,7 @@ class GdpytImageCollection(object):
         # round the true_z value (which is not important for this particular analysis so we do it early)
         # we have to correct to the correct decimal place to get at least 10-20 data points depending on our measurement
         # range (which can be 0-1 for normalized analyses or 0-NUM_TEST_IMAGES * Z_STEP_PER for meta analyses)
-        dfz = self.bin_local_uncertainty(dfz)
+        dfz = self.bin_local_quantities(dfz)
 
         # sort the dataframe by true_z (now it's necessary to maintain this sorting throughout the analysis)
         dfz = dfz.sort_values(by='true_z', inplace=False)
@@ -894,15 +1348,19 @@ class GdpytImageCollection(object):
         # get: number of particles per true_z
         identified_particles = dfz_count_idd.to_numpy(copy=True)[:, 1]
 
+        # get: number of particles w/ invalid z-value per true_z
+        non_measured_particles = dfz_count_nans.to_numpy(copy=True)
+
         # get: number of particles w/ valid z-value per true_z
-        measured_particles = dfz_count_valid.to_numpy(copy=True)[:, 1]
+        measured_particles = identified_particles - non_measured_particles
 
         # calculate the percent of particles w/ valid z-value
-        percent_measured = measured_particles / identified_particles * 100
+        percent_measured = (identified_particles - non_measured_particles) / identified_particles * 100
         percent_measured = np.around(percent_measured, decimals=1)
 
         # FOURTH, we would like to know the mean_cm and mean_max_sim (max sim = interpolated cm)
         dfz_cm = dfz.copy()
+        dfz_cm = dfz_cm.fillna(value=0)
         dfz_cm = dfz_cm.groupby(dfz_cm['true_z'], sort=False).mean()
         z_cm = dfz_cm.cm.to_numpy(copy=True)
         z_max_sim = dfz_cm.max_sim.to_numpy(copy=True)
@@ -967,7 +1425,7 @@ class GdpytImageCollection(object):
             df_rmse['square_error_z'] = df_rmse['error_z'] ** 2
 
             # after we calculate the raw error, we can round the true_z value for the purposes of aggregate analysis
-            df_rmse = self.bin_local_uncertainty(df_rmse)
+            df_rmse = self.bin_local_quantities(df_rmse)
 
             # RMSE uncertainty = sqrt ( sum ( error ** 2 ) / number of measurements )
             # Note: the root mean square x-, y-, and z-error is now a panda series so maintaining order is important.
@@ -1034,7 +1492,7 @@ class GdpytImageCollection(object):
             df_rmse['square_error_z'] = df_rmse['error_z'] ** 2
 
             # we can now round the z-value in order to perform an aggregate analysis
-            df_rmse = self.bin_local_uncertainty(df_rmse)
+            df_rmse = self.bin_local_quantities(df_rmse)
 
             # RMSE uncertainty = sqrt ( sum ( error ** 2 ) / number of measurements )
             # Note: the root mean square z-error is now a panda series so maintaining order is super important.
@@ -1060,54 +1518,16 @@ class GdpytImageCollection(object):
 
         return collection_measurement_quality_local
 
-    def bin_local_uncertainty(self, dfz, bins=20):
+    def bin_local_uncertainty(self, dfz, bins=81):
 
         # round the true_z value (which is not important for this particular analysis so we do it early)
         # we have to correct to the correct decimal place to get at least 10-20 data points depending on our measurement
         # range (which can be 0-1 for normalized analyses or 0-NUM_TEST_IMAGES * Z_STEP_PER for meta analyses)
 
-        z_range = dfz.true_z.max() - dfz.true_z.min()
-
         if self._folder_ground_truth != 'standard_gdpt':
-            if z_range < 1.1:
-                dfz['true_z'] = dfz['true_z'].round(2)
-            elif z_range < 51:
-                pass  # don't round b/c there is inherent "rounding" in the name_to_z mapper.
-            elif z_range < 181:
-                dfz['true_z'] = dfz['true_z'] - dfz['true_z'] % 2 + (dfz['true_z'][1] - dfz['true_z'][0]) / 2
-                dfz['true_z'] = dfz['true_z'].round(1)
-            else:
-                dfz['true_z'] = dfz['true_z'] - dfz['true_z'] % 5 + (dfz['true_z'][1] - dfz['true_z'][0]) / 2
-                dfz['true_z'] = dfz['true_z'].round(1)
-        else:
-            pass
 
+            dfz['error_z'] = dfz['true_z'] - dfz['z']
 
-        """
-        Silvan's implementation:
-        
-            def sigma_z_local(self, bins=20, min_cm=None):
-                
-                assert bins > 1
-                
-                if min_cm is not None:
-                    z_df = self.eval_df.reset_index().query('Cm > {}'.format(min_cm))[['z_true', 'delta_z']]
-                else:
-                    z_df = self.eval_df.reset_index()[['z_true', 'delta_z']]
-                
-                delta = (z_df['z_true'].max() - z_df['z_true'].min()) / (2*bins - 2)
-                z_bins = np.linspace(z_df['z_true'].min() - delta, z_df['z_true'].max() + delta, bins + 1)
-                sigma_df = pd.DataFrame()
-                
-                for i in range(bins):
-                    thisbin = z_df[(z_bins[i] < z_df['z_true']) & (z_df['z_true'] < z_bins[i + 1])]
-                    bin_center = (z_bins[i] + z_bins[i + 1]) / 2
-                    error_z = np.sqrt(np.power(thisbin['delta_z'].values, 2).sum() / len(thisbin))
-                    sigma_df = pd.concat([sigma_df, pd.DataFrame({'z': [bin_center], 'sigma_z_local': [error_z]})])
-                
-                return sigma_df
-                
-        My variables in Silvan's implementation:
             delta = (dfz['true_z'].max() - dfz['true_z'].min()) / (2 * bins - 2)
             z_bins = np.linspace(dfz['true_z'].min() - delta, dfz['true_z'].max() + delta, bins + 1)
             sigma_df = pd.DataFrame()
@@ -1115,20 +1535,60 @@ class GdpytImageCollection(object):
             for i in range(bins):
                 thisbin = dfz[(z_bins[i] < dfz['true_z']) & (dfz['true_z'] < z_bins[i + 1])]
                 bin_center = (z_bins[i] + z_bins[i + 1]) / 2
-                error_z = np.sqrt(np.power(thisbin['delta_z'].values, 2).sum() / len(thisbin))
+                error_z = np.sqrt(np.power(thisbin['error_z'].values, 2).sum() / len(thisbin))
                 sigma_df = pd.concat([sigma_df, pd.DataFrame({'z': [bin_center], 'sigma_z_local': [error_z]})])
+
+            dfz = sigma_df.copy()
+
+        else:
+            pass
+
+        return dfz
+
+    def bin_local_quantities(self, dfz):
         """
-        h = 12
+        Round the true_z value to effectively "bin" the data for simplified analyses and plotting.
+
+        We want bin the true_z coordinate into at least 20 bins.
+        Parameters
+        ----------
+        dfz
+
+        Returns
+        -------
+
+        """
+        # round the true_z value (which is not important for this particular analysis so we do it early)
+        # we have to correct to the correct decimal place to get at least 10-20 data points depending on our measurement
+        # range (which can be 0-1 for normalized analyses or 0-NUM_TEST_IMAGES * Z_STEP_PER for meta analyses)
+        if self._folder_ground_truth != 'standard_gdpt':
+
+            z_range = dfz.true_z.max() - dfz.true_z.min()
+            z_steps = len(dfz.true_z.unique())
+            pass
+
+            """if z_range < 1.1:
+                dfz['true_z'] = dfz['true_z'].round(2)
+            elif z_steps < 82:
+                pass  # don't round b/c there is inherent "rounding" in the name_to_z mapper.
+            elif z_steps < 181:
+                dfz['true_z'] = dfz['true_z'] - dfz['true_z'] % 2 + (dfz['true_z'][1] - dfz['true_z'][0]) / 2
+                dfz['true_z'] = dfz['true_z'].round(1)
+            else:
+                dfz['true_z'] = dfz['true_z'] - dfz['true_z'] % 5 + (dfz['true_z'][1] - dfz['true_z'][0]) / 2
+                dfz['true_z'] = dfz['true_z'].round(1)"""
+        else:
+            pass
+
         return dfz
 
     def plot(self, raw=True, draw_particles=True, exclude=[], **kwargs):
         fig = plot_img_collection(self, raw=raw, draw_particles=draw_particles, exclude=exclude, **kwargs)
         return fig
 
-    def plot_adjacent_similarity(self, calib_set, infer_sub_image=True):
-        assert isinstance(calib_set, GdpytCalibrationSet)
-        j = 1
-        return j
+    def plot_single_particle_stack(self, particle_id):
+        fig = plot_single_particle_stack(collection=self, particle_id=particle_id)
+        return fig
 
     def plot_particle_trajectories(self, sort_images=None):
         fig = plot_particle_trajectories(self, sort_images=sort_images)
@@ -1166,6 +1626,10 @@ class GdpytImageCollection(object):
                                     measurement_width=None, second_plot=None):
         fig = plot_local_rmse_uncertainty(self, measurement_quality, measurement_depth=measurement_depth,
                                           true_xy=true_xy, measurement_width=measurement_width, second_plot=second_plot)
+        return fig
+
+    def plot_baseline_image_and_particle_ids(self):
+        fig = plot_baseline_image_and_particle_ids(self)
         return fig
 
     def plot_num_particles_per_image(self):

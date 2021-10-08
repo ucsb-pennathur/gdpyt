@@ -12,16 +12,20 @@ import numpy as np
 from skimage.morphology import disk, square
 
 # ----- ----- ----- ----- TEST DATASET UNPACKER ----- ----- ----- ----- ----- ----- -----
-test_dataset = 'JP-EXF01-20'
+test_dataset = 'synthetic_overlap_noise-level'
 
 if test_dataset == 'JP-EXF01-20':
-    calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration', noise_level=2,
+    calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration', noise_level=0,
                                       number_of_images=50).unpack()
-    test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test', noise_level=1,
+    test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test', noise_level=0,
                                      number_of_images=50).unpack()
 elif test_dataset == 'synthetic_overlap_noise-level':
-    calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration', noise_level=1).unpack()
-    test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test', noise_level=1).unpack()
+    calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration', noise_level=1,
+                                      particle_distribution='random', particle_density='7.5e-3',
+                                      static_templates=False).unpack()
+    test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test', noise_level=1,
+                                     particle_distribution='random', particle_density='7.5e-3',
+                                     static_templates=False).unpack()
 elif test_dataset == '20X_1Xmag_5.61umPink_HighInt':
     calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration').unpack()
     test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test').unpack()

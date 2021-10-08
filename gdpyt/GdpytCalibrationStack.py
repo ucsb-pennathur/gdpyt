@@ -90,11 +90,20 @@ class GdpytCalibrationStack(object):
             if self._template_dilation:
                 templates.append(particle.get_template(dilation=self._template_dilation))
             else:
+                temp = particle.get_template()
                 # pad calibration images to allow for template sliding
-                #templates.append(np.pad(particle.get_template(), pad_width=self.template_padding, mode='minimum'))
+                # templates.append(np.pad(temp, pad_width=3, mode='constant', constant_values=np.min(temp)))
 
-                # do not pad calibration images
-                templates.append(particle.get_template())
+                # do not pad templates here because template padding occurs on the calibration images only immediately
+                # prior to template matching (i.e. in GdpytCalibrationStack.infer_z)
+                templates.append(temp)
+
+                # check if templates is all NaNs
+                array_nans = np.isnan(temp)
+                count_nans = np.sum(array_nans)
+                if count_nans == temp.size:
+                    j = 1
+
 
         # calculate stats
         stats = np.array([(np.max(t), np.mean(t), np.std(t)) for t in templates])
@@ -110,9 +119,6 @@ class GdpytCalibrationStack(object):
 
         # instantiate layers attribute
         self._layers = layers
-
-        # calculate the self-similarity between adjacent images in calibration stack
-        self.infer_self_similarity(function=self.self_similarity_method)
 
     def _uniformize_and_center(self):
         """
@@ -216,12 +222,18 @@ class GdpytCalibrationStack(object):
         """
 
         # get array of z-coords and image templates
-        z_calib, temp_calib = np.array(list(self.layers.keys())), np.array(list(self.layers.values()))
+        z_calib, temp_calib_original = np.array(list(self.layers.keys())), np.array(list(self.layers.values()))
+
+        # pad the calibration image templates to allow for test particle template sliding across the calibration image
+        temp_calib = []
+        for t in temp_calib_original:
+            temp_calib.append(np.pad(t, pad_width=3, mode='constant', constant_values=np.min(t)))
+        temp_calib = np.array(temp_calib)
+
+        """ End Note """
 
         # if the particle image is larger than the calibration template, resize the particle image
         calib_template_x, calib_template_y = np.shape(temp_calib[0])
-
-        """ End Note """
 
         if particle.template.shape[0] > calib_template_x and particle.template.shape[1] > calib_template_y:
             particle.resize_bbox(*self.shape)
@@ -297,7 +309,7 @@ class GdpytCalibrationStack(object):
             logger.info("Cm of {:.2f} below thresh. of {:.2f} for particle ".format(sim[max_idx], min_cm, particle.id))
             particle.set_z(np.nan)
 
-    def infer_self_similarity(self, function='barnkob_ccorr'):
+    def infer_self_similarity(self, function='sknccorr'):
         logger.info("Inferring self-similarity for calibration stack {}".format(self.id))
 
         if function.lower() == 'barnkob_ccorr' or function.lower() == 'bccorr':
@@ -333,10 +345,14 @@ class GdpytCalibrationStack(object):
         sim_self_adjacent = []
         for index, c_temp in enumerate(temp_calib):
             if index < num_layers - 1:
-                forward = sim_func(temp_calib[index], temp_calib[index + 1])
+
+                padded_image = np.pad(temp_calib[index], pad_width=3, mode='constant',
+                                      constant_values=np.min(temp_calib[index]))
+
+                forward = sim_func(padded_image, temp_calib[index + 1])
                 sim_self_forward.append(forward)
                 if index > 0:
-                    backward = sim_func(temp_calib[index], temp_calib[index - 1])
+                    backward = sim_func(padded_image, temp_calib[index - 1])
                     sim_self_backward.append(backward)
 
                     # mean similarity
@@ -366,6 +382,7 @@ class GdpytCalibrationStack(object):
         return fig
 
     def plot_self_similarity(self):
+        self.infer_self_similarity()
         fig = plot_calib_stack_self_similarity(self)
         return fig
 
@@ -376,61 +393,76 @@ class GdpytCalibrationStack(object):
         for particle in self.particles:
             particle.reset_id(new_id)
 
-    def set_zero(self, offset=0):
-        # TODO: Note that this is here and it should be tested before using.
-        raise ValueError
+    def set_zero(self, z_zero, offset=0):
         """
         This method sets the zero location for all particles based on an 'offset' input and the location of minimum
         area. Note, that it sets all particles to an identical z-coordinate.
+
+        Parameters
+        ----------
+        offset
         """
-        areas = []
-        zs = []
-        for particle in sorted(self.particles, key=lambda p: p.z):
-            areas.append(particle.area)
-            zs.append(particle.z)
+        if offset == 0:
+            logger.warning("No offset was applied. Consider individual stack zero-ing.")
+            """
+            areas = []
+            zs = []
+            for particle in sorted(self.particles, key=lambda p: p.z):
+                areas.append(particle.area)
+                zs.append(particle.z)
 
-        zl, zh = (min(zs), max(zs))
+            zl, zh = (min(zs), max(zs))
 
-        if len(zs) > 3 and len(areas) > 3:
-            akima_poly = Akima1DInterpolator(zs, areas)
-            z_interp = np.linspace(zl, zh, 500) # Note: 500 was chosen because it yielded the best results: 8/11/2021
-            z_zero = z_interp[np.argmin(akima_poly(z_interp))]
+            if len(zs) > 3 and len(areas) > 3:
+                akima_poly = Akima1DInterpolator(zs, areas)
+                z_interp = np.linspace(zl, zh, 500) # Note: 500 was chosen because it yielded the best results: 8/11/2021
+                z_zero = z_interp[np.argmin(akima_poly(z_interp))]
 
-            # code for testing which interpolation is best for sub-image resolution
+                # code for testing which interpolation is best for sub-image resolution
 
-            fig, ax = plt.subplots()
-            ax.plot(z_interp, akima_poly(z_interp), label='akima min: {}'.format(z_zero))
-            order = [9, 11, 15]
-            for o in order:
-                z_poly = np.polyfit(zs, areas, o)
-                z_p = np.poly1d(z_poly)
-                z_zero_poly = z_interp[np.argmin(z_p(z_interp))]
-                ax.plot(z_interp, z_p(z_interp), label='{} poly min: {}'.format(o, z_zero_poly))
-            ax.scatter(zs, areas, color='black', label='contour area')
-            ax.set_xlabel('z/h')
-            ax.set_ylabel(r'$A_p$ ($pixles^2$)')
-            ax.set_title(r'$GdpytCalibrationStack$.zero_stacks')
-            ax.legend(fontsize=8)
-            plt.show()
+                fig, ax = plt.subplots()
+                ax.plot(z_interp, akima_poly(z_interp), label='akima min: {}'.format(z_zero))
+                order = [9, 11, 15]
+                for o in order:
+                    z_poly = np.polyfit(zs, areas, o)
+                    z_p = np.poly1d(z_poly)
+                    z_zero_poly = z_interp[np.argmin(z_p(z_interp))]
+                    ax.plot(z_interp, z_p(z_interp), label='{} poly min: {}'.format(o, z_zero_poly))
+                ax.scatter(zs, areas, color='black', label='contour area')
+                ax.set_xlabel('z/h')
+                ax.set_ylabel(r'$A_p$ ($pixles^2$)')
+                ax.set_title(r'$GdpytCalibrationStack$.zero_stacks')
+                ax.legend(fontsize=8)
+                plt.show()
 
 
+            else:
+                z_zero = zs[np.argmin(areas)]
+
+            z_zero = np.around(z_zero, decimals=3)
+            z_zero = z_zero - offset
+            
+            self._layers = new_layers
+            self._zero = z_zero
+            logger.info("Zeroing calibration stack {}. Found in-focus z position at {}".format(self.id, z_zero))
+            """
+            pass
         else:
-            z_zero = zs[np.argmin(areas)]
+            # Add offset to particles
+            for p in self.particles:
+                p.set_z(p.z - offset)
+                p.set_true_z(p.z_true - offset)
+                p.set_in_focus_z(p.in_focus_z - offset)
 
-        z_zero = np.around(z_zero, decimals=3)
-        z_zero = z_zero - offset
+            # Add offset to layers
+            new_layers = OrderedDict()
+            for z_key, templ in self.layers.items():
+                new_layers.update({z_key - offset: templ})
 
-        # Add offset to layers and particles:
-        for p in self.particles:
-            p.set_z(p.z - z_zero)
+            self._layers = new_layers
 
-        new_layers = OrderedDict()
-        for z_key, templ in self.layers.items():
-            new_layers.update({z_key - z_zero: templ})
-
-        self._layers = new_layers
         self._zero = z_zero
-        logger.info("Zeroing calibration stack {}. Found in-focus z position at {}".format(self.id, z_zero))
+        logger.info("Zeroing calibration stack {}. Set in-focus z position to {}".format(self.id, z_zero))
 
     def calculate_stats(self):
         """

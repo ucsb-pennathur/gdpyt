@@ -9,13 +9,19 @@ from skimage.morphology import disk, white_tophat, closing, square, binary_closi
 from skimage.filters.rank import mean_bilateral
 from skimage.exposure import equalize_adapthist
 from skimage.segmentation import clear_border
-from skimage.measure import label, regionprops
+from skimage.measure import label, regionprops, find_contours
 from skimage import (
     color, feature, filters, io, measure, morphology, segmentation, util
 )
 import imutils
 from skimage.filters import gaussian, median
 from skimage.morphology import disk
+
+# New imports: 9/27
+from scipy import ndimage as ndi
+from skimage.feature import peak_local_max
+from skimage.segmentation import watershed
+
 
 def apply_threshold(img, parameter, min_particle_size=5, padding=3, invert=False):
     if not len(parameter) == 1:
@@ -105,7 +111,9 @@ def apply_threshold(img, parameter, min_particle_size=5, padding=3, invert=False
                 raise ValueError("For manual thresholding only one parameter (the manual threshold) must be specified")
             threshval = manual_initial_guess
 
-        # threshold the image
+
+        # Old threshold method: up to 9/27/21 - Removed to focus on scikit-image segmentation methods.
+        """
         noisy_thresh_image = img > threshval
 
         # apply a small erosion to remove bright spots smaller than particle diameter
@@ -125,6 +133,10 @@ def apply_threshold(img, parameter, min_particle_size=5, padding=3, invert=False
 
         # clear the pixel values on border
         thresh_img = clear_border(mask_closing, buffer_size=1)
+        """
+
+        thresh_img_one = img > threshval
+        thresh_img = clear_border(thresh_img_one, buffer_size=1)
 
     if invert:
         thresh_img = ~thresh_img
@@ -168,6 +180,67 @@ def identify_contours(particle_mask):
     bboxes = [cv2.boundingRect(contour) for contour in contours]
 
     return contours, bboxes
+
+def identify_contours_sk(particle_mask, intensity_image, same_id_threshold, filename=None):
+
+    # separate connected contours
+    distance = ndi.distance_transform_edt(particle_mask)
+    coords = peak_local_max(image=distance, min_distance=5, footprint=np.ones((3, 3)), labels=particle_mask)
+    mask = np.zeros(distance.shape, dtype=bool)
+    mask[tuple(coords.T)] = True
+    markers, _ = ndi.label(mask)
+    labels = watershed(-distance, markers, mask=particle_mask)
+
+    # label image regions
+    label_image = label(labels)
+
+    # region properties
+    regions = regionprops(label_image=label_image, intensity_image=intensity_image)
+
+    # check if any regions are within the same_id_threshold and remove regions if max/mean intensity is much lower
+    labels = []
+    weighted_centroids = []
+    max_intensities = []
+    mean_intensities = []
+    for region in regions:
+        labels.append(region.label)
+        weighted_centroids.append(region.weighted_centroid)
+        max_intensities.append(region.max_intensity)
+        mean_intensities.append(region.mean_intensity)
+
+    labels_to_remove = []
+    for lbl, wc, maxi, meani in zip(labels, weighted_centroids, max_intensities, mean_intensities):
+        for lbl_i, wc_i, maxi_i, meani_i in zip(labels, weighted_centroids, max_intensities, mean_intensities):
+            if lbl_i != lbl:
+                if np.all([np.abs(wc[0] - wc_i[0]) < same_id_threshold, np.abs(wc[1] - wc_i[1]) < same_id_threshold]):
+                    if maxi_i < maxi * 0.66:
+                        labels_to_remove.append(lbl_i)
+
+    # get the contours for each region
+    contour_coords = []
+    new_regions = []
+
+    for region in regions:
+        if region.label not in labels_to_remove:
+            new_regions.append(region)
+
+            zero_array = np.zeros_like(intensity_image.T, dtype=int)
+            points = region.coords
+            zero_array[points[:, 1], points[:, 0]] = 1
+
+            contour = find_contours(zero_array)[0].astype(int)
+            contour_coords.append(contour)
+
+            """if filename in ['calib_-14.0.tif', 'calib_-13.0.tif']:
+                fig, ax = plt.subplots()
+                ax.imshow(zero_array.T)
+                ax.plot(contour[:, 0], contour[:, 1], color='red', linewidth=1)
+                plt.show()
+                j=1
+                plt.close()"""
+
+
+    return label_image, new_regions, contour_coords
 
 def identify_circles(image):
     h, w = image.shape

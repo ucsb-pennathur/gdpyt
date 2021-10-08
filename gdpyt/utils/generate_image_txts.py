@@ -4,22 +4,24 @@ from os import mkdir
 from pathlib import Path
 
 DEFAULTS = dict(
-    magnification = 50,
-    numerical_aperture = 0.5,
-    focal_length = 350,
-    ri_medium = 1,
-    ri_lens = 1.5,
-    pixel_size = 6.5,
-    pixel_dim_x = 752,
-    pixel_dim_y = 376,
-    background_mean = 323,
-    points_per_pixel = 18,
-    n_rays = 500,
-    gain = 3.2,
-    cyl_focal_length = 0
+    magnification=50,
+    numerical_aperture=0.5,
+    focal_length=350,
+    ri_medium=1,
+    ri_lens=1.5,
+    pixel_size=6.5,
+    pixel_dim_x=752,
+    pixel_dim_y=376,
+    background_mean=323,
+    points_per_pixel=18,
+    n_rays=500,
+    gain=1,
+    cyl_focal_length=0
 )
 
+
 def generate_sig_settings(settings, folder=None):
+
     assert isinstance(settings, dict)
     assert folder is not None
 
@@ -39,6 +41,7 @@ def generate_sig_settings(settings, folder=None):
         file.write(settings)
 
     return settings_dict, join(folder, 'settings.txt')
+
 
 def generate_grid_input(settings_file, n_images, grid, range_z=(-40, 40), particle_diameter=2,
                         linear_overlap=False):
@@ -79,6 +82,7 @@ def generate_grid_input(settings_file, n_images, grid, range_z=(-40, 40), partic
         savepath = join(txtfolder, fname + '.txt')
         np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
 
+
 def generate_grid_input_from_function(settings_file, n_images, grid, function_z=None, particle_diameter=2):
     """
     Generate particle locations on a grid from a function
@@ -111,10 +115,92 @@ def generate_grid_input_from_function(settings_file, n_images, grid, function_z=
         savepath = join(txtfolder, fname + '.txt')
         np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
 
+
+def _generate_xy_coords(settings_file, particle_density=None):
+    """ Generates calibration images with particles arranged in a grid OR randomly. The difference between an input
+    image is that all the particles in a calibration image are at the same height """
+
+    settings_path = Path(settings_file)
+    calib_path = join(settings_path.parent, 'calibration_input')
+
+    settings_dict = {}
+    with open(settings_file) as file:
+        for line in file:
+            thisline = line.split('=')
+            settings_dict.update({thisline[0].strip(): eval(thisline[1].strip())})
+
+    xy_coordinates = _generate_random_xy_coordinates_by_density(particle_density=particle_density,
+                                                                setup_params=settings_dict)
+
+    return xy_coordinates
+
+
+def _add_z_coord(xy_coords, z):
+    if isinstance(z, int) or isinstance(z, float):
+        z_coords = z * np.ones((len(xy_coords), 1))
+    else:
+        z_coords = np.random.uniform(z[0], z[1], size=(len(xy_coords), 1))
+
+    coords = np.hstack([xy_coords, z_coords])
+
+    return coords
+
+
+def generate_identical_calibration_and_test(settings_file, z_levels_calib, z_levels_test,
+                                            particle_diameter=2, particle_density=None):
+    """ Generates calibration images with particles arranged in a grid OR randomly. The difference between an input
+    image is that all the particles in a calibration image are at the same height """
+
+    # read settings dictionary
+    settings_dict = {}
+    with open(settings_file) as file:
+        for line in file:
+            thisline = line.split('=')
+            settings_dict.update({thisline[0].strip(): eval(thisline[1].strip())})
+
+    # create xy coordinates
+    xy_coords = _generate_xy_coords(settings_file, particle_density=particle_density)
+
+    # create calibration collection
+    settings_path = Path(settings_file)
+    calib_path = join(settings_path.parent, 'calibration_input')
+
+    if isdir(calib_path):
+        raise ValueError('Folder {} already exists. Specify a new one'.format(calib_path))
+    else:
+        mkdir(calib_path)
+
+    for z in z_levels_calib:
+        coordinates = _add_z_coord(xy_coords=xy_coords, z=z)
+        output = _append_particle_diam(coordinates, particle_diameter)
+
+        fname = 'calib_{}'.format(z)
+        savepath = join(calib_path, fname + '.txt')
+        np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+    # create test collection
+    test_path = join(settings_path.parent, 'test_input')
+
+    if isdir(test_path):
+        raise ValueError('Folder {} already exists. Specify a new one'.format(test_path))
+    else:
+        mkdir(test_path)
+
+    for zt in z_levels_test:
+        coordinates = _add_z_coord(xy_coords=xy_coords, z=zt)
+        output = _append_particle_diam(coordinates, particle_diameter)
+
+        fname = 'calib_{}'.format(zt)
+        savepath = join(test_path, fname + '.txt')
+        np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+
 def generate_grid_calibration(settings_file, grid, z_levels, particle_diameter=2, create_multiple=None,
-                              linear_overlap=False):
-    """ Generates calibration images with particles arranged in a grid. The difference between an input image is that
-    all the particles in a calibration image are at the same height """
+                              linear_overlap=None, particle_density=None):
+    """ Generates calibration images with particles arranged in a grid OR randomly. The difference between an input
+    image is that all the particles in a calibration image are at the same height """
+
+    xy_coordinates = None
 
     settings_path = Path(settings_file)
     calib_path = join(settings_path.parent, 'calibration_input')
@@ -132,15 +218,22 @@ def generate_grid_calibration(settings_file, grid, z_levels, particle_diameter=2
 
     img_shape = (settings_dict['pixel_dim_x'], settings_dict['pixel_dim_y'])
 
+    if particle_density:
+        xy_coordinates = _generate_random_xy_coordinates_by_density(particle_density=particle_density,
+                                                                    setup_params=settings_dict)
     for z in z_levels:
 
-        # option for particle overlap array
-        if linear_overlap:
-            coordinates = _generate_scaled_overlap_grid_coordinates(grid, img_shape, z=z, overlap_scale=linear_overlap)
+        if xy_coordinates is not None:
+            coordinates = _add_z_coord(xy_coords=xy_coordinates, z=z)
         else:
-            coordinates = _generate_grid_coordinates(grid, img_shape, z=z)
+            if linear_overlap:
+                coordinates = _generate_scaled_overlap_grid_coordinates(grid, img_shape, z=z,
+                                                                        overlap_scale=linear_overlap)
+            else:
+                coordinates = _generate_grid_coordinates(grid, img_shape, z=z)
 
         output = _append_particle_diam(coordinates, particle_diameter)
+
         if create_multiple is None:
             fname = 'calib_{}'.format(z)
             savepath = join(calib_path, fname + '.txt')
@@ -151,6 +244,7 @@ def generate_grid_calibration(settings_file, grid, z_levels, particle_diameter=2
                 fname = 'calib{}_{}'.format(i, z)
                 savepath = join(calib_path, fname + '.txt')
                 np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
 
 def _generate_grid_coordinates(grid, imshape, z=None):
     assert len(imshape) == 2
@@ -177,8 +271,8 @@ def _generate_grid_coordinates(grid, imshape, z=None):
 
     return coords
 
-def _generate_scaled_overlap_grid_coordinates(grid, imshape, z=None, overlap_scale=5):
 
+def _generate_scaled_overlap_grid_coordinates(grid, imshape, z=None, overlap_scale=5):
     assert len(imshape) == 2
 
     # Particle grid
@@ -226,6 +320,7 @@ def _generate_scaled_overlap_grid_coordinates(grid, imshape, z=None, overlap_sca
     coords = np.hstack([xyo_coords, z_coords])
 
     return coords
+
 
 def _generate_scaled_overlap_paired_random_z_grid_coordinates(grid, imshape, z=None, overlap_scale=5):
     assert len(imshape) == 2
@@ -281,22 +376,63 @@ def _generate_scaled_overlap_paired_random_z_grid_coordinates(grid, imshape, z=N
 
     return xyo_coords
 
-def _generate_random_coordinates(density, imshape, particle_d, dpm, z=None):
-    m_per_px = 1 / dpm
-    a_total = imshape[0] * imshape[1] * m_per_px** 2
-    a_particle = (particle_d / 2) ** 2 * np.pi
 
-    n_particles = int(a_total * density / a_particle)
-    xy_coords = np.hstack([np.random.randint(0, imshape[0], size=(n_particles, 1)),
-                           np.random.randint(0, imshape[1], size=(n_particles, 1))])
+def _generate_random_xy_coordinates_by_density(particle_density, setup_params):
+    """
+    particle_density (particle density = # of particles / area of field of view): typical values ~1e-4 - 1e-3
+    setup_params (dict): particle_diameter, magnification, numerical_aperture, pixel_size, pixel_dim_x, pixel_dim_y
+    z (microns): if scalar, then all particles == z, if list then particles random in range: z[0] to z[1]
+    """
+
+    number_of_particles = int(particle_density * setup_params['pixel_dim_x'] * setup_params['pixel_dim_y'] / \
+                              setup_params['magnification'])
+
+    xy_coords = np.hstack([np.random.randint(0, setup_params['pixel_dim_x'], size=(number_of_particles, 1)),
+                           np.random.randint(0, setup_params['pixel_dim_y'], size=(number_of_particles, 1))])
+
+    return xy_coords
+
+
+def _generate_random_coordinates_by_density(particle_density, setup_params, z=None):
+    """
+    particle_density (particle density = # of particles / area of field of view): typical values ~1e-4 - 1e-3
+    setup_params (dict): particle_diameter, magnification, numerical_aperture, pixel_size, pixel_dim_x, pixel_dim_y
+    z (microns): if scalar, then all particles == z, if list then particles random in range: z[0] to z[1]
+    """
+
+    number_of_particles = int(particle_density * setup_params['pixel_dim_x'] * setup_params['pixel_dim_y'] / \
+                              setup_params['magnification'])
+
+    xy_coords = np.hstack([np.random.randint(0, setup_params['pixel_dim_x'], size=(number_of_particles, 1)),
+                           np.random.randint(0, setup_params['pixel_dim_y'], size=(number_of_particles, 1))])
+
     if isinstance(z, int) or isinstance(z, float):
-        z_coords = z * np.ones((n_particles, 1))
+        z_coords = z * np.ones((number_of_particles, 1))
     else:
-        z_coords = np.random.uniform(z[0], z[1], size=(n_particles, 1))
+        z_coords = np.random.uniform(z[0], z[1], size=(number_of_particles, 1))
 
     coords = np.hstack([xy_coords, z_coords])
 
     return coords
+
+
+def _generate_random_coordinates_by_number(number_of_particles, setup_params, z=None):
+    """
+    number_of_particles: number of particles in the image
+    """
+
+    xy_coords = np.hstack([np.random.randint(0, setup_params['pixel_dim_x'], size=(number_of_particles, 1)),
+                           np.random.randint(0, setup_params['pixel_dim_y'], size=(number_of_particles, 1))])
+
+    if isinstance(z, int) or isinstance(z, float):
+        z_coords = z * np.ones((number_of_particles, 1))
+    else:
+        z_coords = np.random.uniform(z[0], z[1], size=(number_of_particles, 1))
+
+    coords = np.hstack([xy_coords, z_coords])
+
+    return coords
+
 
 def _append_particle_diam(coords, particle_diameter):
     n_particles = len(coords)
@@ -308,5 +444,6 @@ def _append_particle_diam(coords, particle_diameter):
                                                   particle_diameter[1], size=(n_particles, 1)), axis=1)
     return out
 
+
 if __name__ == '__main__':
-   pass
+    pass

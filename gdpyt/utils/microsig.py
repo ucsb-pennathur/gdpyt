@@ -11,6 +11,7 @@ from tkinter import filedialog
 #warnings.filterwarnings("ignore")
 
 def generate_synthetic_images(settings_file, txt_folder, destination_folder):
+
     if not os.path.isdir(destination_folder):
         os.mkdir(destination_folder)
 
@@ -23,12 +24,14 @@ def generate_synthetic_images(settings_file, txt_folder, destination_folder):
         mic['pixel_dim_y'] = int(mic['pixel_dim_y'])
         mic['n_rays'] = int(mic['n_rays'])
 
-    data_files = [os.path.join(txt_folder, fname) for fname in os.listdir(txt_folder)]
+    data_files = [os.path.join(txt_folder, fname) for fname in os.listdir(txt_folder) if fname.endswith('.txt')]
     #%%
-    ii = 0; ii_tot = len(data_files)
+    #ii = 0
+    #ii_tot = len(data_files)
+
     for data in data_files:
-        ii = ii+1
-        print('creating image {0} of {1} ...'.format(ii,ii_tot))
+        #ii = ii+1
+        # print('creating image {0} of {1} ...'.format(ii,ii_tot))
         P = np.genfromtxt(data)
         if len(P.shape)==1:
             P = np.array([P])
