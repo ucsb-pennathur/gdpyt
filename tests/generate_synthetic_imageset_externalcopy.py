@@ -1,16 +1,18 @@
 from gdpyt.utils import generate_grid_input, generate_grid_calibration, generate_synthetic_images, \
-    generate_grid_input_from_function, generate_sig_settings
+    generate_grid_input_from_function, generate_sig_settings, generate_identical_calibration_and_test
+
 import numpy as np
 from os.path import join
 
-n_images = 100
-n_calib = 100
+folder = r'/Users/mackenzie/Desktop/gdpyt-characterization/datasets/synthetic_overlap_noise-level1/random/particle_density_7.5e-3'
+
+n_test = 200
+n_calib = 81
 grid = (10, 10)
 range_z = (-40, 40)
 particle_diameter = 2
-overlap_scaling = 5
-#folder = r'C:\Users\silus\UCSB\master_thesis\python_stuff\gdpyt\tests\test_synthetic\Rossi_DS1_Nc50_Sigma0'.format(n_calib)
-folder = r'/Users/mackenzie/Desktop/gdpyt-characterization/datasets/synthetic_overlap_noise-level1/test'
+overlap_scaling = None
+particle_density = 7.5e-3
 
 # Properties of the synthetic images
 setup_params = dict(
@@ -29,43 +31,40 @@ setup_params = dict(
     n_rays = 1000,                  # number of rays for point source (typically, 100-500; 500 is better quality)
     gain = 1,                       # additional gain to increase or decrease image intensity
     cyl_focal_length = 0,           # (0 if no cylindrical lens is used) for astigmatic imaging; must be chosen empirically based on real images (typically, 400)
-    overlap_scaling=overlap_scaling,              # linearly-scaled overlap factor
+    overlap_scaling = overlap_scaling,            # linearly-scaled overlap factor
+    particle_density = particle_density         # number of particles in the field of view / area of the field of view
 )
 
 
 # Generate settings file
 settings_dict, settings_path = generate_sig_settings(setup_params, folder=folder)
 
-# Test images ##########################################################################################################
-########################################################################################################################
-# Particles in a grid, random Z coordinate in specified range
-"""generate_grid_input(settings_path, n_images, grid, range_z=range_z, particle_diameter=particle_diameter,
-                    linear_overlap=overlap_scaling)"""
+# Generate calibration and test files
+generate_identical_calibration_and_test(settings_path, z_levels_calib=np.linspace(range_z[0], range_z[1], n_calib),
+                                        z_levels_test=np.linspace(range_z[0], range_z[1], n_test),
+                                        particle_diameter=2, particle_density=particle_density)
 
-# Particles in a grid, Z coordinate given by function
-#def flat_z(xy, i):
-#    """Simulates a calibration stack of particles on a plane surface"""
-#    return i
-#generate_grid_input_from_function(settings_path, n_images, grid, function_z=flat_z, particle_diameter=0.87, folder=None)
+# Generate calibration images
+calibtxt_folder = join(folder, 'calibration_input')
+calibimg_folder = join(folder, 'calibration_images')
+generate_synthetic_images(settings_path, calibtxt_folder, calibimg_folder)
 
-#def gauss_z(xy, i):
-#    """ Simulates deflection in the shape of a gaussian"""
-#    return 0.5 * i * np.exp(-(np.linalg.norm(xy - np.array(shap)/2, axis=1) / (0.2*(shape[0] + shape[1]))))
-#generate_grid_input_from_function(settings_path, n_images, grid, function_z=gauss_z, particle_diameter=5, folder=None)
+# Generate test images
+testtxt_folder = join(folder, 'test_input')
+testimg_folder = join(folder, 'test_images')
+generate_synthetic_images(settings_path, testtxt_folder, testimg_folder)
 
-# Generate .tif
-"""testtxt_folder = join(folder, 'input')
-testimg_folder = join(folder, 'images')
-generate_synthetic_images(settings_path, testtxt_folder, testimg_folder)"""
-
+"""
 # Calibration images ###################################################################################################
 ########################################################################################################################
 
 # Particles are always in a grid for those and at the same height for the same image
 
 # Generate .txt
+# grid pattern
 generate_grid_calibration(settings_path, grid, np.linspace(range_z[0], range_z[1], n_calib),
-                          particle_diameter=particle_diameter, linear_overlap=overlap_scaling)
+                          particle_diameter=particle_diameter, linear_overlap=overlap_scaling,
+                          particle_density=particle_density)
 
 # Generate .tif
 calibtxt_folder = join(folder, 'calibration_input')
@@ -73,3 +72,31 @@ calibimg_folder = join(folder, 'calibration_images')
 
 # Generate images
 generate_synthetic_images(settings_path, calibtxt_folder, calibimg_folder)
+
+# Generate .tif
+testtxt_folder = join(folder, 'input')
+testimg_folder = join(folder, 'images')
+generate_synthetic_images(settings_path, testtxt_folder, testimg_folder)"""
+
+"""
+# Test images ##########################################################################################################
+########################################################################################################################
+# Particles in a grid, random Z coordinate in specified range
+generate_grid_input(settings_path, n_images, grid, range_z=range_z, particle_diameter=particle_diameter,
+                    linear_overlap=overlap_scaling)
+
+# Particles in a grid, Z coordinate given by function
+#def flat_z(xy, i):
+#    Simulates a calibration stack of particles on a plane surface
+#    return i
+#generate_grid_input_from_function(settings_path, n_images, grid, function_z=flat_z, particle_diameter=0.87, folder=None)
+
+#def gauss_z(xy, i):
+#    Simulates deflection in the shape of a gaussian
+#    return 0.5 * i * np.exp(-(np.linalg.norm(xy - np.array(shap)/2, axis=1) / (0.2*(shape[0] + shape[1]))))
+#generate_grid_input_from_function(settings_path, n_images, grid, function_z=gauss_z, particle_diameter=5, folder=None)
+
+# Generate .tif
+testtxt_folder = join(folder, 'input')
+testimg_folder = join(folder, 'images')
+generate_synthetic_images(settings_path, testtxt_folder, testimg_folder)"""

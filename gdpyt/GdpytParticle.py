@@ -66,9 +66,11 @@ class GdpytParticle(object):
 
         # fit a Gaussian profile to find subpixel center and recenter the bbox
         if self.diameter > 20:
-            self._compute_center_subpixel(method='gaussian')
+            pass
+            # self._compute_center_subpixel(method='gaussian', save_plots=False)
         else:
-            self._compute_center_subpixel(method='centroid')
+            pass
+            # self._compute_center_subpixel(method='centroid', save_plots=False)
 
         # compute the particle stats on the refined bounding box and mask
         self.compute_local_snr()
@@ -125,7 +127,13 @@ class GdpytParticle(object):
         cY = int(M["m01"] / M["m00"])
         self._set_location((cX, cY))
 
-    def _create_template(self, bbox=None, apply_ellipsoid_mask=False):
+    def _create_template(self, bbox=None, adjusted_template=False, apply_ellipsoid_mask=False):
+
+        # create a string to put in the showed and saved image if the template is original or adjusted after subpix
+        if adjusted_template is False:
+            adj_temp = 'ORIGINAL'
+        else:
+            adj_temp = 'ADJUSTED'
 
         # create template from raw image or filtered image
         if self.use_raw:
@@ -145,6 +153,9 @@ class GdpytParticle(object):
 
         # adjust the bounding box so it doesn't exceed the image bounds
         pad_x_m, pad_x_p, pad_y_m, pad_y_p = 0, 0, 0, 0
+
+        # TODO: the bbox coordinates are flip-flopped
+
         if y + h > image.shape[0]:
             pad_y_p = y + h - image.shape[0]
         if y < 0:
@@ -179,6 +190,12 @@ class GdpytParticle(object):
             # define the contour in template coordinates
             contr = np.squeeze(self.contour)
             self._template_contour = np.array([contr[:, 0] - x, contr[:, 1] - y]).T
+
+            # check if template is all nans
+            array_nans = np.isnan(self.template)
+            count_nans = np.sum(array_nans)
+            if count_nans == self.template.size:
+                j = 1
 
             """
             # get location of contour center and the contour bounding box side length
@@ -228,17 +245,19 @@ class GdpytParticle(object):
                 fig, ax = plt.subplots()
                 ax.imshow(self.template)
                 ax.scatter(self.location_on_template[0], self.location_on_template[1], marker='*', color='red')
-                ax.set_title('cx, cy = {}, {} \n new template'.format(self.location[0] - x, self.location[1] - y), fontsize=8)
-                savedir = '/Users/mackenzie/Desktop/dumpfigures'
-                #plt.savefig(fname=savedir + '/pid{}_cx{}_cy{}.png'.format(self.id, self.location[0] - x, self.location[1] - y))
+                ax.set_title('pid{}: CENTER ON TEMPLATE = ({}, {}) \n This is the {} TEMPLATE'.format(self.id, self.location[0] - x, self.location[1] - y, adj_temp), fontsize=8)
+                savedir = '/Users/mackenzie/Desktop/dumpfigures/particle_segmentation'
+                plt.savefig(fname=savedir + '/pid{}_cx{}_cy{}_{}_template_rand{}.png'.format(self.id, self.location[0] - x, self.location[1] - y, adj_temp.lower(), np.random.randint(0, 500)))
+                plt.close()
                 plt.show()
-                j = 1
 
             return self.template
 
         else:
             # from Silvan's original code
-            template = np.pad(image[y: y + h, x: x + w].astype(np.float), (pad_y, pad_x),
+            tempy = image[y: y + h, x: x + w]
+
+            template = np.pad(tempy.astype(np.float), (pad_y, pad_x),
                               'constant', constant_values=np.nan)
 
             # the below are my additions
@@ -255,6 +274,14 @@ class GdpytParticle(object):
             # define the contour in template coordinates
             contr = np.squeeze(self.contour)
             self._template_contour = np.array([contr[:, 0] - x, contr[:, 1] - y]).T
+
+            # check if template is all nans
+            array_nans = np.isnan(self.template)
+            count_nans = np.sum(array_nans)
+            if count_nans == self.template.size:
+                fig, ax = plt.subplots()
+                ax.imshow(tempy)
+                plt.show()
 
             return self.template
 
@@ -334,7 +361,7 @@ class GdpytParticle(object):
             #plt.show()
         """
 
-    def _compute_center_subpixel(self, method='centroid', ax=25, ay=25, A=500, fx=1, fy=1):
+    def _compute_center_subpixel(self, method='centroid', save_plots=False, ax=25, ay=25, A=500, fx=1, fy=1):
 
         if method == 'centroid':
 
@@ -358,7 +385,7 @@ class GdpytParticle(object):
             noise_size = 1  # width of gaussian blurring kernel
             noise_size = validate_tuple(noise_size, ndim)
             threshold = 1  # clip bandpass result below this value. Thresholding is done on background subtracted image.
-            percentile = 90  # features must have peak brighter than pixels in this percentile.
+            percentile = 95  # features must have peak brighter than pixels in this percentile.
             max_iterations = 10 # maximum iterations to find center
 
             # Convolve with a Gaussian to remove short-wavelength noise and subtract out long-wavelength variations by
@@ -368,7 +395,7 @@ class GdpytParticle(object):
             margin = tuple([max(rad, sep // 2 - 1, sm // 2) for (rad, sep, sm) in zip(radius, separation, smoothing_size)])
 
             # Find local maxima whose brightness is above a given percentile.
-            coords = grey_dilation(image, separation, percentile, margin, precise=False)
+            coords = grey_dilation(image, separation, percentile, margin, precise=True)
 
             if coords.size > 2:
                 raise ValueError("Multiple local maxima found. Need to adjust settings")
@@ -426,35 +453,60 @@ class GdpytParticle(object):
 
 
         # if difference is small, take Gaussian fitting, else take original centroid center.
-        if xdist < 0.85 and ydist < 0.85:
+        lb = 0.75  # lower bound for resizing the bbox
+        ub = 2.4  # upper bound for discarding subpixel center finding
+
+        if xdist < lb and ydist < lb:
             good_fit = 'green'
             # print('Good: RMS = {}'.format(rms))
 
-        elif (0.85 < xdist < 2.4 or 0.85 < ydist < 2.4) and (xdist < 2.4 and ydist < 2.4):
+        elif (lb < xdist < ub or lb < ydist < ub) and (xdist < ub and ydist < ub):
             xc_new = int(np.round(xc_new_float, 0) + self.bbox[0])
             yc_new = int(np.round(yc_new_float, 0) + self.bbox[1])
 
             # set new center location on image
             self._set_location((xc_new, yc_new))
 
-            fig, ax = plt.subplots()
-            ax.imshow(self.template)
-            ax.scatter(xc_old, yc_old, s=100, color='black', marker='o', alpha=0.75)
-            ax.scatter(x_refined, y_refined, s=50, color='red', marker='*')
-            plt.show()
+            if save_plots is True:
+                fig, ax = plt.subplots()
+                ax.imshow(self.template)
+                ax.scatter(xc_old, yc_old, s=50, color='black', marker='+', alpha=0.75, label='original center')
+                ax.scatter(x_refined, y_refined, s=50, color='red', marker='*', label='subpixel center')
+                ax.set_title('Original Template and Center on Template')
+                ax.legend()
+                savedir = '/Users/mackenzie/Desktop/dumpfigures'
+                savename = 'Template_Original_pid{}_{}col_x{}_y{}_rand{}.png'.format(self.id,
+                                                                                     self.particle_collection_type,
+                                                                                     np.round(self.location[0], 2),
+                                                                                     np.round(self.location[1], 2),
+                                                                                     np.random.randint(0, 500))
+                plt.tight_layout()
+                plt.savefig(fname=savedir + '/' + savename)
+                plt.close()
 
             # old bounding box
             old_bbox = self.bbox
 
             # re-set bounding box
             new_bbox = self._resized_bbox(resize=(self.template.shape[1], self.template.shape[0]))
-            self._create_template(bbox=new_bbox)
+            self._create_template(bbox=new_bbox, adjusted_template=True)
 
-            fig, ax = plt.subplots()
-            ax.imshow(self.template)
-            ax.scatter(xc_old, yc_old, s=100, color='black', marker='o', alpha=0.5)
-            ax.scatter(self.location_on_template[0], self.location_on_template[1], s=50, color='red', marker='*')
-            plt.show()
+            if save_plots is True:
+                fig, ax = plt.subplots()
+                ax.imshow(self.template)
+                ax.scatter(xc_old, yc_old, s=50, color='black', marker='+', alpha=0.75, label='original center')
+                ax.scatter(self.location_on_template[0], self.location_on_template[1], s=50, color='red', marker='*', label='subpixel center')
+                ax.set_title('Adjusted Template and Center on Template')
+                ax.legend()
+                savedir = '/Users/mackenzie/Desktop/dumpfigures'
+                savename = 'Template_Adjusted_pid{}_{}col_x{}_y{}_rand{}.png'.format(self.id,
+                                                                                         self.particle_collection_type,
+                                                                                         np.round(self.location[0], 2),
+                                                                                         np.round(self.location[1], 2),
+                                                                                         np.random.randint(0, 500))
+                plt.tight_layout()
+                plt.savefig(fname=savedir + '/' + savename)
+                plt.close()
 
             # recalculate contour stats
             self._compute_convex_hull()
@@ -467,36 +519,38 @@ class GdpytParticle(object):
             #print('Bad: RMS = {}'.format(rms))
 
         # plot Gaussian contours
-        plot = True
-        if plot:
+        if save_plots is True:
 
             if method == 'centroid':
 
                 # plot the original image
                 fig, ax = plt.subplots()
                 ax.imshow(self._image_raw)
-                ax.scatter(self.location[0], self.location[1], s=100, marker='*', color=good_fit, alpha=0.5,
+                ax.scatter(self._location_subpixel[0], self._location_subpixel[1], s=20, marker='.', color=good_fit, alpha=0.95,
                            label='pxcyc')
                 ax.legend(fontsize=10, bbox_to_anchor=(1, 1), loc='upper left')
-                plt.suptitle(r'$p_{ID}(xc, yc)$' + '= ({}, {}) in {} collection'.format(self.location[0], self.location[1], self.particle_collection_type))
+                plt.suptitle('pid{}(xc, yc) = ({}, {}) in {} collection'.format(self.id, self.location[0], self.location[1], self.particle_collection_type))
                 savedir = '/Users/mackenzie/Desktop/dumpfigures'
-                savename = 'Centroid_fit_on_full_image_{}_col_x{}_y{}_rand{}.png'.format(self.particle_collection_type,
+                savename = 'Centroid_fit_full_img_pid{}_{}col_x{}_y{}_rand{}.png'.format(self.id, self.particle_collection_type,
                                                                            np.round(self.location[0], 2), np.round(self.location[1], 2), np.random.randint(0, 200))
                 plt.tight_layout()
                 plt.savefig(fname=savedir + '/' + savename)
-                plt.show()
+                plt.close()
+                # plt.show()
 
                 # plot centroid-found center on template
                 fig = plot_2D_image_and_center(self, good_fit=good_fit)
-                plt.scatter(xc_old, yc_old, color='black', marker='o', label='old center')
+                plt.scatter(xc_old, yc_old, s=25, color='black', marker='o', label='old center')
                 plt.suptitle(r'$p_{ID}$' + '= {} in {} collection'.format(self.id, self.particle_collection_type))
                 savedir = '/Users/mackenzie/Desktop/dumpfigures'  # TODO: update plotting function so it's in Gdpyt.plotting and not here
                 savename = 'Centroid_fit_{}_col_x{}_y{}_mass{}.png'.format(self.particle_collection_type,
                                                                            np.round(x_refined, 2), np.round(y_refined, 2),
-                                                                           np.round(self._fitted_centroid_on_template['mass'], -1))
+                                                                           int(np.round(self._fitted_centroid_on_template['mass'], 0)))
+                ax.legend(fontsize=10, bbox_to_anchor=(1, 1), loc='upper left')
                 plt.tight_layout()
                 plt.savefig(fname=savedir + '/' + savename)
-                plt.show()
+                plt.close()
+                # plt.show()
 
             elif method == 'gaussian':
 
@@ -512,7 +566,8 @@ class GdpytParticle(object):
                                                                            np.round(popt[0], 2), np.round(popt[1], 2))
                 plt.tight_layout()
                 plt.savefig(fname=savedir + '/' + savename)
-                plt.show()
+                plt.close()
+                # plt.show()
 
                 # plot Gaussian contours for sigma = 1 and sigma = 2 after Gaussian centering
                 fig = plot_2D_image_contours(self, X, Y, good_fit=good_fit, pad=padding)
@@ -522,8 +577,8 @@ class GdpytParticle(object):
                 savename = 'Gauss_fit_{}_col_x{}_y{}_ax{}_ay{}.png'.format(self.particle_collection_type, np.round(popt[0], 2), np.round(popt[1], 2), np.round(popt[2], 1), np.round(popt[3], 1))
                 plt.tight_layout()
                 plt.savefig(fname=savedir + '/' + savename)
-                plt.show()
-                j=1
+                plt.close()
+                # plt.show()
 
                 # plot particle contour after Gaussian blurring
                 fig, ax = plt.subplots()
@@ -549,11 +604,7 @@ class GdpytParticle(object):
                 savename = 'Contours_Gaussian_{}_col_x{}_y{}_ax{}_ay{}.png'.format(self.particle_collection_type, np.round(popt[0], 2), np.round(popt[1], 2), np.round(popt[2], 1), np.round(popt[3], 1))
                 plt.tight_layout()
                 plt.savefig(fname=savedir + '/' + savename)
-                #plt.close()
-                plt.show()
-                j = j +1
-
-
+                plt.close()
 
     def compute_local_snr(self):
 

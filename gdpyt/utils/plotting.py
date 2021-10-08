@@ -22,6 +22,72 @@ import matplotlib as mpl
 
 logger = logging.getLogger(__name__)
 
+
+def plot_baseline_image_and_particle_ids(collection):
+
+    baseline_image_filename = collection.baseline
+
+    fig, ax = plt.subplots(figsize=(10, 3))
+    ax.imshow(collection.images[baseline_image_filename].draw_particles(raw=False, thickness=1, draw_id=True, draw_bbox=True))
+    ax.set_title('z = {}'.format(np.round(collection.images[baseline_image_filename].z, 2)))
+
+    return fig
+
+
+def plot_single_particle_stack(collection, particle_id, z=None, draw_contours=True, fill_contours=False, imgs_per_row=20,
+                               fig=None, axes=None, format_string=False):
+
+    if z is not None:
+        if not (isinstance(z, list) or isinstance(z, tuple)):
+            raise TypeError("Specify z range as a two-element list or tuple")
+
+    z_trues = []
+    zs = []
+    templates = []
+    for img in collection.images.values():
+        for p in img.particles:
+            if p.id == particle_id:
+                z_trues.append(p.z_true)
+                zs.append(p.z)
+                templates.append(p.get_template())
+
+    zipped = list(zip(z_trues, zs, templates))
+    sorted_list = sorted(zipped, key=lambda x: x[0])
+
+    n_images = len(templates)
+    n_cols = min(imgs_per_row, n_images)
+    n_rows = int(n_images / n_cols) + 1
+    if fig is None:
+        fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(2 * n_cols, n_rows * 2))
+
+    if not isinstance(axes, np.ndarray):
+        axes = np.array([axes]).reshape(-1, 1)
+
+    if n_rows > 1 and n_cols > 1:
+        for i in range(n_rows):
+            for j in range(n_cols):
+                n = i * n_cols + j
+                if n > n_images - 1:
+                    axes[i, j].imshow(np.zeros_like(template), cmap='viridis')
+                    axes[i, j].set_title('None', fontsize=12)
+                else:
+                    z_true = sorted_list[n][0]
+                    z = sorted_list[n][1]
+                    template = sorted_list[n][2]
+
+                    axes[i, j].imshow(template, cmap='viridis')
+                    axes[i, j].set_title('(z, true z) = ({}, {})'.format(np.round(z, 2), np.round(z_true, 2)), fontsize=10)
+                    axes[i, j].get_xaxis().set_visible(False)
+                    axes[i, j].get_yaxis().set_visible(False)
+
+                axes[i, j].get_xaxis().set_visible(False)
+                axes[i, j].get_yaxis().set_visible(False)
+
+    fig.suptitle('Particle {} stack'.format(particle_id))
+    fig.subplots_adjust(wspace=0.05, hspace=0.25)
+
+    return fig
+
 def plot_calib_stack(stack, z=None, draw_contours=True, fill_contours=False, imgs_per_row=5, fig=None, axes=None, format_string=False):
     # assert isinstance(stack, GdpytCalibratioStack)
 
@@ -34,6 +100,9 @@ def plot_calib_stack(stack, z=None, draw_contours=True, fill_contours=False, img
     n_rows = int(n_images / n_cols) + 1
     if fig is None:
         fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(2 * n_cols, n_rows * 2))
+
+    if n_images <= imgs_per_row:
+        return fig
 
     if not isinstance(axes, np.ndarray):
         axes = np.array([axes]).reshape(-1,1)
@@ -140,7 +209,7 @@ def plot_calib_stack_self_similarity(calib_stack):
     # format figure
     ax.set_xlabel(r'$z$ / h')
     ax.set_ylabel(r'$S_i(z)$')
-    ax.set_ylim([np.min(calib_stack.self_similarity[:, 1])*0.95, 1.005])
+    #ax.set_ylim([np.min(calib_stack.self_similarity[:, 1])*0.95, 1.005])
     ax.legend()
     ax.grid(alpha=0.25)
 
@@ -910,7 +979,6 @@ def plot_calib_col_image_stats(df):
 
     return fig
 
-
 def plot_num_particles_per_image(collection):
 
     img_id = []
@@ -1038,7 +1106,7 @@ def plot_particles_stats(collection, stat='area'):
 
             ax.set_xlabel(r'$z_{true}$')
             ax.set_ylabel('num. particles')
-            ymax = int(np.round(np.max(df.img_num_particles) * 1.1, -1))
+            ymax = np.max([1.1, int(np.round(np.max(df.img_num_particles) * 1.1, -1))])
             ax.set_ylim([0, ymax])
 
     return fig
@@ -1062,6 +1130,7 @@ def plot_particle_snr_and(collection, second_plot='area', particle_id=None):
                 else:
                     values.append([p.id, p.z, p.z_true, p.area, p.solidity, p.snr, len(img.particles)])
 
+
     # if plotting a test collection, we can access the correlation values: cm (correlation) and max_sim (interpolated)
     if collection.image_collection_type == 'test':
         df = pd.DataFrame(data=values, columns=['id', 'z', 'true_z', 'area', 'solidity', 'snr', 'img_num_particles',
@@ -1077,7 +1146,7 @@ def plot_particle_snr_and(collection, second_plot='area', particle_id=None):
     # range (which can be 0-1 for normalized analyses or 0-NUM_TEST_IMAGES * Z_STEP_PER for meta analyses)
     # we can now round the z-value in order to perform an aggregate analysis
     if not particle_id:
-        df = collection.bin_local_uncertainty(df)
+        df = collection.bin_local_quantities(df)
 
     # group by true_z to get aggregate values to plot
     df_z_count = df.groupby(['true_z']).count()
@@ -1097,6 +1166,8 @@ def plot_particle_snr_and(collection, second_plot='area', particle_id=None):
         ax2.plot(df_z_mean.index, df_z_mean.area, color='darkgreen', alpha=0.125)
         ax2.set_ylabel(r'$A_{p}$ $(pixels^2)$', color='darkgreen')
         ymax = int(np.round(np.max(df_z_mean.area) * 1.1, -2))
+        if ymax < 25:
+            ymax = df.area.max()
         ax2.set_ylim([0, ymax])
 
     elif second_plot == 'solidity':
@@ -1109,14 +1180,14 @@ def plot_particle_snr_and(collection, second_plot='area', particle_id=None):
     elif second_plot == 'percent_measured':
         per_measured_particles = []
         for ind in df_z_count.index:
-            per_measured_particles.append([ind, df_z_count['z'][ind] / df_z_mean['img_num_particles'][ind]])
+            per_measured_particles.append([ind, df_z_count['z'][ind] / df_z_mean['img_num_particles'][ind] * 100])
         percent_measured_particles = np.array(per_measured_particles, dtype=float)
 
         ax2 = ax.twinx()
         ax2.scatter(percent_measured_particles[:, 0], percent_measured_particles[:, 1], color='darkgreen')
         ax2.plot(percent_measured_particles[:, 0], percent_measured_particles[:, 1], color='darkgreen', alpha=0.25)
         ax2.set_ylabel(r'$Measured$ $Particles$ $(\%)$', color='darkgreen')
-        ax2.set_ylim([0.4, 1.0125])
+        ax2.set_ylim([49.9, 100.1])
 
     elif second_plot == 'cm' or second_plot == 'max_sim':
         ax2 = ax.twinx()

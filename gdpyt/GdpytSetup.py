@@ -39,7 +39,7 @@ class GdpytSetup(object):
 
 class inputs(object):
     def __init__(self, image_collection_type=None, image_path=None, image_file_type=None, image_base_string=None,
-                 image_subset=None, calibration_z_step_size=1, baseline_image=None,
+                 image_subset=None, calibration_z_step_size=1, baseline_image=None, static_templates=False,
                  if_image_stack='first', take_image_stack_subset_mean_of=[],
                  ground_truth_file_path=None, ground_truth_file_type=None, true_number_of_particles=None):
         """
@@ -75,6 +75,7 @@ class inputs(object):
         self.image_subset = image_subset
         self.calibration_z_step_size = calibration_z_step_size
         self.baseline_image = baseline_image
+        self.static_templates = static_templates
         self.if_image_stack = if_image_stack
         self.take_image_stack_subset_mean_of = take_image_stack_subset_mean_of
         self.true_number_of_particles = true_number_of_particles
@@ -100,9 +101,11 @@ class outputs(object):
         self.assess_similarity_for_all_stacks = assess_similarity_for_all_stacks
 
 class processing(object):
-    def __init__(self, min_layers_per_stack=None, filter_params=None, threshold_params=None,
-                 background_subtraction=None,
+    def __init__(self, min_layers_per_stack=None,
                  cropping_params=None,
+                 background_subtraction=None,
+                 filter_params=None,
+                 threshold_params=None,
                  processing_method=None, processing_filter_type=None, processing_filter_size=None,
                  threshold_method=None, threshold_modifier=None,
                  min_particle_area=5, max_particle_area=1000, template_padding=3, dilate=True,

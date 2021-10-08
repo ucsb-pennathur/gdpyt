@@ -49,6 +49,8 @@ def test(calib_settings, test_settings, return_variables=None):
                                      take_subset_mean=calib_settings.inputs.take_image_stack_subset_mean_of,
                                      inspect_contours_for_every_image=calib_settings.outputs.inspect_contours,
                                      baseline=calib_settings.inputs.baseline_image,
+                                     hard_baseline=True,
+                                     static_templates=calib_settings.inputs.static_templates,
                                      )
 
     # method for converting filenames to z-coordinates
@@ -63,14 +65,15 @@ def test(calib_settings, test_settings, return_variables=None):
                                  calib_col.measurement_range / (N_CAL - 1) - calib_col._calibration_stack_z_step})
 
         # For synthetic image sets, don't convert filename for z-coordinate because this reduces accuracy.
-        elif calib_settings.inputs == 'synthetic':
+        else:
+            # calib_settings.inputs == 'synthetic'
             name_to_z.update({image.filename: float(image.filename.split(calib_settings.inputs.image_base_string)[-1].split('.tif')[0])})
 
-        # Convert experimental calibration stacks with .tif files from: 'calib_1.tif' to 'calib_80.tif', for example.
+        """# Convert experimental calibration stacks with .tif files from: 'calib_1.tif' to 'calib_80.tif', for example.
         elif calib_settings.inputs == 'experimental':
             name_to_z.update(
                 {image.filename: np.round((float(image.filename.split(calib_settings.inputs.image_base_string)[-1].split('.')[0]) - 1)
-                                          + 1 / 2, 2)})
+                                          + 1 / 2, 2)})"""
 
 
     # create the calibration set consisting of calibration stacks for each particle
@@ -79,6 +82,11 @@ def test(calib_settings, test_settings, return_variables=None):
                                              min_num_layers=calib_settings.processing.min_layers_per_stack * len(calib_col.images),
                                              self_similarity_method=test_settings.z_assessment.infer_method,
                                              dilate=calib_settings.processing.dilate)
+
+    # plot the baseline image with particle ID's
+    if calib_col.baseline is not None:
+        fig = calib_col.plot_baseline_image_and_particle_ids()
+        plt.show()
 
     # export the particle coordinates
     calib_coords = export_particle_coords(calib_col, calib_settings, test_settings)
@@ -95,17 +103,20 @@ def test(calib_settings, test_settings, return_variables=None):
     # plot
     plot_calibration(calib_settings, test_settings, calib_col, calib_set, calib_col_image_stats, calib_col_stats, calib_stack_data)
 
-    if return_variables == 'calibration_plots':
-        # export data to excel
-        export_results_and_settings('calibration', calib_settings, calib_col, calib_stack_data, calib_col_stats,
-                                    test_settings)
-        return calib_col, calib_set, calib_col_image_stats, calib_stack_data
-
     # for analyses of the standard GDPT dataset, there must not be a baseline.
+    single_particle_test = True
     if calib_settings.inputs.ground_truth_file_path == 'standard_gdpt':
+        """ NOTE: I think the below code is wrong due to recent upgrades: 
+        standard GDPT dataset with a single calibration image """
         test_collection_baseline = None
+    elif single_particle_test is True:
+        """ non-standard synthetic particle dataset with a single calibration image """
+        test_collection_baseline = test_settings.inputs.baseline_image
+        test_particle_id_image = None
     else:
+        """ any analysis where the particle distribution in the test collection matches the calibration collection """
         test_collection_baseline = calib_set
+        test_particle_id_image = test_settings.inputs.baseline_image
 
     # test collection
     test_col = GdpytImageCollection(folder=test_settings.inputs.image_path,
@@ -117,28 +128,39 @@ def test(calib_settings, test_settings, return_variables=None):
                                     true_num_particles=test_settings.inputs.true_number_of_particles,
                                     folder_ground_truth=test_settings.inputs.ground_truth_file_path,
                                     stacks_use_raw=test_settings.processing.stacks_use_raw,
+                                    crop_specs=test_settings.processing.cropping_params,
                                     background_subtraction=test_settings.processing.background_subtraction,
                                     processing_specs=test_settings.processing.processing_params,
                                     thresholding_specs=test_settings.processing.threshold_params,
                                     min_particle_size=test_settings.processing.min_particle_area,
                                     max_particle_size=test_settings.processing.max_particle_area,
                                     shape_tol=test_settings.processing.shape_tolerance,
+                                    overlap_threshold=test_settings.processing.overlap_threshold,
                                     same_id_threshold=test_settings.processing.same_id_threshold_distance,
                                     measurement_depth=calib_col.measurement_range,
                                     template_padding=test_settings.processing.template_padding,
                                     if_img_stack_take=test_settings.inputs.if_image_stack,
                                     take_subset_mean=test_settings.inputs.take_image_stack_subset_mean_of,
                                     inspect_contours_for_every_image=test_settings.outputs.inspect_contours,
-                                    baseline=test_collection_baseline
+                                    baseline=test_collection_baseline,
+                                    hard_baseline=True,
+                                    static_templates=test_settings.inputs.static_templates,
+                                    particle_id_image=test_particle_id_image,
                                     )
 
+    # if performing characterization on synthetic dataset, set calib_set offset according to z @ minimum particle area.
+    if test_settings.inputs.ground_truth_file_path is not None:
+        pass
+        # offset = calib_col.in_focus_z - test_col.in_focus_z
+        # calib_set.zero_stacks(z_zero=test_col.in_focus_z, offset=offset, exclude_ids=None)
+
     # if performing meta-characterization on an experimental calibration set, set true_z for the test_collection
-    if test_settings.inputs.ground_truth_file_path is None:
+    else:
         test_col.set_true_z(image_to_z=name_to_z)
 
     # Infer the z-height of each particle
     test_col.infer_z(calib_set, infer_sub_image=test_settings.z_assessment.sub_image_interpolation).sknccorr(
-        min_cm=test_settings.z_assessment.min_cm, use_stack=None)
+        min_cm=test_settings.z_assessment.min_cm, use_stack=0)
 
     # export the particle coordinates
     test_coords = export_particle_coords(test_col, calib_settings, test_settings)
@@ -171,16 +193,66 @@ def test(calib_settings, test_settings, return_variables=None):
     if assess_every_stack:
         assess_every_particle_and_stack_id(test_settings, calib_set, test_col)
 
-
     # all outputs
     return calib_col, calib_set, calib_col_image_stats, calib_stack_data, test_col, test_col_stats, \
            test_col_local_meas_quality, test_col_global_meas_quality
 
 
-
-
 def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, test_col_global_meas_quality):
     if settings.outputs.save_plots or settings.outputs.show_plots:
+
+        # plot for a random selection of particles in the test collection
+        if len(test_col.particle_ids) >= 10:
+            P_INSPECTS = [int(p) for p in random.sample(set(test_col.particle_ids), 10)]
+        else:
+            P_INSPECTS = test_col.particle_ids
+        for P_INSPECT in P_INSPECTS:
+
+            # plot particle stack with z and true_z as subplot titles
+            fig = test_col.plot_single_particle_stack(particle_id=P_INSPECT)
+            if fig is not None:
+                fig.suptitle(settings.outputs.save_id_string + ': particle id {}'.format(P_INSPECT))
+                plt.tight_layout()
+                if settings.outputs.save_plots is True:
+                    savefigpath = join(settings.outputs.results_path,
+                                       settings.outputs.save_id_string + '_correlation_pid{}.png'.format(P_INSPECT))
+                    fig.savefig(fname=savefigpath)
+                    plt.close()
+                if settings.outputs.show_plots:
+                    fig.show()
+
+            # plot interpolation curves for every particle
+            """
+            fig = test_col.plot_similarity_curve(sub_image=settings.z_assessment.sub_image_interpolation, method=settings.z_assessment.infer_method, min_cm=settings.z_assessment.min_cm,
+                                                 particle_id=P_INSPECT, image_id=None)
+            if fig is not None:
+                fig.suptitle(settings.outputs.save_id_string + ': particle id {}'.format(P_INSPECT))
+                plt.tight_layout()
+                if settings.outputs.save_plots is True:
+                    savefigpath = join(settings.outputs.results_path, settings.outputs.save_id_string + '_correlation_pid{}.png'.format(P_INSPECT))
+                    fig.savefig(fname=savefigpath)
+                    plt.close()
+                if settings.outputs.show_plots:
+                    fig.show()
+            """
+
+        # plot test collection images with particles
+        if len(test_col.files) >= 4:
+            plot_test_col_imgs = [img_id for img_id in random.sample(set(test_col.files), 4)]
+            fig, ax = plt.subplots(ncols=4, figsize=(12, 10))
+            for i, img in enumerate(plot_test_col_imgs):
+                ax[i].imshow(test_col.images[img].draw_particles(raw=False, thickness=1, draw_id=True, draw_bbox=True))
+                img_formatted = np.round(float(img.split(settings.inputs.image_base_string)[-1].split('.tif')[0]), 3)
+                ax[i].set_title('{}'.format(img_formatted))
+                ax[i].axis('off')
+            plt.suptitle(settings.outputs.save_id_string)
+            plt.tight_layout()
+            if settings.outputs.save_plots is True:
+                savepath = join(settings.outputs.results_path, settings.outputs.save_id_string + '_test_col.png')
+                plt.savefig(savepath)
+                plt.close()
+            if settings.outputs.show_plots is True:
+                plt.show()
 
         # plot normalized local rmse uncertainty
         fig = test_col.plot_local_rmse_uncertainty(measurement_quality=test_col_local_meas_quality,
@@ -259,24 +331,6 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
         if settings.outputs.show_plots:
             fig.show()
 
-        # plot test collection images with particles
-        if len(test_col.files) >= 4:
-            plot_test_col_imgs = [img_id for img_id in random.sample(set(test_col.files), 4)]
-            fig, ax = plt.subplots(ncols=4, figsize=(12, 6))
-            for i, img in enumerate(plot_test_col_imgs):
-                ax[i].imshow(test_col.images[img].draw_particles(raw=False, thickness=1, draw_id=True, draw_bbox=True))
-                img_formatted = np.round(float(img.split(settings.inputs.image_base_string)[-1].split('.tif')[0]), 3)
-                ax[i].set_title('{}'.format(img_formatted))
-                ax[i].axis('off')
-            plt.suptitle(settings.outputs.save_id_string)
-            plt.tight_layout()
-            if settings.outputs.save_plots is True:
-                savepath = join(settings.outputs.results_path, settings.outputs.save_id_string + '_test_col.png')
-                plt.savefig(savepath)
-                plt.close()
-            if settings.outputs.show_plots is True:
-                plt.show()
-
         # plot particle area vs z/h for every particle
         fig = test_col.plot_particles_stats()
         plt.suptitle(settings.outputs.save_id_string)
@@ -334,26 +388,8 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
         if settings.outputs.show_plots:
             plt.show()
 
-        # plot interpolation curves for every particle
-        if len(test_col.particle_ids) >= 5:
-            P_INSPECTS = [int(p) for p in random.sample(set(test_col.particle_ids), 5)]
-        else:
-            P_INSPECTS = test_col.particle_ids
-        for P_INSPECT in P_INSPECTS:
-            fig = test_col.plot_similarity_curve(sub_image=settings.z_assessment.sub_image_interpolation, method=settings.z_assessment.infer_method, min_cm=settings.z_assessment.min_cm,
-                                                 particle_id=P_INSPECT, image_id=None)
-            if fig is not None:
-                fig.suptitle(settings.outputs.save_id_string + ': particle id {}'.format(P_INSPECT))
-                plt.tight_layout()
-                if settings.outputs.save_plots is True:
-                    savefigpath = join(settings.outputs.results_path, settings.outputs.save_id_string + '_correlation_pid{}.png'.format(P_INSPECT))
-                    fig.savefig(fname=savefigpath)
-                    plt.close()
-                if settings.outputs.show_plots:
-                    fig.show()
-
-
         # plot interpolation curves for every particle on image_id N_CAL//2
+        """
         for IMG_INSPECT in np.arange(start=0, stop=len(test_col.images), step=10):
             fig = test_col.plot_similarity_curve(sub_image=settings.z_assessment.sub_image_interpolation, method=settings.z_assessment.infer_method, min_cm=settings.z_assessment.min_cm,
                                                  particle_id=None, image_id=IMG_INSPECT)
@@ -367,6 +403,7 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
                 if settings.outputs.show_plots:
                     fig.show()
                 plt.close(fig)
+        """
 
         # plot the particle image PSF-model-based z-calibration function
         """
@@ -389,6 +426,18 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
         """
         per-collection plots
         """
+        # plot the baseline image with particle ID's
+        if calib_col.baseline is not None:
+            fig = calib_col.plot_baseline_image_and_particle_ids()
+            plt.suptitle(settings.outputs.save_id_string)
+            plt.tight_layout()
+            if settings.outputs.save_plots is True:
+                savefigpath = join(settings.outputs.results_path, settings.outputs.save_id_string + '_calibration_baseline_image.png')
+                plt.savefig(fname=savefigpath, bbox_inches='tight')
+                plt.close()
+            if settings.outputs.show_plots:
+                plt.show()
+
         # plot number of particles identified in every image: '_num_particles_per_image.png'
         fig = calib_col.plot_num_particles_per_image()
         plt.suptitle(settings.outputs.save_id_string)
@@ -454,11 +503,26 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
         plt.suptitle(settings.outputs.save_id_string)
         plt.tight_layout()
         if settings.outputs.save_plots is True:
-            savepath = join(settings.outputs.results_path, settings.outputs.save_id_string + '_calib_col.png')
+            savepath = join(settings.outputs.results_path, settings.outputs.save_id_string + '_calib_col{}.png'.format(i))
             plt.savefig(savepath)
             plt.close()
         if settings.outputs.show_plots is True:
             plt.show()
+
+        # plot every calibration image with identified particles: '_calib_col.png'
+        plot_calib_col_imgs = calib_col.files
+        for i, img in enumerate(plot_calib_col_imgs):
+            fig, ax = plt.subplots(figsize=(8, 8))
+            ax.imshow(calib_col.images[img].draw_particles(raw=False, thickness=1, draw_id=True, draw_bbox=True))
+            ax.set_title('{}'.format(img))
+            plt.suptitle(settings.outputs.save_id_string)
+            plt.tight_layout()
+            if settings.outputs.save_plots is True:
+                savepath = join(settings.outputs.results_path, settings.outputs.save_id_string + '_calib_col{}.png'.format(i))
+                plt.savefig(savepath)
+                plt.close()
+            if settings.outputs.show_plots is True:
+                plt.show()
 
         # plot calibration set's stack's self similarity: '_calibset_stacks_self_similarity_{}.png'
         """
@@ -486,10 +550,10 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
             9. plot theoretical and experimentally-measured particle diameters: '_diameter_theory_and_measure.png'
         """
         # choose particle ID's at random from calibration set
-        if len(calib_col.particle_ids) < 5:
-            plot_calib_stack_particle_ids = calib_col.particle_ids
+        if len(calib_set.particle_ids) < 10:
+            plot_calib_stack_particle_ids = calib_set.particle_ids
         else:
-            plot_calib_stack_particle_ids = [pid for pid in random.sample(set(calib_set.particle_ids), 5)]
+            plot_calib_stack_particle_ids = [pid for pid in random.sample(set(calib_set.particle_ids), 10)]
 
         for id in plot_calib_stack_particle_ids:
 
@@ -526,7 +590,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
             plt.suptitle(save_calib_pid + ', infer: {}'.format(test_settings.z_assessment.infer_method))
             plt.tight_layout()
             if settings.outputs.save_plots is True:
-                savepath = join(settings.outputs.results_path, save_calib_pid + '_calib_stack_self_similarity_{}.png'.format(test_settings.z_assessment.infer_method))
+                savepath = join(settings.outputs.results_path, save_calib_pid + '_calib_stack_no_interp_self_similarity_{}.png'.format(test_settings.z_assessment.infer_method))
                 plt.savefig(savepath)
                 plt.close()
             if settings.outputs.show_plots is True:
@@ -666,8 +730,10 @@ def export_results_and_settings(export='test', calib_settings=None, calib_col=No
         'focal_length': calib_settings.optics.focal_length,
         'ref_index_medium': calib_settings.optics.ref_index_medium,
         'ref_index_lens': calib_settings.optics.ref_index_lens,
-        'img_bkg_mean': calib_settings.optics.bkg_mean,
-        'img_bkg_noise': calib_settings.optics.bkg_noise,
+        'calib_img_bkg_mean': calib_settings.optics.bkg_mean,
+        'calib_img_bkg_noise': calib_settings.optics.bkg_noise,
+        'test_img_bkg_mean': test_settings.optics.bkg_mean,
+        'test_img_bkg_noise': test_settings.optics.bkg_noise,
         'microscope_gain': calib_settings.optics.gain,
         'microscope_cyl_focal_length': calib_settings.optics.cyl_focal_length,
         'points_per_pixel': calib_settings.optics.points_per_pixel,

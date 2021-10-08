@@ -9,6 +9,8 @@ from torchvision.transforms import Resize, ToTensor, Normalize, Compose
 from torch.utils.data import DataLoader
 
 import pandas as pd
+import numpy as np
+from sklearn.neighbors import NearestNeighbors
 
 from matplotlib import pyplot as plt
 
@@ -21,10 +23,12 @@ class GdpytCalibrationSet(object):
     def __init__(self, collections, image_to_z, dilate=True, template_padding=0, min_num_layers=None, self_similarity_method='sknccorr',  exclude=[]):
         super(GdpytCalibrationSet, self).__init__()
 
+        self._template_padding = template_padding
+        self._particle_ids = None
         self._self_similarity_method = self_similarity_method
         self._min_num_layers = min_num_layers
-        self._particle_ids = None
-        self._template_padding = template_padding
+        self._best_stack_id = None
+
         # Attribute that holds a Pytorch model
         self._cnn = None
         self.cnn_data_params = None
@@ -61,7 +65,7 @@ class GdpytCalibrationSet(object):
                         raise ValueError("No z coordinate specified for image {}")
                     else:
 
-                        # set both the true_z and z value for each image and particle therein.
+                        # set both the true_z and z value for each image and particle if the particle z-coord is None.
                         image.set_z(img_to_z[image.filename])
 
                         # sets the "in_images" attribute for GdpytParticle
@@ -75,10 +79,10 @@ class GdpytCalibrationSet(object):
         self._all_stacks_stats = self.calculate_stacks_stats()
 
         # Clean the stacks to remove bad stacks
-        # self._clean_stacks()
+        self._clean_stacks(min_percent_layers=0.1)
 
         # determine the beset stack
-        # self.determine_best_stack()
+        self.determine_best_stack()
 
     def __len__(self):
         return len(self.calibration_stacks)
@@ -177,7 +181,7 @@ class GdpytCalibrationSet(object):
         # define the GdpytCalibrationSet's stacks.
         self._calibration_stacks = stacks
 
-    def _clean_stacks(self):
+    def _clean_stacks(self, min_percent_layers=0.1):
         """
         Remove calibration stacks with too few images or particle stats that differ significantly from others.
 
@@ -200,7 +204,7 @@ class GdpytCalibrationSet(object):
         if self._min_num_layers:
             df = df.loc[df['layers'] > self._min_num_layers]
         else:
-            df = df.loc[df['layers'] > df.layers.mean() * 0.75]
+            df = df.loc[df['layers'] > df.layers.mean() * min_percent_layers]
 
         # get particle id's from filtered dataframe
         passing_stacks_uniques = df.particle_id.unique()
@@ -219,6 +223,10 @@ class GdpytCalibrationSet(object):
 
             logger.warning("Removed calibration stack {} from set.".format(id))
 
+    def _calculate_stack_self_similarity(self):
+        for stack in self._calibration_stacks:
+            stack.infer_self_similarity(function=self.self_similarity_method)
+
     def infer_z(self, infer_collection, infer_sub_image=True):
         """
 
@@ -233,7 +241,7 @@ class GdpytCalibrationSet(object):
         """
         return GdpytImageInference(infer_collection, self, infer_sub_image=infer_sub_image)
 
-    def zero_stacks(self, offset=0, exclude_ids=None):
+    def zero_stacks(self, z_zero, offset=0, exclude_ids=None):
         """
         Modify the zero-location (i.e. z = 0) for all stacks in the calibration set.
 
@@ -255,7 +263,7 @@ class GdpytCalibrationSet(object):
                 if id_ in exclude_ids:
                     continue
             else:
-                stack.set_zero(offset=offset) # TODO: note that this is here and it should be tested
+                stack.set_zero(z_zero=z_zero, offset=offset)
 
     def update_particle_ids(self):
         """
@@ -267,7 +275,7 @@ class GdpytCalibrationSet(object):
         """
         Determine the "best" stack to use when the test particle ID is not in the calibration set stack ID's.
         """
-        df = self.calculate_stacks_stats()
+        df = self.calculate_stacks_stats().copy()
 
         # filter by number of layers
         df = df[df['layers'] > df['layers'].max() * 0.98]
@@ -280,8 +288,6 @@ class GdpytCalibrationSet(object):
         particle_ids = particle_ids[0]
 
         self._best_stack_id = particle_ids
-
-
 
     def calculate_stacks_stats(self):
         """
@@ -461,19 +467,42 @@ class GdpytImageInference(object):
         self.calib_set = calib_set
         self._infer_sub_image = infer_sub_image
 
-    def _cross_correlation_inference(self, function, use_stack=None, min_cm=0):
+    def _cross_correlation_inference(self, function, use_stack=None, min_cm=0, skip_particle_ids=[]):
         logger.warning('cc inference min_cm {}'.format(min_cm))
         if function.lower() not in ['ccorr', 'nccorr', 'znccorr', 'barnkob_ccorr', 'bccorr', 'sknccorr']:
             raise ValueError("{} is not implemented or a valid function".format(function))
 
         for image in self.collection.images.values():
             logger.info("Infering image {}".format(image.filename))
+
+            max_stack_distance = 15
+
+            particles_s = [particle_s for particle_s in image.particles]
+
             for particle in image.particles:
-                if use_stack:
+
+                particle_locations_in_image = [list(p.location) for p in particles_s if p.id != particle.id]
+
+                if len(particle_locations_in_image) > 2:
+                    nneigh = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(particle_locations_in_image)
+                    distance, index = nneigh.kneighbors(np.array(particle.location).reshape(1, -1))
+                    distance = distance[0][0].astype(int)
+                    index = index[0][0].astype(int)
+                else:
+                    distance = 100
+                    index = 0
+
+                if use_stack is not None:
                     stack = self.calib_set.calibration_stacks[use_stack]
+
                 elif particle.id in self.calib_set.particle_ids:
                     stack = self.calib_set.calibration_stacks[particle.id]
+
+                elif distance < max_stack_distance and particles_s[index].id in self.calib_set.particle_ids:
+                    stack = self.calib_set.calibration_stacks[particles_s[index].id]
+
                 else:
+                    # if nothing else, choose the best stack id
                     stack = self.calib_set.calibration_stacks[self.calib_set.best_stack_id]
 
                 # set the stack ID used for z-inference
@@ -494,8 +523,8 @@ class GdpytImageInference(object):
     def bccorr(self, use_stack=None, min_cm=0):
         self._cross_correlation_inference('barnkob_ccorr', use_stack=use_stack, min_cm=min_cm)
 
-    def sknccorr(self, use_stack=None, min_cm=0):
-        self._cross_correlation_inference('sknccorr', use_stack=use_stack, min_cm=min_cm)
+    def sknccorr(self, use_stack=None, min_cm=0, skip_particle_ids=[]):
+        self._cross_correlation_inference('sknccorr', use_stack=use_stack, min_cm=min_cm, skip_particle_ids=skip_particle_ids)
 
     def cnn(self, transforms_=(Resize(180), ToTensor()), pretrained=None):
         with torch.no_grad():
