@@ -1199,8 +1199,8 @@ class GdpytImageCollection(object):
             z_zero = z_local[np.argmin(areas_interp)]
             areas_zero = np.min(areas_interp)
 
-            show_plot = True
-            if show_plot:
+            show_plot = False
+            """if show_plot:
                 fig, ax = plt.subplots()
                 ax.scatter(zs[lower_index:upper_index + 1], areas[lower_index:upper_index + 1], color='tab:blue',
                            alpha=0.75, label='particle area')
@@ -1219,7 +1219,7 @@ class GdpytImageCollection(object):
                 savedir = '/Users/mackenzie/Desktop/dumpfigures/'
                 savefigpath = join(savedir + '_{}_collection_minimum_z_area.png'.format(self._image_collection_type))
                 fig.savefig(fname=savefigpath, bbox_inches='tight')
-                plt.close()
+                plt.close()"""
 
         # if less than three points, get the minimum of the areas
         else:
