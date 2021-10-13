@@ -1010,7 +1010,7 @@ class GdpytImageCollection(object):
                 z_zero = z_local[np.argmin(areas_interp)]
                 areas_zero = np.min(areas_interp)
 
-                if self.image_collection_type == 'calibration' and len(particle_ids) == 1:
+                """if self.image_collection_type == 'calibration' and len(particle_ids) == 1:
                     fig, ax = plt.subplots()
                     ax.scatter(zs[lower_index:upper_index + 1], areas[lower_index:upper_index + 1], color='tab:blue',
                                alpha=0.75, label='particle area')
@@ -1022,7 +1022,7 @@ class GdpytImageCollection(object):
                     ax.set_title('Find particles in focus z')
                     savedir = '/Users/mackenzie/Desktop/dumpfigures'
                     savename = 'particle_interpolated_z_of_min_area.png'
-                    plt.savefig(join(savedir, savename))
+                    plt.savefig(join(savedir, savename))"""
 
             # if less than three points, get the minimum of the areas
             else:
@@ -1103,8 +1103,8 @@ class GdpytImageCollection(object):
         self.in_focus_z = in_focus_z
         self._in_focus_area = in_focus_area
 
-        show_plot = True
-        if show_plot:
+        show_plot = False
+        """if show_plot:
             fig, ax = plt.subplots()
             ax.scatter(in_focus_zs, in_focus_areas, color='tab:blue', alpha=0.75, label='particle area')
             ax.scatter(in_focus_z, in_focus_area, s=50, color='red', marker='.', label='min = median(area)')
@@ -1118,7 +1118,7 @@ class GdpytImageCollection(object):
             savedir = '/Users/mackenzie/Desktop/dumpfigures/'
             savefigpath = join(savedir + '_calibration_collection_minimum_z_area.png')
             fig.savefig(fname=savefigpath, bbox_inches='tight')
-            plt.close()
+            plt.close()"""
 
     def find_collection_z_of_min_area(self):
         """
