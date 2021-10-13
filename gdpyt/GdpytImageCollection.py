@@ -4,6 +4,7 @@ from .GdpytImage import GdpytImage
 from .GdpytCalibrationSet import GdpytCalibrationSet
 from gdpyt.utils.plotting import *
 from gdpyt.similarity.correlation import parabola
+from gdpyt.utils import binning
 from gdpyt.subpixel_localization.gaussian import fit as fit_gaussian_subpixel
 
 from os.path import join, isdir
@@ -149,11 +150,7 @@ class GdpytImageCollection(object):
             self._processing_specs = processing_specs
 
         # Define the thresholding done on all the images in this collection
-        if thresholding_specs is None:
-            raise ValueError("Are you sure you want no thresholding?")
-            self._thresholding_specs = {'otsu': []}
-        else:
-            self._thresholding_specs = thresholding_specs
+        self._thresholding_specs = thresholding_specs
 
         # calculate the average of all images in the collection
         # self._calculate_mean_image()
@@ -191,11 +188,13 @@ class GdpytImageCollection(object):
 
     def _add_images(self):
         images = OrderedDict()
+        frame = 0
         for file in self._files:
-            img = GdpytImage(join(self.folder, file), if_img_stack_take=self._if_img_stack_take,
+            img = GdpytImage(join(self.folder, file), frame=frame, if_img_stack_take=self._if_img_stack_take,
                              take_subset_mean=self._take_subset_mean, true_num_particles=self._true_num_particles)
             images.update({img.filename: img})
             logger.warning('Loaded image {}'.format(img.filename))
+            frame += 1
         self._images = images
 
     def _get_exclusion_subset(self, exclude, subset):
@@ -488,8 +487,8 @@ class GdpytImageCollection(object):
 
         elif self._folder_ground_truth == 'standard_gdpt' and self._image_collection_type == 'calibration':
             # in this case, the calibration images at the measurment depth boundaries are centered at z = 0 and z = 86.
-            self._measurement_depth = (self._total_number_of_files - 1) * self._calibration_stack_z_step
-            self._measurement_range = (len(self._files) - 1) * self._calibration_stack_z_step
+            self._measurement_depth = self._total_number_of_files * self._calibration_stack_z_step
+            self._measurement_range = len(self._files) * self._calibration_stack_z_step
 
         elif self._calibration_stack_z_step and self._image_collection_type == 'calibration':
             self._measurement_depth = self._total_number_of_files * self._calibration_stack_z_step
@@ -509,7 +508,6 @@ class GdpytImageCollection(object):
                     x_true = 29
                     y_true = 29
                     p._set_location_true(x=x_true, y=y_true)
-                    #raise ValueError("Need to set a name to z update function in GdpytImageCollection")
 
         elif self._folder_ground_truth is not None:
             for image in self.images.values():
@@ -518,9 +516,6 @@ class GdpytImageCollection(object):
                 ground_truth_xyz = ground_truth[:, 0:3]
                 image.set_true_num_particles(data=ground_truth_xyz)
                 image._update_particle_density_stats()
-
-                # normalize the ground truth z-coordinate # TODO: this is only useful for GDPT datasets
-                # ground_truth_xyz[:, 2] = (ground_truth_xyz[:, 2] - np.min(ground_truth_xyz[:, 2])) / self._measurement_depth
 
                 for p in image.particles:
                     neigh = NearestNeighbors(n_neighbors=1)
@@ -1284,21 +1279,9 @@ class GdpytImageCollection(object):
 
         return df.to_dict()
 
-    def calculate_measurement_quality_local(self, true_xy=False):
+    def calculate_measurement_quality_local(self, num_bins=20, min_cm=0.9, true_xy=False):
         """
-        Methods:
-            1. Get the number of particles identified at each true_z.
-            2. Get the number of particles assigned valid z-measurement at each true_z.
-            3. Calculate the percent measured particles at each true_z.
-            4. Calculate the root mean squared error at each true_z.
-            5. Calculate the mean and standard deviation at each true_z.
-        Parameters
-        ----------
-        measurement_volume
-
-        Returns
-        -------
-
+        Method Notes:
         """
         # get the percent of identified particles that were successfully measured (assigned a z-coordinate)
         coords = []
@@ -1309,7 +1292,9 @@ class GdpytImageCollection(object):
         # read coords into dataframe
         dfz = pd.DataFrame(data=coords, columns=['id', 'z', 'true_z', 'cm', 'max_sim'])
 
-        # round the true_z value (which is not important for this particular analysis so we do it early)
+        collection_measurement_quality_local = binning.bin_local_rmse_z(dfz, num_bins=num_bins, min_cm=min_cm)
+
+        """# round the true_z value (which is not important for this particular analysis so we do it early)
         # we have to correct to the correct decimal place to get at least 10-20 data points depending on our measurement
         # range (which can be 0-1 for normalized analyses or 0-NUM_TEST_IMAGES * Z_STEP_PER for meta analyses)
         dfz = self.bin_local_quantities(dfz)
@@ -1373,213 +1358,156 @@ class GdpytImageCollection(object):
         df_particle_measure_quality = pd.DataFrame(data=particle_measure_quality,
                                                    columns=['true_z', 'num_idd', 'num_valid_z_measure',
                                                             'percent_measure', 'cm', 'max_sim'])
-        df_particle_measure_quality.set_index(keys='true_z', inplace=True)
+        df_particle_measure_quality.set_index(keys='true_z', inplace=True)"""
 
         # NOW, we can move on and calculate the root mean squared error
         # get the local rmse uncertainty for each true_z
-        coords = []
+        # coords = []
 
-        if true_xy:
-            """
-            Case: X, Y, AND Z GROUND TRUTH IS KNOWN
+        # if true_xy:
+        """
+        Case: X, Y, AND Z GROUND TRUTH IS KNOWN
 
-            Outputs:
-                * z: the mean z-value per true_z grouping.
+        Outputs:
+            * z: the mean z-value per true_z grouping.
 
-                This can be useful in understanding if there is an inherent bias between calibration stack "labeling" 
-                and the truth z-value.
+            This can be useful in understanding if there is an inherent bias between calibration stack "labeling" 
+            and the truth z-value.
 
-                IMPORTANT NOTE:
-                    There can often be a discrepancy between the calibration stack labeling (or assigned z-value) and
-                    the true z-value of an identical particle at an identical height. This can arise from "inaccurately"
-                    assigning the z-value to calibration layers. The z-value is assigned based on the label from the
-                    filename (i.e. 'calib_1.tif' where the "1" indicates it's the bottom of the calibration stack) and 
-                    the known z-step size. Often the division of "1" * step size / # of steps can lead to slightly
-                    incorrect values. This can be even worse when analyzing synthetic datasets where the z=0 and
-                    z=measurement depth are not identified.
+            IMPORTANT NOTE:
+                There can often be a discrepancy between the calibration stack labeling (or assigned z-value) and
+                the true z-value of an identical particle at an identical height. This can arise from "inaccurately"
+                assigning the z-value to calibration layers. The z-value is assigned based on the label from the
+                filename (i.e. 'calib_1.tif' where the "1" indicates it's the bottom of the calibration stack) and 
+                the known z-step size. Often the division of "1" * step size / # of steps can lead to slightly
+                incorrect values. This can be even worse when analyzing synthetic datasets where the z=0 and
+                z=measurement depth are not identified.
 
-                * true_z: this is the ROUNDED true_z.
-                * error_z: the mean of the difference between the RAW true_z and measured_z value by rounded true_z.
-                * rmse_x,y,z: the mean root mean squared error by rounded true_z.
-                * std_x,y,z: the mean of the standard deviation of the x, y, and z values by rounded true_z.
-            """
+            * true_z: this is the ROUNDED true_z.
+            * error_z: the mean of the difference between the RAW true_z and measured_z value by rounded true_z.
+            * rmse_x,y,z: the mean root mean squared error by rounded true_z.
+            * std_x,y,z: the mean of the standard deviation of the x, y, and z values by rounded true_z.
+        
 
-            # get particle locations from all images
-            for img in self.images.values():
-                [coords.append([p.id, p.location[0], p.location[1], p.z, p.x_true, p.y_true, p.z_true]) for p in
-                 img.particles]
+        # get particle locations from all images
+        for img in self.images.values():
+            [coords.append([p.id, p.location[0], p.location[1], p.z, p.x_true, p.y_true, p.z_true]) for p in
+             img.particles]
 
-            # read coords into dataframe
-            df_rmse = pd.DataFrame(data=coords, columns=['id', 'x', 'y', 'z', 'true_x', 'true_y', 'true_z'])
+        # read coords into dataframe
+        df_rmse = pd.DataFrame(data=coords, columns=['id', 'x', 'y', 'z', 'true_x', 'true_y', 'true_z'])
 
-            # prepare for analysis (drop NaN's and sort by z)
-            df_rmse = df_rmse.dropna(axis=0, how='any')
-            df_rmse = df_rmse.sort_values(by='true_z', inplace=False)
+        # prepare for analysis (drop NaN's and sort by z)
+        df_rmse = df_rmse.dropna(axis=0, how='any')
+        df_rmse = df_rmse.sort_values(by='true_z', inplace=False)
 
-            # calculate the errors wrt the "raw" true values
-            df_rmse['error_x'] = df_rmse['true_x'] - df_rmse['x']
-            df_rmse['error_y'] = df_rmse['true_y'] - df_rmse['y']
-            df_rmse['error_z'] = df_rmse['true_z'] - df_rmse['z']
-            df_rmse['square_error_x'] = df_rmse['error_x'] ** 2
-            df_rmse['square_error_y'] = df_rmse['error_y'] ** 2
-            df_rmse['square_error_z'] = df_rmse['error_z'] ** 2
+        # calculate the errors wrt the "raw" true values
+        df_rmse['error_x'] = df_rmse['true_x'] - df_rmse['x']
+        df_rmse['error_y'] = df_rmse['true_y'] - df_rmse['y']
+        df_rmse['error_z'] = df_rmse['true_z'] - df_rmse['z']
+        df_rmse['square_error_x'] = df_rmse['error_x'] ** 2
+        df_rmse['square_error_y'] = df_rmse['error_y'] ** 2
+        df_rmse['square_error_z'] = df_rmse['error_z'] ** 2
 
-            # after we calculate the raw error, we can round the true_z value for the purposes of aggregate analysis
-            df_rmse = self.bin_local_quantities(df_rmse)
+        # after we calculate the raw error, we can round the true_z value for the purposes of aggregate analysis
+        df_rmse = self.bin_local_quantities(df_rmse)
 
-            # RMSE uncertainty = sqrt ( sum ( error ** 2 ) / number of measurements )
-            # Note: the root mean square x-, y-, and z-error is now a panda series so maintaining order is important.
-            dfsum = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).sum()
-            dfcount = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).count()
-            rmse_x = (dfsum.square_error_x / dfcount.square_error_x) ** 0.5
-            rmse_y = (dfsum.square_error_y / dfcount.square_error_y) ** 0.5
-            rmse_xy = (rmse_x ** 2 + rmse_y ** 2) ** 0.5
-            rmse_z = (dfsum.square_error_z / dfcount.square_error_z) ** 0.5
+        # RMSE uncertainty = sqrt ( sum ( error ** 2 ) / number of measurements )
+        # Note: the root mean square x-, y-, and z-error is now a panda series so maintaining order is important.
+        dfsum = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).sum()
+        dfcount = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).count()
+        rmse_x = (dfsum.square_error_x / dfcount.square_error_x) ** 0.5
+        rmse_y = (dfsum.square_error_y / dfcount.square_error_y) ** 0.5
+        rmse_xy = (rmse_x ** 2 + rmse_y ** 2) ** 0.5
+        rmse_z = (dfsum.square_error_z / dfcount.square_error_z) ** 0.5
 
-            # the standard deviation of the grouped by true_z columns (do not sort to maintain order)
-            dfstd = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).std()
+        # the standard deviation of the grouped by true_z columns (do not sort to maintain order)
+        dfstd = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).std()
 
-            # the mean of the grouped by true_z columns (do not sort to maintain order)
-            dfmean = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).mean()
+        # the mean of the grouped by true_z columns (do not sort to maintain order)
+        dfmean = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).mean()
 
-            # drop columns which are no longer necessary (do not sort to maintain order)
-            dfmean.drop(
-                columns=['id', 'x', 'y', 'true_x', 'true_y', 'square_error_x', 'square_error_y', 'square_error_z'],
-                inplace=True)
+        # drop columns which are no longer necessary (do not sort to maintain order)
+        dfmean.drop(
+            columns=['id', 'x', 'y', 'true_x', 'true_y', 'square_error_x', 'square_error_y', 'square_error_z'],
+            inplace=True)
 
-            # assign new columns to the dataframe
-            df_mean_rmse = dfmean.assign(rmse_x=rmse_x.values, rmse_y=rmse_y.values, rmse_xy=rmse_xy.values,
-                                         rmse_z=rmse_z.values,
-                                         std_x=dfstd.x.values, std_y=dfstd.y.values, std_z=dfstd.z.values)
-        else:
-            """
-            Case: ONLY Z GROUND TRUTH IS KNOWN
+        # assign new columns to the dataframe
+        df_mean_rmse = dfmean.assign(rmse_x=rmse_x.values, rmse_y=rmse_y.values, rmse_xy=rmse_xy.values,
+                                     rmse_z=rmse_z.values,
+                                     std_x=dfstd.x.values, std_y=dfstd.y.values, std_z=dfstd.z.values)"""
+        # else:
+        """
+        Case: ONLY Z GROUND TRUTH IS KNOWN
+        
+        Outputs:
+            * z: the mean z-value per true_z grouping.
             
-            Outputs:
-                * z: the mean z-value per true_z grouping.
+            This can be useful in understanding if there is an inherent bias between calibration stack "labeling" 
+            and the truth z-value.
+            
+            IMPORTANT NOTE:
+                There can often be a discrepancy between the calibration stack labeling (or assigned z-value) and
+                the true z-value of an identical particle at an identical height. This can arise from "inaccurately"
+                assigning the z-value to calibration layers. The z-value is assigned based on the label from the
+                filename (i.e. 'calib_1.tif' where the "1" indicates it's the bottom of the calibration stack) and 
+                the known z-step size. Often the division of "1" * step size / # of steps can lead to slightly
+                incorrect values. This can be even worse when analyzing synthetic datasets where the z=0 and
+                z=measurement depth are not identified.
                 
-                This can be useful in understanding if there is an inherent bias between calibration stack "labeling" 
-                and the truth z-value.
-                
-                IMPORTANT NOTE:
-                    There can often be a discrepancy between the calibration stack labeling (or assigned z-value) and
-                    the true z-value of an identical particle at an identical height. This can arise from "inaccurately"
-                    assigning the z-value to calibration layers. The z-value is assigned based on the label from the
-                    filename (i.e. 'calib_1.tif' where the "1" indicates it's the bottom of the calibration stack) and 
-                    the known z-step size. Often the division of "1" * step size / # of steps can lead to slightly
-                    incorrect values. This can be even worse when analyzing synthetic datasets where the z=0 and
-                    z=measurement depth are not identified.
-                    
-                * true_z: this is the ROUNDED true_z.
-                * error_z: the mean of the difference between the RAW true_z and measured_z value by rounded true_z.
-                * rmse_z: the mean root mean squared error by rounded true_z.
-                * std_x,y,z: the mean of the standard deviation of the x, y, and z values by rounded true_z.
-            """
+            * true_z: this is the ROUNDED true_z.
+            * error_z: the mean of the difference between the RAW true_z and measured_z value by rounded true_z.
+            * rmse_z: the mean root mean squared error by rounded true_z.
+            * std_x,y,z: the mean of the standard deviation of the x, y, and z values by rounded true_z.
 
-            # get x, y, z, and z_true for all particles in image collection
-            for img in self.images.values():
-                [coords.append([p.id, p.location[0], p.location[1], p.z, p.z_true]) for p in img.particles]
+        # get x, y, z, and z_true for all particles in image collection
+        for img in self.images.values():
+            [coords.append([p.id, p.location[0], p.location[1], p.z, p.z_true]) for p in img.particles]
 
-            # read coords into dataframe
-            df_rmse = pd.DataFrame(data=coords, columns=['id', 'x', 'y', 'z', 'true_z'])
+        # read coords into dataframe
+        df_rmse = pd.DataFrame(data=coords, columns=['id', 'x', 'y', 'z', 'true_z'])
 
-            # prepare dataframe for analysis (drop NaN's and sort by z)
-            df_rmse = df_rmse.dropna(axis=0, how='any')
-            df_rmse = df_rmse.sort_values(by='true_z', inplace=False)
+        # prepare dataframe for analysis (drop NaN's and sort by z)
+        df_rmse = df_rmse.dropna(axis=0, how='any')
+        df_rmse = df_rmse.sort_values(by='true_z', inplace=False)
 
-            # calculate error wrt "raw" true z
-            df_rmse['error_z'] = df_rmse['true_z'] - df_rmse['z']
-            df_rmse['square_error_z'] = df_rmse['error_z'] ** 2
+        # calculate error wrt "raw" true z
+        df_rmse['error_z'] = df_rmse['true_z'] - df_rmse['z']
+        df_rmse['square_error_z'] = df_rmse['error_z'] ** 2
 
-            # we can now round the z-value in order to perform an aggregate analysis
-            df_rmse = self.bin_local_quantities(df_rmse)
+        # we can now round the z-value in order to perform an aggregate analysis
+        df_rmse = self.bin_local_quantities(df_rmse)
 
-            # RMSE uncertainty = sqrt ( sum ( error ** 2 ) / number of measurements )
-            # Note: the root mean square z-error is now a panda series so maintaining order is super important.
-            dfsum = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).sum()
-            dfcount = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).count()
-            rmse_z = (dfsum.square_error_z / dfcount.square_error_z) ** 0.5
+        # RMSE uncertainty = sqrt ( sum ( error ** 2 ) / number of measurements )
+        # Note: the root mean square z-error is now a panda series so maintaining order is super important.
+        dfsum = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).sum()
+        dfcount = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).count()
+        rmse_z = (dfsum.square_error_z / dfcount.square_error_z) ** 0.5
 
-            # b/c no ground truth, get standard deviation and mean of x, y, z
-            dfstd = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).std()
+        # b/c no ground truth, get standard deviation and mean of x, y, z
+        dfstd = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).std()
 
-            # take the mean after grouping by true_z (which has already been rounded to 2 decimals). Note, it is
-            # important to not sort on the groupby because we need to maintain the order to re-stitch dataframes.
-            dfmean = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).mean()
+        # take the mean after grouping by true_z (which has already been rounded to 2 decimals). Note, it is
+        # important to not sort on the groupby because we need to maintain the order to re-stitch dataframes.
+        dfmean = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).mean()
 
-            # drop columns that aren't necessary (inplace to be careful about order)
-            dfmean.drop(columns=['id', 'x', 'y', 'square_error_z'], inplace=True)
+        # drop columns that aren't necessary (inplace to be careful about order)
+        dfmean.drop(columns=['id', 'x', 'y', 'square_error_z'], inplace=True)
 
-            # assign new columns for: root mean square error and the standard deviation of the raw x, y,
-            df_mean_rmse = dfmean.assign(rmse_z=rmse_z.values, std_x=dfstd.x.values, std_y=dfstd.y.values,
-                                         std_z=dfstd.z.values)
+        # assign new columns for: root mean square error and the standard deviation of the raw x, y,
+        df_mean_rmse = dfmean.assign(rmse_z=rmse_z.values, std_x=dfstd.x.values, std_y=dfstd.y.values,
+                                     std_z=dfstd.z.values)
 
-        collection_measurement_quality_local = pd.concat([df_mean_rmse, df_particle_measure_quality], axis=1)
+        collection_measurement_quality_local = pd.concat([df_mean_rmse, df_particle_measure_quality], axis=1)"""
 
         return collection_measurement_quality_local
 
-    def bin_local_uncertainty(self, dfz, bins=81):
-
-        # round the true_z value (which is not important for this particular analysis so we do it early)
-        # we have to correct to the correct decimal place to get at least 10-20 data points depending on our measurement
-        # range (which can be 0-1 for normalized analyses or 0-NUM_TEST_IMAGES * Z_STEP_PER for meta analyses)
-
-        if self._folder_ground_truth != 'standard_gdpt':
-
-            dfz['error_z'] = dfz['true_z'] - dfz['z']
-
-            delta = (dfz['true_z'].max() - dfz['true_z'].min()) / (2 * bins - 2)
-            z_bins = np.linspace(dfz['true_z'].min() - delta, dfz['true_z'].max() + delta, bins + 1)
-            sigma_df = pd.DataFrame()
-
-            for i in range(bins):
-                thisbin = dfz[(z_bins[i] < dfz['true_z']) & (dfz['true_z'] < z_bins[i + 1])]
-                bin_center = (z_bins[i] + z_bins[i + 1]) / 2
-                error_z = np.sqrt(np.power(thisbin['error_z'].values, 2).sum() / len(thisbin))
-                sigma_df = pd.concat([sigma_df, pd.DataFrame({'z': [bin_center], 'sigma_z_local': [error_z]})])
-
-            dfz = sigma_df.copy()
-
-        else:
-            pass
-
+    def bin_local_uncertainty(self, dfz, num_bins=20, min_cm=None):
+        dfz = binning.bin_local_rmse_z(dfz, num_bins=num_bins, min_cm=min_cm)
         return dfz
 
-    def bin_local_quantities(self, dfz):
-        """
-        Round the true_z value to effectively "bin" the data for simplified analyses and plotting.
-
-        We want bin the true_z coordinate into at least 20 bins.
-        Parameters
-        ----------
-        dfz
-
-        Returns
-        -------
-
-        """
-        # round the true_z value (which is not important for this particular analysis so we do it early)
-        # we have to correct to the correct decimal place to get at least 10-20 data points depending on our measurement
-        # range (which can be 0-1 for normalized analyses or 0-NUM_TEST_IMAGES * Z_STEP_PER for meta analyses)
-        if self._folder_ground_truth != 'standard_gdpt':
-
-            z_range = dfz.true_z.max() - dfz.true_z.min()
-            z_steps = len(dfz.true_z.unique())
-            pass
-
-            """if z_range < 1.1:
-                dfz['true_z'] = dfz['true_z'].round(2)
-            elif z_steps < 82:
-                pass  # don't round b/c there is inherent "rounding" in the name_to_z mapper.
-            elif z_steps < 181:
-                dfz['true_z'] = dfz['true_z'] - dfz['true_z'] % 2 + (dfz['true_z'][1] - dfz['true_z'][0]) / 2
-                dfz['true_z'] = dfz['true_z'].round(1)
-            else:
-                dfz['true_z'] = dfz['true_z'] - dfz['true_z'] % 5 + (dfz['true_z'][1] - dfz['true_z'][0]) / 2
-                dfz['true_z'] = dfz['true_z'].round(1)"""
-        else:
-            pass
-
+    def bin_local_quantities(self, dfz, column_to_bin='true_z', num_bins=20):
+        dfz = binning.bin_local(dfz, column_to_bin=column_to_bin, num_bins=num_bins)
         return dfz
 
     def plot(self, raw=True, draw_particles=True, exclude=[], **kwargs):
@@ -1622,14 +1550,18 @@ class GdpytImageCollection(object):
                                                    save_results_path=save_results_path, infer_sub_image=infer_sub_image,
                                                    min_cm=min_cm, measurement_depth=measurement_depth)
 
+    def plot_bin_local_rmse_z(self, measurement_quality, measurement_depth=1, second_plot=None):
+        fig = plot_bin_local_rmse_z(self, measurement_quality, measurement_depth=measurement_depth, second_plot=second_plot)
+        return fig
+
     def plot_local_rmse_uncertainty(self, measurement_quality, measurement_depth=None, true_xy=False,
                                     measurement_width=None, second_plot=None):
         fig = plot_local_rmse_uncertainty(self, measurement_quality, measurement_depth=measurement_depth,
                                           true_xy=true_xy, measurement_width=measurement_width, second_plot=second_plot)
         return fig
 
-    def plot_baseline_image_and_particle_ids(self):
-        fig = plot_baseline_image_and_particle_ids(self)
+    def plot_baseline_image_and_particle_ids(self, filename=None):
+        fig = plot_baseline_image_and_particle_ids(self, filename=filename)
         return fig
 
     def plot_num_particles_per_image(self):
@@ -1642,6 +1574,10 @@ class GdpytImageCollection(object):
 
     def plot_particle_snr_and(self, second_plot='area', particle_id=None):
         fig = plot_particle_snr_and(self, second_plot=second_plot, particle_id=particle_id)
+        return fig
+
+    def plot_particle_peak_intensity(self):
+        fig = plot_particle_peak_intensity(self)
         return fig
 
     def plot_particle_signal(self, optics, collection_image_stats, particle_id):

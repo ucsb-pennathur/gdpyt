@@ -40,8 +40,9 @@ class GdpytSetup(object):
 class inputs(object):
     def __init__(self, image_collection_type=None, image_path=None, image_file_type=None, image_base_string=None,
                  image_subset=None, calibration_z_step_size=1, baseline_image=None, static_templates=False,
-                 if_image_stack='first', take_image_stack_subset_mean_of=[],
-                 ground_truth_file_path=None, ground_truth_file_type=None, true_number_of_particles=None):
+                 if_image_stack='first', take_image_stack_subset_mean_of=[], single_particle_calibration=False,
+                 ground_truth_file_path=None, ground_truth_file_type=None, true_number_of_particles=None,
+                 hard_baseline=False):
         """
 
         Parameters
@@ -72,9 +73,11 @@ class inputs(object):
         self.image_base_string = image_base_string
 
         # dataset
+        self.single_particle_calibration = single_particle_calibration
         self.image_subset = image_subset
         self.calibration_z_step_size = calibration_z_step_size
         self.baseline_image = baseline_image
+        self.hard_baseline = hard_baseline
         self.static_templates = static_templates
         self.if_image_stack = if_image_stack
         self.take_image_stack_subset_mean_of = take_image_stack_subset_mean_of
@@ -260,7 +263,7 @@ class optics(object):
         # maximum intensity with distance from the focal plane (stigmatic system)
         # NOTE: this should be multiplied by a constant that matches the experimental maximum intensity when in focus.
 
-    def stigmatic_maximum_intensity_z(self, z_space, max_intensity_in_focus):
+    def stigmatic_maximum_intensity_z(self, z_space, max_intensity_in_focus, z_zero=None):
         """
         z_space: list or array like; containing all the non-normalized z-coordinates in the collection
         max_intensity_in_focus: float; maximum mean particle intensity in the collection

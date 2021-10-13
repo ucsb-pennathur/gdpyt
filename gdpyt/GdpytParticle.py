@@ -16,9 +16,10 @@ from gdpyt.subpixel_localization.centroid_based_iterative import plot_2D_image_a
 class GdpytParticle(object):
 
     def __init__(self, image_raw, image_filt, id_, contour, bbox, particle_mask_on_image, particle_collection_type,
-                 location=None):
+                 location=None, frame=None):
         super(GdpytParticle, self).__init__()
         self._id = id_
+        self.frame = frame
         assert isinstance(image_raw, np.ndarray)
         assert isinstance(image_filt, np.ndarray)
         self._image_raw = image_raw
@@ -612,6 +613,9 @@ class GdpytParticle(object):
         img_f_bkg = img_f.copy()
         background_mask = self.mask_on_template
 
+        # get peak intensity
+        peak_intensity = np.max(img_f)
+
         # apply background mask to get background
         img_f_mask_inv = ma.masked_array(img_f, mask=self.mask_on_template)
 
@@ -635,6 +639,7 @@ class GdpytParticle(object):
             snr_filtered = 250
 
         # store particle image statistics
+        self._peak_intensity = peak_intensity
         self._snr = snr_filtered
         self._mean_signal = mean_signal_f
         self._mean_background = mean_background_f
@@ -901,6 +906,10 @@ class GdpytParticle(object):
     @property
     def snr(self):
         return self._snr
+
+    @property
+    def peak_intensity(self):
+        return self._peak_intensity
 
     @property
     def mean_signal(self):

@@ -241,7 +241,7 @@ class GdpytCalibrationSet(object):
         """
         return GdpytImageInference(infer_collection, self, infer_sub_image=infer_sub_image)
 
-    def zero_stacks(self, z_zero, offset=0, exclude_ids=None):
+    def zero_stacks(self, z_zero=0, offset=0, exclude_ids=None):
         """
         Modify the zero-location (i.e. z = 0) for all stacks in the calibration set.
 

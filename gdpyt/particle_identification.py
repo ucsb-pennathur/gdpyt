@@ -8,11 +8,10 @@ from skimage.filters import threshold_niblack, threshold_li, threshold_sauvola
 from skimage.morphology import disk, white_tophat, closing, square, binary_closing, binary_dilation, binary_erosion
 from skimage.filters.rank import mean_bilateral
 from skimage.exposure import equalize_adapthist
-from skimage.segmentation import clear_border
+from skimage.segmentation import clear_border, flood_fill
 from skimage.measure import label, regionprops, find_contours
-from skimage import (
-    color, feature, filters, io, measure, morphology, segmentation, util
-)
+from skimage import (filters, io, morphology, util)
+from skimage.color import label2rgb
 import imutils
 from skimage.filters import gaussian, median
 from skimage.morphology import disk
@@ -111,9 +110,11 @@ def apply_threshold(img, parameter, min_particle_size=5, padding=3, invert=False
                 raise ValueError("For manual thresholding only one parameter (the manual threshold) must be specified")
             threshval = manual_initial_guess
 
-
-        # Old threshold method: up to 9/27/21 - Removed to focus on scikit-image segmentation methods.
         """
+        1. Up to 9/27: Old threshold method - Removed to focus on scikit-image segmentation methods.
+        2. 11/9: Reusing for GDPT Dataset II
+        3. 11/10: Stopped using for Synthetic Grid Overlap because reduces the number of particles identified
+        
         noisy_thresh_image = img > threshval
 
         # apply a small erosion to remove bright spots smaller than particle diameter
@@ -122,7 +123,7 @@ def apply_threshold(img, parameter, min_particle_size=5, padding=3, invert=False
         eroded = binary_erosion(noisy_thresh_image, selem=selem1)
 
         # apply a large dilation to connect streaks and slightly smooth image
-        dilation_size = np.min([7, min_particle_size])
+        dilation_size = np.min([5, min_particle_size])
         selem2 = disk(dilation_size)
         dilated = binary_dilation(eroded, selem=selem2)
 
@@ -135,8 +136,58 @@ def apply_threshold(img, parameter, min_particle_size=5, padding=3, invert=False
         thresh_img = clear_border(mask_closing, buffer_size=1)
         """
 
+        """fig, ax = plt.subplots(ncols=2)
+        ax[0].imshow(noisy_thresh_image)
+        ax[1].imshow(thresh_img)
+        plt.show()"""
+
+        """
+        1. (9/27 - 10/9): Method used for GDPyT static and dynamic templates
+        2. 10/9: Method for Single Particle Calibration on Synthetic Grid (b/c z>35 um hard to identify)
+        """
         thresh_img_one = img > threshval
+
+        """ 
+        1. BEGIN NEW UPDATE: 10/9
+        2. 10/10: Removing b/c working with experimental particles with high degree of overlap
+        
+        # apply a large dilation to connect streaks and slightly smooth image
+        dilation_size = np.min([3, min_particle_size])
+        selem2 = disk(dilation_size)
+        dilated = binary_dilation(thresh_img_one, selem=selem2)
+
+        # perform an erosion to resize contour to approximate original size
+        second_erosion_size = dilation_size - 1
+        selem3 = disk(second_erosion_size)
+        mask_closing = binary_erosion(dilated, selem=selem3)
+        END NEW UPDATE: 10/9 """
+
         thresh_img = clear_border(thresh_img_one, buffer_size=1)
+
+        # Flood fill contours
+        """
+        Flood filling contours is really only necessary for GDPT Datasets where z<-40 um the particles have a bright
+        outer ring but dark interior.
+
+        contours = cv2.findContours(thresh_img.copy().astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+        contours = imutils.grab_contours(contours)
+        
+        for contour in sorted(contours, key=lambda x: x[0][0][0], reverse=False):
+            M = cv2.moments(contour)
+            cntr = np.max([M["m00"], 1])
+            cX = int(M["m10"] / cntr)
+            cY = int(M["m01"] / cntr)
+        
+            #if thresh_img[cY, cX] == 1:
+            seed = (cY, cX)
+            temp = flood_fill(thresh_img, seed_point=seed, new_value=1, in_place=False)
+            if np.count_nonzero(temp == 1) - np.count_nonzero(thresh_img == 1) < 750:
+                thresh_img = temp
+        
+            fig, ax = plt.subplots()
+            ax.imshow(thresh_img)
+            plt.show()
+        """
 
     if invert:
         thresh_img = ~thresh_img
@@ -183,16 +234,40 @@ def identify_contours(particle_mask):
 
 def identify_contours_sk(particle_mask, intensity_image, same_id_threshold, filename=None):
 
-    # separate connected contours
-    distance = ndi.distance_transform_edt(particle_mask)
-    coords = peak_local_max(image=distance, min_distance=5, footprint=np.ones((3, 3)), labels=particle_mask)
-    mask = np.zeros(distance.shape, dtype=bool)
-    mask[tuple(coords.T)] = True
-    markers, _ = ndi.label(mask)
-    labels = watershed(-distance, markers, mask=particle_mask)
+    overlapping_particles = True
 
-    # label image regions
-    label_image = label(labels)
+    if overlapping_particles is True:
+        # separate connected contours and label image
+        distance = ndi.distance_transform_edt(particle_mask)
+        coords = peak_local_max(image=distance, min_distance=5, footprint=np.ones((3, 3)), labels=particle_mask)
+        mask = np.zeros(distance.shape, dtype=bool)
+        mask[tuple(coords.T)] = True
+        markers, _ = ndi.label(mask)
+        labels = watershed(-distance, markers, mask=particle_mask)
+        label_image = label(labels)
+    else:
+        # label the particle mask without segmentation
+        label_image = label(particle_mask)
+
+    # Plot to check the effectiveness of image segmentation
+    """fig, axes = plt.subplots(ncols=2, figsize=(8, 4), sharex=True, sharey=True)
+    ax = axes.ravel()
+
+    ax[0].imshow(particle_mask, cmap=plt.cm.gray)
+    ax[0].set_title('Overlapping objects')
+
+    if overlapping_particles is True:
+        ax[1].imshow(labels, cmap=plt.cm.nipy_spectral)
+    else:
+        image_label_overlay = label2rgb(label_image, image=intensity_image, bg_label=0)
+        ax[1].imshow(image_label_overlay)
+        ax[1].set_title('Separated objects')
+
+    for a in ax:
+        a.set_axis_off()
+
+    fig.tight_layout()
+    plt.show()"""
 
     # region properties
     regions = regionprops(label_image=label_image, intensity_image=intensity_image)
@@ -213,8 +288,12 @@ def identify_contours_sk(particle_mask, intensity_image, same_id_threshold, file
         for lbl_i, wc_i, maxi_i, meani_i in zip(labels, weighted_centroids, max_intensities, mean_intensities):
             if lbl_i != lbl:
                 if np.all([np.abs(wc[0] - wc_i[0]) < same_id_threshold, np.abs(wc[1] - wc_i[1]) < same_id_threshold]):
-                    if maxi_i < maxi * 0.66:
+                    if maxi_i < maxi * 0.85:
                         labels_to_remove.append(lbl_i)
+
+    """logger.debug("{} contours in thresholded image".format(len(contours)))
+    contours, bboxes = self.merge_overlapping_particles(contours, bboxes, overlap_thresh=overlap_threshold)
+    logger.debug("{} contours in thresholded image after merging of overlapping".format(len(contours)))"""
 
     # get the contours for each region
     contour_coords = []
@@ -228,8 +307,13 @@ def identify_contours_sk(particle_mask, intensity_image, same_id_threshold, file
             points = region.coords
             zero_array[points[:, 1], points[:, 0]] = 1
 
-            contour = find_contours(zero_array)[0].astype(int)
-            contour_coords.append(contour)
+            cont = find_contours(zero_array)
+
+            if len(cont) == 0:
+                continue
+            else:
+                contour = cont[0].astype(int)
+                contour_coords.append(contour)
 
             """if filename in ['calib_-14.0.tif', 'calib_-13.0.tif']:
                 fig, ax = plt.subplots()

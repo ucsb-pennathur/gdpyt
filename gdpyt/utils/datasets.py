@@ -1,11 +1,7 @@
-# GdpytSetup
+# Particle Tracking Datasets
 """
 This script:
-    1. creates GDPyT classes which hold input/output variables for GDPyT functions
-    2. creates a test harness to simplify GDPyT characterization across multiple parameters
-
-    The Goal:
-        Simplify GDPyT testing to a single API.
+    1. contains the per-experiment GDPyT settings for every particle tracking dataset.
 """
 
 # imports
@@ -19,7 +15,8 @@ from gdpyt import GdpytSetup
 
 class dataset_unpacker(object):
     def __init__(self, dataset, collection_type, noise_level=None, number_of_images=None, particle_distribution=None,
-                 particle_density=None, static_templates=False):
+                 particle_density=None, static_templates=False, single_particle_calibration=False,
+                 hard_baseline=False):
         self.dataset = dataset
         self.collection_type = collection_type
         self.noise_level = noise_level
@@ -27,6 +24,8 @@ class dataset_unpacker(object):
         self.particle_distribution = particle_distribution
         self.particle_density = particle_density
         self.static_templates = static_templates
+        self.single_particle_calibration = single_particle_calibration
+        self.hard_baseline = hard_baseline
 
     def unpack(self):
 
@@ -37,10 +36,17 @@ class dataset_unpacker(object):
                 * I am currently not sure how to set this up with the calibration stack offset however.
             """
 
-            assert self.noise_level is not None
-            assert self.number_of_images is not None
-
             base_dir = '/Users/mackenzie/Desktop/gdpyt-characterization/datasets/JP-EXF01-20'
+
+            assert self.number_of_images is not None
+            STATIC_TEMPLATES = self.static_templates
+            SINGLE_PARTICLE_CALIBRATION = True
+            if self.particle_distribution == 'Dataset_I':
+                assert self.noise_level is not None
+                self.particle_density = 361
+            elif self.particle_distribution == 'Dataset_II':
+                assert self.particle_density is not None
+                self.noise_level = 0
 
             # shared variables
 
@@ -87,10 +93,11 @@ class dataset_unpacker(object):
 
             # image pre-processing
             DILATE = None  # None or True
-            SHAPE_TOL = 0.5  # None == take any shape; 1 == take perfectly circular shape only.
-            MIN_P_AREA = 25  # minimum particle size (area: units are in pixels) (recommended: 5)
-            MAX_P_AREA = 2000  # maximum particle size (area: units are in pixels) (recommended: 200)
-            SAME_ID_THRESH = 8  # maximum tolerance in x- and y-directions for particle to have the same ID between images
+            SHAPE_TOL = None  # None == take any shape; 1 == take perfectly circular shape only.
+            MIN_P_AREA = 20  # minimum particle size (area: units are in pixels) (recommended: 5)
+            MAX_P_AREA = 2500  # maximum particle size (area: units are in pixels) (recommended: 200)
+            SAME_ID_THRESH = 8  # 8  # maximum tolerance in x- and y-directions for particle to have the same ID between images
+            OVERLAP_THRESHOLD = 0.5
             BACKGROUND_SUBTRACTION = None
 
             if self.collection_type == 'calibration':
@@ -98,11 +105,11 @@ class dataset_unpacker(object):
                 CALIB_IMG_PATH = join(base_dir, 'Calibration/Calibration-noise-level{}/Calib-00{}'.format(self.noise_level, self.number_of_images))
                 CALIB_BASE_STRING = 'B000'
                 CALIB_GROUND_TRUTH_PATH = 'standard_gdpt'
-                CALIB_ID = 'JP-EXF01-Calib-noise-level{}_Num-images-{}'.format(self.noise_level, self.number_of_images)
-                CALIB_RESULTS_PATH = join(base_dir, 'Results/Dataset_I/gdpyt analysis of parameters/calibration')
+                CALIB_ID = 'JP-EXF01-Calib-nl{}_Num-images-{}'.format(self.noise_level, self.number_of_images)
+                CALIB_RESULTS_PATH = join(base_dir, 'Results/{}'.format(self.particle_distribution))
 
                 # calib dataset information
-                CALIBRATION_Z_STEP_SIZE = 86 / (self.number_of_images - 1) # 50 images spanning 86 microns where image #1 @ z = 0
+                CALIBRATION_Z_STEP_SIZE = 86 / self.number_of_images
                 CALIB_SUBSET = None
                 TRUE_NUM_PARTICLES_PER_CALIB_IMAGE = 1
                 IF_CALIB_IMAGE_STACK = 'first'
@@ -110,21 +117,33 @@ class dataset_unpacker(object):
                 BASELINE_IMAGE = None
 
                 # calibration processing parameters
-                CALIB_TEMPLATE_PADDING = 2
+                CALIB_TEMPLATE_PADDING = 5
+                CALIB_CROPPING_SPECS = {'xmin': 0, 'xmax': 58, 'ymin': 0, 'ymax': 58, 'pad': 10}
                 CALIB_PROCESSING_METHOD = 'median'
                 CALIB_PROCESSING_FILTER_TYPE = 'square'
-                CALIB_PROCESSING_FILTER_SIZE = 2
-                CALIB_PROCESSING = {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None,
-                                                                       'wrap']}}
+                CALIB_PROCESSING_FILTER_SIZE = 3
+                CALIB_PROCESSING_METHOD2 = 'gaussian'
+                CALIB_PROCESSING_FILTER_TYPE2 = None
+                CALIB_PROCESSING_FILTER_SIZE2 = 1
+                if self.particle_distribution == 'Dataset_II':
+                    CALIB_PROCESSING = None
+                    calib_threshold_modifier = 515
+                elif self.particle_distribution == 'Dataset_I':
+                    CALIB_PROCESSING = {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+                    calib_threshold_modifier = 550
+
                 CALIB_THRESHOLD_METHOD = 'manual'
-                CALIB_THRESHOLD_MODIFIER = 575
+                CALIB_THRESHOLD_MODIFIER = calib_threshold_modifier  # 575
                 CALIB_THRESHOLD_PARAMS = {CALIB_THRESHOLD_METHOD: [CALIB_THRESHOLD_MODIFIER]}
 
                 # similarity
-                STACKS_USE_RAW = False
+                if self.particle_distribution == 'Dataset_II':
+                    STACKS_USE_RAW = True
+                elif self.particle_distribution == 'Dataset_I':
+                    STACKS_USE_RAW = False
                 MIN_STACKS = 0.5  # percent of calibration stack
                 ZERO_CALIB_STACKS = False
-                ZERO_STACKS_OFFSET = 0.0  # TODO: should be derived or defined by a plane of interest
+                ZERO_STACKS_OFFSET = -67.5
                 INFER_METHODS = 'sknccorr'
                 MIN_CM = 0.5
                 SUB_IMAGE_INTERPOLATION = True
@@ -132,37 +151,58 @@ class dataset_unpacker(object):
                 # display options
                 INSPECT_CALIB_CONTOURS = False
                 SHOW_CALIB_PLOTS = False
-                SAVE_CALIB_PLOTS = False
+                SAVE_CALIB_PLOTS = True
 
             if self.collection_type == 'test':
-                TEST_IMG_PATH = join(base_dir, 'Dataset_I/Measurement-grid-noise-level{}/Images'.format(self.noise_level))
+
                 TEST_BASE_STRING = 'B00'
-                TEST_GROUND_TRUTH_PATH =  join(base_dir, 'Dataset_I/Measurement-grid-noise-level{}/Coordinates'.format(self.noise_level))
-                TEST_ID = 'JP-EXF01-Meas-noise-level{}'.format(self.noise_level)
-                TEST_RESULTS_PATH = join(base_dir, 'Results/Dataset_I/gdpyt analysis of parameters/test')
+                TEST_ID = 'JP-EXF01-{}-pnum{}-nl{}'.format(self.particle_distribution, self.particle_density, self.noise_level)
+                TEST_RESULTS_PATH = join(base_dir, 'Results/{}'.format(self.particle_distribution))
+
+                if self.particle_distribution == 'Dataset_I':
+                    TEST_IMG_PATH = join(base_dir, '{}/Measurement-grid-noise-level{}/Images'.format(self.particle_distribution, self.noise_level))
+                    TEST_GROUND_TRUTH_PATH =  join(base_dir, '{}/Measurement-grid-noise-level{}/Coordinates'.format(self.particle_distribution, self.noise_level))
+
+                elif self.particle_distribution == 'Dataset_II':
+                    TEST_IMG_PATH = join(base_dir, '{}/Images/Part-per-image-{}'.format(self.particle_distribution, self.particle_density))
+                    TEST_GROUND_TRUTH_PATH = join(base_dir, '{}/Coordinates/Part-per-image-{}'.format(self.particle_distribution, self.particle_density))
+                    TEST_RESULTS_PATH = join(base_dir, 'Results/{}'.format(self.particle_distribution))
 
                 # test dataset information
-                TEST_SUBSET = [1, 20]
-                TRUE_NUM_PARTICLES_PER_IMAGE = 361
+                TEST_SUBSET = [1, 10]
+                TRUE_NUM_PARTICLES_PER_IMAGE = float(self.particle_density)
                 IF_TEST_IMAGE_STACK = 'first'
                 TAKE_TEST_IMAGE_SUBSET_MEAN = []
+                TEST_PARTICLE_ID_IMAGE = 'B00001.tif'
 
                 # test processing parameters
                 TEST_TEMPLATE_PADDING = 1
+                TEST_CROPPING_SPECS = None  # {'xmin': 150, 'xmax': 850, 'ymin': 150, 'ymax': 850, 'pad': 20}
                 TEST_PROCESSING_METHOD = 'median'
                 TEST_PROCESSING_FILTER_TYPE = 'square'
-                TEST_PROCESSING_FILTER_SIZE = 2
-                TEST_PROCESSING = {
-                    TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+                TEST_PROCESSING_FILTER_SIZE = 3
+                TEST_PROCESSING_METHOD2 = 'gaussian'
+                TEST_PROCESSING_FILTER_TYPE2 = None
+                TEST_PROCESSING_FILTER_SIZE2 = 1
+                if self.particle_distribution == 'Dataset_II':
+                    TEST_PROCESSING = None
+                    test_threshold_modifier = 575
+                elif self.particle_distribution == 'Dataset_I':
+                    TEST_PROCESSING = {TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+                    test_threshold_modifier = 550
+
                 TEST_THRESHOLD_METHOD = 'manual'
-                TEST_THRESHOLD_MODIFIER = 575
+                TEST_THRESHOLD_MODIFIER = test_threshold_modifier
                 TEST_THRESHOLD_PARAMS = {TEST_THRESHOLD_METHOD: [TEST_THRESHOLD_MODIFIER]}
 
                 # similarity
-                STACKS_USE_RAW = False
+                if self.particle_distribution == 'Dataset_II':
+                    STACKS_USE_RAW = True
+                elif self.particle_distribution == 'Dataset_I':
+                    STACKS_USE_RAW = False
                 MIN_STACKS = 0.5  # percent of calibration stack
                 ZERO_CALIB_STACKS = False
-                ZERO_STACKS_OFFSET = 0.0  # TODO: should be derived or defined by a plane of interest
+                ZERO_STACKS_OFFSET = 0.0
                 INFER_METHODS = 'sknccorr'
                 MIN_CM = 0.5
                 SUB_IMAGE_INTERPOLATION = True
@@ -202,23 +242,37 @@ class dataset_unpacker(object):
 
             base_dir = '/Users/mackenzie/Desktop/gdpyt-characterization/datasets/synthetic_overlap_noise-level{}'.format(nl)
 
-            if self.particle_distribution == 'grid':
+            if self.particle_distribution == 'grid' and SINGLE_PARTICLE_CALIBRATION is True:
+                calib_id = 'GridOverlapSPC_calib_nll{}_'.format(nl)
+                calib_base_dir = join(base_dir, 'grid')
                 base_dir = join(base_dir, 'grid')
+                calib_cropping_specs = {'xmin': 50, 'xmax': 145, 'ymin': 50, 'ymax': 145, 'pad': 20}
+                calib_baseline_image = None
+                calib_true_num_particles = 1
+                overlap_scaling = 5
+                true_num_particles = 170
+                baseline_image = 'calib_-27.070707070707073.tif'
+                test_particle_id_image = 'calib_-27.070707070707073.tif'
+                cropping_specs = None
             elif self.particle_distribution == 'random' and SINGLE_PARTICLE_CALIBRATION is False:
+                calib_id = 'RandOverlapGDPyT_calib_pd{}_nl{}_'.format(self.particle_density, nl)
                 base_dir = join(base_dir, 'random', 'particle_density_' + self.particle_density)
+                overlap_scaling = None
             elif self.particle_distribution == 'random' and SINGLE_PARTICLE_CALIBRATION is True:
+                calib_id = 'RandOverlapSPC_calib_pd{}_nl{}_'.format(self.particle_density, nl)
                 calib_base_dir = join(base_dir, 'random', 'particle_density_1e-3')
                 base_dir = join(base_dir, 'random', 'particle_density_' + self.particle_density)
                 calib_cropping_specs = {'xmin': 623, 'xmax': 698, 'ymin': 186, 'ymax': 261, 'pad': 30}
                 threshold_modifier = 600
                 calib_baseline_image = None
                 calib_true_num_particles = 1
+                overlap_scaling = None
 
                 if self.particle_density == '1e-3':
                     true_num_particles = 104
                     baseline_image = 'calib_-27.0.tif' # 'calib_-35.0.tif'
                     test_particle_id_image = 'calib_-27.1356783919598.tif' # 'calib_-35.175879396984925.tif'
-                    cropping_specs = {'xmin': 15, 'xmax': 1010, 'ymin': 20, 'ymax': 1010, 'pad': 30}
+                    cropping_specs = {'xmin': 0, 'xmax': 1023, 'ymin': 0, 'ymax': 1023, 'pad': 30}
                     # cropping_specs = {'xmin': 0, 'xmax': 470, 'ymin': 0, 'ymax': 1024, 'pad': 30}
                 elif self.particle_density == '2.5e-3':
                     true_num_particles = 175
@@ -239,7 +293,7 @@ class dataset_unpacker(object):
                     true_num_particles = 180 # 1048
                     baseline_image = 'calib_-27.0.tif' # 'calib_-35.0.tif'
                     test_particle_id_image = 'calib_-27.1356783919598.tif' # 'calib_-35.175879396984925.tif'
-                    cropping_specs = {'xmin': 275, 'xmax': 700, 'ymin': 275, 'ymax': 700, 'pad': 30}
+                    cropping_specs = {'xmin': 250, 'xmax': 750, 'ymin': 250, 'ymax': 750, 'pad': 30}
                 else:
                     raise ValueError("Unknown particle density")
 
@@ -267,7 +321,7 @@ class dataset_unpacker(object):
             GAIN = 1
             CYL_FOCAL_LENGTH = 0
             WAVELENGTH = 600e-9
-            OVERLAP_SCALING = None
+            OVERLAP_SCALING = overlap_scaling
 
             optics = GdpytSetup.optics(particle_diameter=PARTICLE_DIAMETER,
                                        magnification=MAGNIFICATION,
@@ -293,7 +347,7 @@ class dataset_unpacker(object):
             SHAPE_TOL = None  # None == take any shape; 1 == take perfectly circular shape only.
             MIN_P_AREA = 25  # minimum particle size (area: units are in pixels) (recommended: 5)
             MAX_P_AREA = 22000  # maximum particle size (area: units are in pixels) (recommended: 200)
-            SAME_ID_THRESH = 10  # maximum tolerance in x- and y-directions for particle to have the same ID between images
+            SAME_ID_THRESH = 5  # maximum tolerance in x- and y-directions for particle to have the same ID between images
             OVERLAP_THRESHOLD = 0.1
             BACKGROUND_SUBTRACTION = None
 
@@ -302,7 +356,7 @@ class dataset_unpacker(object):
                 CALIB_IMG_PATH = join(calib_base_dir, 'calibration_images')
                 CALIB_BASE_STRING = 'calib_'
                 CALIB_GROUND_TRUTH_PATH = None # join(calib_base_dir, 'calibration_input')
-                CALIB_ID = 'SynOverlap_calib_pd{}_noise-level{}_'.format(self.particle_density, nl)
+                CALIB_ID = calib_id
                 CALIB_RESULTS_PATH = join(base_dir, 'results/calibration')
 
                 # calib dataset information
@@ -314,11 +368,11 @@ class dataset_unpacker(object):
                 BASELINE_IMAGE = calib_baseline_image
 
                 # calibration processing parameters
-                CALIB_TEMPLATE_PADDING = 3
+                CALIB_TEMPLATE_PADDING = 5
                 CALIB_CROPPING_SPECS = calib_cropping_specs # cropping_specs
                 CALIB_PROCESSING_METHOD = 'median'
                 CALIB_PROCESSING_FILTER_TYPE = 'square'
-                CALIB_PROCESSING_FILTER_SIZE = 2
+                CALIB_PROCESSING_FILTER_SIZE = 3
                 CALIB_PROCESSING_METHOD2 = 'gaussian'
                 CALIB_PROCESSING_FILTER_TYPE2 = None
                 CALIB_PROCESSING_FILTER_SIZE2 = 1
@@ -334,19 +388,19 @@ class dataset_unpacker(object):
                 ZERO_CALIB_STACKS = False
                 ZERO_STACKS_OFFSET = 0.0
                 INFER_METHODS = 'sknccorr'
-                MIN_CM = 0.9
+                MIN_CM = 0.5
                 SUB_IMAGE_INTERPOLATION = True
 
                 # display options
                 INSPECT_CALIB_CONTOURS = False
                 SHOW_CALIB_PLOTS = False
-                SAVE_CALIB_PLOTS = False
+                SAVE_CALIB_PLOTS = True
 
             if self.collection_type == 'test':
                 TEST_IMG_PATH = join(base_dir, 'test_images')
                 TEST_BASE_STRING = 'calib_'
                 TEST_GROUND_TRUTH_PATH =  join(base_dir, 'test_input')
-                TEST_ID = 'RandOverlap_test_nl{}_'.format(nl)
+                TEST_ID = 'GridOverlap_test_nl{}_'.format(nl)
                 TEST_RESULTS_PATH = join(base_dir, 'results/test')
 
                 # test dataset information
@@ -357,11 +411,11 @@ class dataset_unpacker(object):
                 TEST_PARTICLE_ID_IMAGE = test_particle_id_image
 
                 # test processing parameters
-                TEST_TEMPLATE_PADDING = 1
+                TEST_TEMPLATE_PADDING = 5
                 TEST_CROPPING_SPECS = cropping_specs
                 TEST_PROCESSING_METHOD = 'median'
                 TEST_PROCESSING_FILTER_TYPE = 'square'
-                TEST_PROCESSING_FILTER_SIZE = 2
+                TEST_PROCESSING_FILTER_SIZE = 3
                 TEST_PROCESSING_METHOD2 = 'gaussian'
                 TEST_PROCESSING_FILTER_TYPE2 = None
                 TEST_PROCESSING_FILTER_SIZE2 = 1
@@ -378,7 +432,7 @@ class dataset_unpacker(object):
                 ZERO_CALIB_STACKS = False
                 ZERO_STACKS_OFFSET = 0.0
                 INFER_METHODS = 'sknccorr'
-                MIN_CM = 0.9 # 0.75
+                MIN_CM = 0.5 # 0.75
                 SUB_IMAGE_INTERPOLATION = True
                 ASSESS_SIMILARITY_FOR_ALL_STACKS = False
 
@@ -1608,14 +1662,166 @@ class dataset_unpacker(object):
 
         # ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- --------
 
+        if self.dataset == '10.07.21-BPE_Pressure_Deflection':
+
+            # shared variables
+
+            base_dir = '/Users/mackenzie/Desktop/gdpyt-characterization/tests/10.07.21-BPE_Pressure_Deflection'
+
+            # file types
+            filetype = '.tif'
+            filetype_ground_truth = '.txt'
+
+            # optics
+            PARTICLE_DIAMETER = 5.61e-6
+            MAGNIFICATION = 20
+            DEMAG = 1
+            NA = 0.45
+            FOCAL_LENGTH = 350
+            REF_INDEX_MEDIUM = 1
+            REF_INDEX_LENS = 1.5
+            PIXEL_SIZE = 16e-6
+            PIXEL_DIM_X = 512
+            PIXEL_DIM_Y = 512
+            BKG_MEAN = 500
+            BKG_NOISES = 50
+            POINTS_PER_PIXEL = None
+            N_RAYS = None
+            GAIN = 4
+            CYL_FOCAL_LENGTH = 0
+            WAVELENGTH = 600e-9
+            OVERLAP_SCALING = None
+
+            optics = GdpytSetup.optics(particle_diameter=PARTICLE_DIAMETER,
+                                       magnification=MAGNIFICATION,
+                                       demag=DEMAG,
+                                       numerical_aperture=NA,
+                                       focal_length=FOCAL_LENGTH,
+                                       ref_index_medium=REF_INDEX_MEDIUM,
+                                       ref_index_lens=REF_INDEX_LENS,
+                                       pixel_size=PIXEL_SIZE,
+                                       pixel_dim_x=PIXEL_DIM_X,
+                                       pixel_dim_y=PIXEL_DIM_Y,
+                                       bkg_mean=BKG_MEAN,
+                                       bkg_noise=BKG_NOISES,
+                                       points_per_pixel=POINTS_PER_PIXEL,
+                                       n_rays=N_RAYS,
+                                       gain=GAIN,
+                                       cyl_focal_length=CYL_FOCAL_LENGTH,
+                                       wavelength=WAVELENGTH,
+                                       overlap_scaling=OVERLAP_SCALING)
+
+            # image pre-processing
+            DILATE = None  # None or True
+            SHAPE_TOL = None  # None == take any shape; 1 == take perfectly circular shape only.
+            MIN_P_AREA = 25  # minimum particle size (area: units are in pixels) (recommended: 5)
+            MAX_P_AREA = 22000  # maximum particle size (area: units are in pixels) (recommended: 200)
+            SAME_ID_THRESH = 5  # maximum tolerance in x- and y-directions for particle to have the same ID between images
+            OVERLAP_THRESHOLD = 0.1
+            BACKGROUND_SUBTRACTION = None
+
+            if self.collection_type == 'calibration':
+
+                CALIB_IMG_PATH = join(calib_base_dir, 'images/calibration')
+                CALIB_BASE_STRING = 'calib_'
+                CALIB_GROUND_TRUTH_PATH = None
+                CALIB_ID = '10.07.21-BPE_Pressure_Deflection'
+                CALIB_RESULTS_PATH = join(base_dir, 'results/calibration')
+
+                # calib dataset information
+                CALIB_SUBSET = [25, 60]
+                CALIBRATION_Z_STEP_SIZE = 1.0
+                TRUE_NUM_PARTICLES_PER_CALIB_IMAGE = 250
+                IF_CALIB_IMAGE_STACK = 'subset'
+                TAKE_CALIB_IMAGE_SUBSET_MEAN = [0, 4]
+                BASELINE_IMAGE = 'calib_40.tif'
+
+                # calibration processing parameters
+                CALIB_TEMPLATE_PADDING = 3
+                CALIB_CROPPING_SPECS = calib_cropping_specs # cropping_specs
+                CALIB_PROCESSING_METHOD = 'median'
+                CALIB_PROCESSING_FILTER_TYPE = 'square'
+                CALIB_PROCESSING_FILTER_SIZE = 2
+                CALIB_PROCESSING_METHOD2 = 'gaussian'
+                CALIB_PROCESSING_FILTER_TYPE2 = None
+                CALIB_PROCESSING_FILTER_SIZE2 = 1
+                CALIB_PROCESSING = None  # {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+                    # CALIB_PROCESSING_METHOD2: {'args': [], 'kwargs': dict(sigma=CALIB_PROCESSING_FILTER_SIZE2, preserve_range=True)}}
+                CALIB_THRESHOLD_METHOD = 'manual'
+                CALIB_THRESHOLD_MODIFIER = 140
+                CALIB_THRESHOLD_PARAMS = {CALIB_THRESHOLD_METHOD: [CALIB_THRESHOLD_MODIFIER]}
+
+                # similarity
+                STACKS_USE_RAW = True
+                MIN_STACKS = 0.5  # percent of calibration stack
+                ZERO_CALIB_STACKS = False
+                ZERO_STACKS_OFFSET = 0.0
+                INFER_METHODS = 'sknccorr'
+                MIN_CM = 0.5
+                SUB_IMAGE_INTERPOLATION = True
+
+                # display options
+                INSPECT_CALIB_CONTOURS = False
+                SHOW_CALIB_PLOTS = False
+                SAVE_CALIB_PLOTS = True
+
+            if self.collection_type == 'test':
+                TEST_IMG_PATH = join(base_dir, 'images/test')
+                TEST_BASE_STRING = 'test'
+                TEST_GROUND_TRUTH_PATH =  join(base_dir, 'test_input')
+                TEST_ID = 'GridOverlap_test_nl{}_'.format(nl)
+                TEST_RESULTS_PATH = join(base_dir, 'results/test')
+
+                # test dataset information
+                TEST_SUBSET = None
+                TRUE_NUM_PARTICLES_PER_IMAGE = true_num_particles
+                IF_TEST_IMAGE_STACK = 'first'
+                TAKE_TEST_IMAGE_SUBSET_MEAN = []
+                TEST_PARTICLE_ID_IMAGE = test_particle_id_image
+
+                # test processing parameters
+                TEST_TEMPLATE_PADDING = 5
+                TEST_CROPPING_SPECS = cropping_specs
+                TEST_PROCESSING_METHOD = 'median'
+                TEST_PROCESSING_FILTER_TYPE = 'square'
+                TEST_PROCESSING_FILTER_SIZE = 3
+                TEST_PROCESSING_METHOD2 = 'gaussian'
+                TEST_PROCESSING_FILTER_TYPE2 = None
+                TEST_PROCESSING_FILTER_SIZE2 = 1
+                TEST_PROCESSING = {TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+                                  # TEST_PROCESSING_METHOD2: {'args': [], 'kwargs': dict(sigma=TEST_PROCESSING_FILTER_SIZE2, preserve_range=True)}}
+
+                TEST_THRESHOLD_METHOD = 'manual'
+                TEST_THRESHOLD_MODIFIER = threshold_modifier
+                TEST_THRESHOLD_PARAMS = {TEST_THRESHOLD_METHOD: [TEST_THRESHOLD_MODIFIER]}
+
+                # similarity
+                STACKS_USE_RAW = False
+                MIN_STACKS = 0.5  # percent of calibration stack
+                ZERO_CALIB_STACKS = False
+                ZERO_STACKS_OFFSET = 0.0
+                INFER_METHODS = 'sknccorr'
+                MIN_CM = 0.5 # 0.75
+                SUB_IMAGE_INTERPOLATION = True
+                ASSESS_SIMILARITY_FOR_ALL_STACKS = False
+
+                # display options
+                INSPECT_TEST_CONTOURS = False
+                SHOW_PLOTS = False
+                SAVE_PLOTS = True
+
+        # ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- --------
+
         if self.collection_type == 'calibration':
             calib_inputs = GdpytSetup.inputs(image_collection_type='calibration',
                                              image_path=CALIB_IMG_PATH,
                                              image_file_type=filetype,
                                              image_base_string=CALIB_BASE_STRING,
                                              calibration_z_step_size=CALIBRATION_Z_STEP_SIZE,
+                                             single_particle_calibration=self.single_particle_calibration,
                                              image_subset=CALIB_SUBSET,
                                              baseline_image=BASELINE_IMAGE,
+                                             hard_baseline=self.hard_baseline,
                                              static_templates=STATIC_TEMPLATES,
                                              if_image_stack=IF_CALIB_IMAGE_STACK,
                                              take_image_stack_subset_mean_of=TAKE_CALIB_IMAGE_SUBSET_MEAN,
@@ -1661,6 +1867,7 @@ class dataset_unpacker(object):
                                             image_file_type=filetype,
                                             image_base_string=TEST_BASE_STRING,
                                             baseline_image=TEST_PARTICLE_ID_IMAGE,
+                                            hard_baseline=self.hard_baseline,
                                             static_templates=STATIC_TEMPLATES,
                                             image_subset=TEST_SUBSET,
                                             if_image_stack=IF_TEST_IMAGE_STACK,

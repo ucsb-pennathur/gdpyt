@@ -58,6 +58,9 @@ class GdpytPerformanceEvaluation(object):
         self.eval_df = pd.concat(perf_df, keys=[fname.split('.txt')[0] + img_ftype for fname in listdir(self._source_folder)], names=['Image', 'id'])
 
     def sigma_z(self, min_cm=None):
+        """
+        Silvan's implementation
+        """
         if min_cm is not None:
             dz = self.eval_df.reset_index().query('Cm > {}'.format(min_cm))['delta_z'].values
         else:
@@ -65,6 +68,9 @@ class GdpytPerformanceEvaluation(object):
         return np.sqrt(np.power(dz, 2).sum() / len(dz))
 
     def sigma_z_local(self, bins=20, min_cm=None):
+        """
+        Silvan's implementation
+        """
         assert bins > 1
         if min_cm is not None:
             z_df = self.eval_df.reset_index().query('Cm > {}'.format(min_cm))[['z_true', 'delta_z']]
@@ -109,10 +115,3 @@ def error_z(image_collection, imgdata_folder=None):
     perf_df = pd.concat(perf_df, keys=[fname.split('.txt')[0] + img_ftype for fname in listdir(imgdata_folder)])
 
     return perf_df
-
-
-
-
-
-        
-
