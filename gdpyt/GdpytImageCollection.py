@@ -1103,8 +1103,10 @@ class GdpytImageCollection(object):
         self.in_focus_z = in_focus_z
         self._in_focus_area = in_focus_area
 
+        """
         show_plot = False
-        """if show_plot:
+        
+        if show_plot:
             fig, ax = plt.subplots()
             ax.scatter(in_focus_zs, in_focus_areas, color='tab:blue', alpha=0.75, label='particle area')
             ax.scatter(in_focus_z, in_focus_area, s=50, color='red', marker='.', label='min = median(area)')
