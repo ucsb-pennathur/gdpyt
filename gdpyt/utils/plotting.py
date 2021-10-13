@@ -23,9 +23,12 @@ import matplotlib as mpl
 logger = logging.getLogger(__name__)
 
 
-def plot_baseline_image_and_particle_ids(collection):
+def plot_baseline_image_and_particle_ids(collection, filename=None):
 
-    baseline_image_filename = collection.baseline
+    if filename is None:
+        baseline_image_filename = collection.baseline
+    else:
+        baseline_image_filename = filename
 
     fig, ax = plt.subplots(figsize=(10, 3))
     ax.imshow(collection.images[baseline_image_filename].draw_particles(raw=False, thickness=1, draw_id=True, draw_bbox=True))
@@ -866,6 +869,20 @@ def plot_every_image_particle_stack_similarity(test_col, calib_set, save_results
     dfstack.to_excel(savedata)
 
 
+def plot_bin_local_rmse_z(collection, measurement_quality, measurement_depth=1, second_plot=None):
+    dfm = measurement_quality
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.plot(dfm.index, dfm.rmse_z / measurement_depth, color='tab:blue', linewidth=3)
+    ax.scatter(dfm.index, dfm.rmse_z / measurement_depth, s=50, color='tab:blue', alpha=0.75)
+    ax.set_xlabel(r'z ($\mu m$)', fontsize=15)
+    ax.set_ylabel(r'$\sigma_{z}(z)$ / h', fontsize=15)
+    ax.grid(alpha=0.25)
+    ax.set_ylim([-0.0025, 0.1525])
+    plt.tight_layout()
+    return fig
+
+
+
 def plot_local_rmse_uncertainty(collection, measurement_quality, measurement_depth=None, true_xy=False,
                                 measurement_width=None, second_plot=None):
     """
@@ -950,11 +967,11 @@ def plot_local_rmse_uncertainty(collection, measurement_quality, measurement_dep
             ax2.legend()
 
         elif second_plot == 'num_valid_z_measure':
-            ax2.errorbar(x=df.true_z, y=df.num_valid_z_measure, fmt='o', color='darkgreen', ecolor='limegreen',
+            ax2.errorbar(x=df.true_z, y=df.num_meas, fmt='o', color='darkgreen', ecolor='limegreen',
                          elinewidth=1, capsize=2)
-            ax2.plot(df.true_z, df.num_valid_z_measure, color='darkgreen', alpha=0.125)
+            ax2.plot(df.true_z, df.num_meas, color='darkgreen', alpha=0.125)
             ax2.set_ylabel(r'$p_{num.}$', color='darkgreen')
-            ax2.set_ylim([0, np.max(df.num_valid_z_measure) * 1.125])
+            ax2.set_ylim([0, np.max(df.num_meas) * 1.125])
 
     plt.tight_layout()
 
@@ -1203,6 +1220,40 @@ def plot_particle_snr_and(collection, second_plot='area', particle_id=None):
     plt.tight_layout()
 
     return fig
+
+
+def plot_particle_peak_intensity(collection):
+
+    values = []
+    for img in collection.images.values():
+        for p in img.particles:
+            if p.z_true is not None:
+                values.append([p.id, p.z_true, p.peak_intensity])
+
+    df = pd.DataFrame(data=values, columns=['id', 'true_z', 'peak_intensity'])
+
+    # group by true_z to get aggregate values to plot
+    df_z_count = df.groupby(['true_z']).count()
+    df_z_mean = df.groupby(['true_z']).mean()
+    df_z_std = df.groupby(['true_z']).std()
+
+    fig, ax = plt.subplots()
+
+    ax.errorbar(x=df_z_mean.index, y=df_z_mean.peak_intensity, yerr=df_z_std.peak_intensity, fmt='o', color='darkblue', ecolor='lightblue',
+                elinewidth=1, capsize=2)
+    ax.plot(df_z_mean.index, df_z_mean.peak_intensity, color='darkblue', alpha=0.25)
+    ax.set_xlabel(r'$z_{true}$ ($\mu m$)')
+    ax.set_ylabel(r'$I_{max}$ (A.U.)', color='darkblue')
+
+    ax2 = ax.twinx()
+    ax2.scatter(df_z_mean.index, df_z_count.peak_intensity, color='darkgreen', alpha=0.25)
+    ax2.plot(df_z_mean.index, df_z_count.peak_intensity, color='darkgreen', alpha=0.2)
+    ax2.set_ylabel(r'$p_{num}$', color='darkgreen')
+
+    plt.tight_layout()
+
+    return fig
+
 
 def plot_particle_signal(collection, optics, collection_image_stats, particle_id):
 

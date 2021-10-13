@@ -12,20 +12,27 @@ import numpy as np
 from skimage.morphology import disk, square
 
 # ----- ----- ----- ----- TEST DATASET UNPACKER ----- ----- ----- ----- ----- ----- -----
-test_dataset = 'synthetic_overlap_noise-level'
+test_dataset = '10.07.21-BPE_Pressure_Deflection'
 
-if test_dataset == 'JP-EXF01-20':
-    calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration', noise_level=0,
-                                      number_of_images=50).unpack()
-    test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test', noise_level=0,
-                                     number_of_images=50).unpack()
+if test_dataset == '10.07.21-BPE_Pressure_Deflection':
+    calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration', static_templates=False,
+                                      single_particle_calibration=False, hard_baseline=False).unpack()
+    test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test', static_templates=False,
+                                     single_particle_calibration=False, hard_baseline=False).unpack()
+elif test_dataset == 'JP-EXF01-20':
+    calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration', noise_level=1,
+                                      number_of_images=86, particle_distribution='Dataset_I',
+                                      particle_density='361', static_templates=False).unpack()
+    test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test', noise_level=1,
+                                     number_of_images=60, particle_distribution='Dataset_I',
+                                     particle_density='361', static_templates=False).unpack()
 elif test_dataset == 'synthetic_overlap_noise-level':
     calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration', noise_level=1,
-                                      particle_distribution='random', particle_density='7.5e-3',
+                                      particle_distribution='grid', particle_density='10e-3',
                                       static_templates=False).unpack()
     test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test', noise_level=1,
-                                     particle_distribution='random', particle_density='7.5e-3',
-                                     static_templates=False).unpack()
+                                     particle_distribution='grid', particle_density='10e-3',
+                                     static_templates=True).unpack()
 elif test_dataset == '20X_1Xmag_5.61umPink_HighInt':
     calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration').unpack()
     test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test').unpack()

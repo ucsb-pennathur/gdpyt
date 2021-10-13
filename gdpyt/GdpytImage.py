@@ -34,7 +34,7 @@ class GdpytImage(object):
     the z coordinate is passed when creating an instance
     """
 
-    def __init__(self, path, if_img_stack_take='all', take_subset_mean=None, true_num_particles=None):
+    def __init__(self, path, frame=None, if_img_stack_take='all', take_subset_mean=None, true_num_particles=None):
         super(GdpytImage, self).__init__()
         # Attributes with an underscore as the first character are "internal use". That means that they are only meant
         # to be modified by methods of this class.
@@ -49,6 +49,7 @@ class GdpytImage(object):
 
         self._filepath = path
         self._filename = basename(path)
+        self.frame = frame
         if true_num_particles is None:
             self._true_num_particles = 1
         else:
@@ -92,7 +93,7 @@ class GdpytImage(object):
         self._particles.append(GdpytParticle(self.raw, self.filtered, id_, contour, bbox,
                                              particle_mask_on_image=particle_mask,
                                              particle_collection_type=particle_collection_type,
-                                             location=location))
+                                             location=location, frame=self.frame))
 
     def _update_processing_stats(self, names, values):
         if not isinstance(names, list):
@@ -253,9 +254,19 @@ class GdpytImage(object):
             particle_mask = apply_threshold(self.filtered, parameter=thresh_specs, min_particle_size=min_size,
                                             padding=padding).astype(np.uint16)
 
+        """if self.filename in ['B00051.tif', 'B00052.tif', 'B00053.tif', 'B00054.tif']:
+            fig, ax = plt.subplots(ncols=2)
+            ax[0].imshow(self.filtered)
+            ax[1].imshow(particle_mask)
+            plt.show()"""
+
         # identify particles
         label_image, regions, all_contour_coords = identify_contours_sk(particle_mask, self.filtered, same_id_threshold,
                                                                         self.filename)
+
+        """logger.debug("{} contours in thresholded image".format(len(all_contour_coords)))
+        contours, bboxes = self.merge_overlapping_particles(all_contour_coords, bboxes, overlap_thresh=overlap_threshold)
+        logger.debug("{} contours in thresholded image after merging of overlapping".format(len(contours)))"""
 
         # store the regionprops table
         regionprops_data = regionprops_table(label_image, self.filtered,
@@ -287,7 +298,7 @@ class GdpytImage(object):
                 continue
             aspect_ratio = region.major_axis_length / region.minor_axis_length
             if aspect_ratio > 6:
-                logger.warning("Region skipped b/c aspect ratio = {} > 6.".format(aspect_ratio))
+                logger.warning("Region skipped b/c aspect ratio = {} > 3.".format(aspect_ratio))
                 skipped_contours.append(region.label)
                 continue
 

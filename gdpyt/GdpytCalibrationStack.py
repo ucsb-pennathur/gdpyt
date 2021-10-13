@@ -393,7 +393,7 @@ class GdpytCalibrationStack(object):
         for particle in self.particles:
             particle.reset_id(new_id)
 
-    def set_zero(self, z_zero, offset=0):
+    def set_zero(self, z_zero=0, offset=0):
         """
         This method sets the zero location for all particles based on an 'offset' input and the location of minimum
         area. Note, that it sets all particles to an identical z-coordinate.
