@@ -1103,23 +1103,6 @@ class GdpytImageCollection(object):
         self.in_focus_z = in_focus_z
         self._in_focus_area = in_focus_area
 
-        show_plot = False
-        """if show_plot:
-            fig, ax = plt.subplots()
-            ax.scatter(in_focus_zs, in_focus_areas, color='tab:blue', alpha=0.75, label='particle area')
-            ax.scatter(in_focus_z, in_focus_area, s=50, color='red', marker='.', label='min = median(area)')
-            ax.set_xlabel('z')
-            ax.set_ylabel('area')
-            ax.grid(alpha=0.25)
-
-            ax.set_title("Calibration collection mininum area {} at z_true = {}".format(in_focus_area, in_focus_z))
-            plt.tight_layout()
-
-            savedir = '/Users/mackenzie/Desktop/dumpfigures/'
-            savefigpath = join(savedir + '_calibration_collection_minimum_z_area.png')
-            fig.savefig(fname=savefigpath, bbox_inches='tight')
-            plt.close()"""
-
     def find_collection_z_of_min_area(self):
         """
         Find the z-coordinate of the minimum area for all particles in a collection
@@ -1197,28 +1180,6 @@ class GdpytImageCollection(object):
             z_zero = z_local[np.argmin(areas_interp)]
             areas_zero = np.min(areas_interp)
 
-            show_plot = True
-            if show_plot:
-                fig, ax = plt.subplots()
-                ax.scatter(zs[lower_index:upper_index + 1], areas[lower_index:upper_index + 1], color='tab:blue',
-                           alpha=0.75, label='particle area')
-                ax.plot(z_local, areas_interp, color='black', alpha=0.5, label='interpolated')
-                ax.scatter(z_zero, areas_zero, s=50, color='red', marker='.', label='min')
-                ax.set_xlabel('z')
-                ax.set_ylabel('area')
-                ax.grid(alpha=0.25)
-
-                ax.set_title("Min area {} at z_true = {}".format(areas[amin_index], zs[amin_index]))
-                plt.suptitle("{} collection mininum interpolated area {} at z_true = {}".format(self._image_collection_type,
-                                                                                                np.round(areas_zero, 3),
-                                                                                                np.round(z_zero, 3)))
-                plt.tight_layout()
-
-                savedir = '/Users/mackenzie/Desktop/dumpfigures/'
-                savefigpath = join(savedir + '_{}_collection_minimum_z_area.png'.format(self._image_collection_type))
-                fig.savefig(fname=savefigpath, bbox_inches='tight')
-                plt.close()
-
         # if less than three points, get the minimum of the areas
         else:
             z_zero = zs[np.argmin(areas)]
@@ -1252,6 +1213,21 @@ class GdpytImageCollection(object):
         calib_col_image_stats = pd.concat([dfs, self.image_stats], axis=1)
 
         return calib_col_image_stats
+
+    def calculate_image_particle_similarity(self):
+        img_z = []
+        img_sim = []
+        for img in self.images.values():
+            sim = img.infer_self_similarity()
+
+            img_sim.append(sim)
+            img_z.append(img.z)
+
+            j =1
+
+        df = pd.DataFrame(data=img_sim, index=img_z, columns=['sim'])
+
+        return df
 
     def calculate_image_stats(self):
 

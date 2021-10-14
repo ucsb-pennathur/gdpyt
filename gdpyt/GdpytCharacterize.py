@@ -74,6 +74,13 @@ def test(calib_settings, test_settings, return_variables=None):
                                              self_similarity_method=test_settings.z_assessment.infer_method,
                                              dilate=calib_settings.processing.dilate)
 
+    # calculate particle similarity per image
+    df_sim = calib_col.calculate_image_particle_similarity()
+    savedata = join('/Users/mackenzie/Desktop', 'similarity_' + calib_settings.inputs.dataset + '.xlsx')
+    df_sim.to_excel(savedata, index=True)
+
+    raise ValueError("stop here")
+
     # plot the baseline image with particle ID's
     if calib_col.baseline is not None:
         fig = calib_col.plot_baseline_image_and_particle_ids()

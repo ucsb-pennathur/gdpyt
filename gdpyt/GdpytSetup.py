@@ -38,7 +38,7 @@ class GdpytSetup(object):
 
 
 class inputs(object):
-    def __init__(self, image_collection_type=None, image_path=None, image_file_type=None, image_base_string=None,
+    def __init__(self, dataset, image_collection_type=None, image_path=None, image_file_type=None, image_base_string=None,
                  image_subset=None, calibration_z_step_size=1, baseline_image=None, static_templates=False,
                  if_image_stack='first', take_image_stack_subset_mean_of=[], single_particle_calibration=False,
                  ground_truth_file_path=None, ground_truth_file_type=None, true_number_of_particles=None,
@@ -47,6 +47,7 @@ class inputs(object):
 
         Parameters
         ----------
+        dataset
         image_collection_type
         image_path
         image_file_type
@@ -61,6 +62,7 @@ class inputs(object):
         true_number_of_particles
         """
         # image collection ID and type
+        self.dataset = dataset
         self.image_collection_type = image_collection_type
 
         # file paths

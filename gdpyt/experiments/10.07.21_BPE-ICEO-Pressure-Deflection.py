@@ -83,7 +83,7 @@ CALIB_ID = DATASET + '-calib'
 CALIB_RESULTS_PATH = join(BASE_DIR, 'results/calibration')
 
 # calib dataset information
-CALIB_SUBSET = [20, 58]
+CALIB_SUBSET = None
 CALIBRATION_Z_STEP_SIZE = 1.0
 TRUE_NUM_PARTICLES_PER_CALIB_IMAGE = 600
 IF_CALIB_IMAGE_STACK = 'first'
@@ -92,7 +92,7 @@ BASELINE_IMAGE = 'calib_58.tif'
 
 # calibration processing parameters
 CALIB_TEMPLATE_PADDING = 7
-CALIB_CROPPING_SPECS = {'xmin': 350, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 30}
+CALIB_CROPPING_SPECS = {'xmin': 200, 'xmax': 400, 'ymin': 100, 'ymax': 400, 'pad': 30} # {'xmin': 350, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 30}
 CALIB_PROCESSING_METHOD = 'median'
 CALIB_PROCESSING_FILTER_TYPE = 'square'
 CALIB_PROCESSING_FILTER_SIZE = 2

@@ -21,6 +21,7 @@ import numpy.ma as ma
 import pandas as pd
 from .particle_identification import apply_threshold, identify_contours, identify_contours_sk, merge_particles
 from .GdpytParticle import GdpytParticle
+from gdpyt.similarity.correlation import *
 from os.path import isfile, basename
 import time
 import logging
@@ -72,6 +73,7 @@ class GdpytImage(object):
         # Particles: dictionary {particle_id: Particle object}
         # This dictionary is filled up with the identify_particles method
         self._particles = []
+        self._particle_similarity = None
         self._z = None
 
         # contour stats
@@ -822,6 +824,40 @@ class GdpytImage(object):
             cx = float(bbox[2] - bbox[0])
             cy = float(bbox[3] - bbox[1])
 
+    def infer_self_similarity(self, function='sknccorr'):
+
+        sim_func = sk_norm_cross_correlation
+
+        sims = []
+        for p_image in self.particles:
+            img = p_image.template
+
+            for p_template in self.particles:
+
+                if p_template.id == p_image.id:
+                    continue
+
+                padx, pady = 0, 0
+                temp = p_template.template
+                imgx, imgy = img.shape
+                tempx, tempy = temp.shape
+
+                if tempx > imgx:
+                    padx = tempx - imgx + 1
+                if tempy > imgy:
+                    pady = tempy - imgy + 1
+
+                padded_img = np.pad(img, pad_width=[padx, pady], mode='constant', constant_values=np.min(img))
+
+                sim = sim_func(padded_img, temp)
+                sims.append(sim)
+
+        mean_sim = np.mean(sims)
+
+        self._particle_similarity = mean_sim
+
+        return mean_sim
+
     def particle_coordinates(self, id_=None, skip_id_=None):
         coords = []
         no_z_count = 0
@@ -852,20 +888,6 @@ class GdpytImage(object):
             coords = pd.DataFrame()
 
         return coords
-
-    def particle_similarity_curve(self, id_=None):
-        coords = []
-        for particle in self.particles:
-            if id_ is not None:
-                assert isinstance(id_, list)
-                if particle.id not in id_:
-                    continue
-            if particle.similarity_curve is None:
-                continue
-            else:
-                j=particle.interpolation.values()
-                jj=2
-                #coords.append(pd.DataFrame({'id': [int(particle.id)], 'z': [particle.interpolation_curve.z], 'c_m': [particle.interpolation_curve.values()]}))
 
     def maximum_cm(self, id_=None):
         cms = []
@@ -992,6 +1014,10 @@ class GdpytImage(object):
     @property
     def z(self):
         return self._z
+
+    @property
+    def particle_similarity(self):
+        return self._particle_similarity
 
 
 def _compute_rel_bbox_overlap(bbox1, bbox2):
