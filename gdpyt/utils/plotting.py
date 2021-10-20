@@ -1152,8 +1152,13 @@ def plot_particle_snr_and(collection, second_plot='area', particle_id=None):
     if collection.image_collection_type == 'test':
         df = pd.DataFrame(data=values, columns=['id', 'z', 'true_z', 'area', 'solidity', 'snr', 'img_num_particles',
                                                 'cm', 'max_sim'])
+        if not particle_id:
+            df = collection.bin_local_quantities(df, min_cm=0.9)
     else:
         df = pd.DataFrame(data=values, columns=['id', 'z', 'true_z', 'area', 'solidity', 'snr', 'img_num_particles'])
+
+        if not particle_id:
+            df = collection.bin_local_quantities(df, min_cm=None)
 
     # create the figure now so we can use modifiers downstream
     fig, ax = plt.subplots()
@@ -1162,8 +1167,6 @@ def plot_particle_snr_and(collection, second_plot='area', particle_id=None):
     # we have to correct to the correct decimal place to get at least 10-20 data points depending on our measurement
     # range (which can be 0-1 for normalized analyses or 0-NUM_TEST_IMAGES * Z_STEP_PER for meta analyses)
     # we can now round the z-value in order to perform an aggregate analysis
-    if not particle_id:
-        df = collection.bin_local_quantities(df)
 
     # group by true_z to get aggregate values to plot
     df_z_count = df.groupby(['true_z']).count()
@@ -1272,12 +1275,18 @@ def plot_particle_signal(collection, optics, collection_image_stats, particle_id
     # calculate background + noise
     dfp['noise_level'] = dfp['mean_background'] + dfp['std_background'] * 2
 
-    # get value of maximum particle intensity (signal)
+    # calculate the mean background intensity
+    background_mean = dfp.mean_background.mean()
+
+    # get value of maximum particle intensity (signal) and it's z-coordinate
     max_intensity_in_focus = dfp.mean_signal.max()
+    z_max_intensity = dfp.true_z.iloc[dfp[['mean_signal']].idxmax().to_numpy()[0]]
 
     # get stigmatic intensity profile
-    z_profile, stigmatic_intensity_profile = optics.stigmatic_maximum_intensity_z(z_space=dfp.true_z, max_intensity_in_focus=max_intensity_in_focus)
-
+    z_profile, stigmatic_intensity_profile = optics.stigmatic_maximum_intensity_z(z_space=dfp.true_z,
+                                                                                  max_intensity_in_focus=max_intensity_in_focus,
+                                                                                  z_zero=z_max_intensity,
+                                                                                  background_intensity=background_mean)
     # plot
     fig, ax = plt.subplots()
 
@@ -1294,6 +1303,44 @@ def plot_particle_signal(collection, optics, collection_image_stats, particle_id
 
     ax.set_xlabel(r'$z_{true}$')
     ax.set_ylabel(r'$Intensity$')
+    ax.legend()
+    ax.grid(alpha=0.25)
+
+    return fig
+
+
+def plot_particle_diameter(collection, optics, collection_image_stats, particle_id):
+
+    # get particle data
+    values = []
+    for img in collection.images.values():
+        for p in img.particles:
+            if p.id == particle_id:
+                    values.append([p.id, p.z_true, p.area, p.diameter, p.snr, p.mean_signal, p.mean_background,
+                                   p.std_background])
+
+    dfp = pd.DataFrame(data=values, columns=['id', 'true_z', 'area', 'diameter', 'snr', 'mean_signal',
+                                             'mean_background', 'std_background'])
+    dfp = dfp.sort_values(by='true_z')
+
+    # get value of maximum particle intensity (signal) and it's z-coordinate
+    z_max_intensity = dfp.true_z.iloc[dfp[['mean_signal']].idxmax().to_numpy()[0]]
+
+    # get stigmatic diameter profile
+    z_profile, stigmatic_diameter_profile = optics.stigmatic_diameter_z(z_space=dfp.true_z,
+                                                                        z_zero=z_max_intensity)
+    # plot
+    fig, ax = plt.subplots()
+
+    # theoretical diameter profile
+    ax.plot(z_profile, stigmatic_diameter_profile, color='cornflowerblue', alpha=0.5, label=r'theory')
+
+    # measured particle diameter
+    ax.scatter(dfp.true_z, dfp.diameter * optics.microns_per_pixel * 1e6, marker='s', color='mediumblue', label=r'measured', zorder=2.4)
+    ax.plot(dfp.true_z, dfp.diameter * optics.microns_per_pixel * 1e6, color='tab:blue', alpha=0.75)
+
+    ax.set_xlabel(r'$z_{true}$ $\left(\mu m)\right)$')
+    ax.set_ylabel(r'$p_{diameter}$ $\left(\mu m)\right)$')
     ax.legend()
     ax.grid(alpha=0.25)
 

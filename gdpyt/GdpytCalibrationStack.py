@@ -91,8 +91,6 @@ class GdpytCalibrationStack(object):
                 templates.append(particle.get_template(dilation=self._template_dilation))
             else:
                 temp = particle.get_template()
-                # pad calibration images to allow for template sliding
-                # templates.append(np.pad(temp, pad_width=3, mode='constant', constant_values=np.min(temp)))
 
                 # do not pad templates here because template padding occurs on the calibration images only immediately
                 # prior to template matching (i.e. in GdpytCalibrationStack.infer_z)

@@ -155,8 +155,6 @@ class GdpytParticle(object):
         # adjust the bounding box so it doesn't exceed the image bounds
         pad_x_m, pad_x_p, pad_y_m, pad_y_p = 0, 0, 0, 0
 
-        # TODO: the bbox coordinates are flip-flopped
-
         if y + h > image.shape[0]:
             pad_y_p = y + h - image.shape[0]
         if y < 0:

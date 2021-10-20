@@ -12,20 +12,17 @@ import numpy as np
 from skimage.morphology import disk, square
 
 # ----- ----- ----- ----- TEST DATASET UNPACKER ----- ----- ----- ----- ----- ----- -----
-test_dataset = '10X_0.5Xmag_2.15umNR_HighInt_0.03XHg'
+test_dataset = 'JP-EXF01-20'
 
-if test_dataset == '10.07.21-BPE_Pressure_Deflection':
-    calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration', static_templates=False,
-                                      single_particle_calibration=False, hard_baseline=False).unpack()
-    test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test', static_templates=False,
-                                     single_particle_calibration=False, hard_baseline=False).unpack()
-elif test_dataset == 'JP-EXF01-20':
+if test_dataset == 'JP-EXF01-20':
     calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration', noise_level=1,
                                       number_of_images=86, particle_distribution='Dataset_I',
-                                      particle_density='361', static_templates=False).unpack()
+                                      particle_density='361', static_templates=False, hard_baseline=False,
+                                      single_particle_calibration=True, particles_overlapping=False).unpack()
     test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test', noise_level=1,
-                                     number_of_images=60, particle_distribution='Dataset_I',
-                                     particle_density='361', static_templates=False).unpack()
+                                     number_of_images=50, particle_distribution='Dataset_I',
+                                     particle_density='361', static_templates=False, hard_baseline=False,
+                                     single_particle_calibration=True, particles_overlapping=False).unpack()
 elif test_dataset == 'synthetic_overlap_noise-level':
     calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration', noise_level=2,
                                       particle_distribution='random', particle_density='1e-3',
@@ -53,6 +50,20 @@ elif test_dataset == '10X_1Xmag_2.15umNR_HighInt_0.12XHg':
                                       static_templates=False, single_particle_calibration=False, hard_baseline=True).unpack()
     test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test',
                                      static_templates=False, single_particle_calibration=False, hard_baseline=True).unpack()
+elif test_dataset == '20X_1Xmag_0.87umNR_on_Silpuran':
+    calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration',
+                                      static_templates=False, single_particle_calibration=False,
+                                      hard_baseline=True).unpack()
+    test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test',
+                                     static_templates=False, single_particle_calibration=False,
+                                     hard_baseline=True).unpack()
+elif test_dataset == '20X_1Xmag_0.87umNR':
+    calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration',
+                                      static_templates=True, single_particle_calibration=False,
+                                      hard_baseline=True).unpack()
+    test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test',
+                                     static_templates=True, single_particle_calibration=False,
+                                     hard_baseline=True).unpack()
 
 
 # ----- ----- ----- ----- TEST ----- ----- ----- ----- ----- ----- -----

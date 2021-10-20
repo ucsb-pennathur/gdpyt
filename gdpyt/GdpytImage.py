@@ -231,7 +231,7 @@ class GdpytImage(object):
     def identify_particles_sk(self, thresh_specs, min_size=None, max_size=None, shape_tol=0.1,
                               overlap_threshold=0.3, same_id_threshold=10,
                               padding=2, inspect_contours_for_every_image=False, image_collection_type=None,
-                              particle_id_image=None):
+                              particle_id_image=None, overlapping_particles=True):
         """
         Method:
             1. apply threshold
@@ -250,11 +250,11 @@ class GdpytImage(object):
         if particle_id_image is not None:
             """ Using static templates in this case """
             particle_mask = apply_threshold(particle_id_image, parameter=thresh_specs, min_particle_size=min_size,
-                                            padding=padding).astype(np.uint16)
+                                            padding=padding, overlapping_particles=overlapping_particles).astype(np.uint16)
         else:
             """ Using dynamic templates in this case """
             particle_mask = apply_threshold(self.filtered, parameter=thresh_specs, min_particle_size=min_size,
-                                            padding=padding).astype(np.uint16)
+                                            padding=padding, overlapping_particles=overlapping_particles).astype(np.uint16)
 
         """if self.filename in ['B00051.tif', 'B00052.tif', 'B00053.tif', 'B00054.tif']:
             fig, ax = plt.subplots(ncols=2)
@@ -264,7 +264,7 @@ class GdpytImage(object):
 
         # identify particles
         label_image, regions, all_contour_coords = identify_contours_sk(particle_mask, self.filtered, same_id_threshold,
-                                                                        self.filename)
+                                                                        overlapping_particles, self.filename)
 
         """logger.debug("{} contours in thresholded image".format(len(all_contour_coords)))
         contours, bboxes = self.merge_overlapping_particles(all_contour_coords, bboxes, overlap_thresh=overlap_threshold)
@@ -295,7 +295,7 @@ class GdpytImage(object):
 
             # filter on aspect ratio
             if region.minor_axis_length < 2:
-                logger.warning("Region skipped b/c minor axis length {} < 2".format(aspect_ratio))
+                logger.warning("Region skipped b/c minor axis length {} < 2".format(region.minor_axis_length))
                 skipped_contours.append(region.label)
                 continue
             aspect_ratio = region.major_axis_length / region.minor_axis_length
@@ -572,7 +572,7 @@ class GdpytImage(object):
         # calculate SNR for raw image
         mean_signal_r = img_r_mask.mean()
         mean_background_r = img_r_mask_inv.mean()
-        std_background_r = img_r_mask_inv.std()
+        std_background_r = np.max([img_r_mask_inv.std(), 1])
         snr_raw = (mean_signal_r - mean_background_r) / std_background_r
 
         # calculate SNR for filtered image

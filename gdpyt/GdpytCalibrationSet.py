@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class GdpytCalibrationSet(object):
 
-    def __init__(self, collections, image_to_z, dilate=True, template_padding=0, min_num_layers=None, self_similarity_method='sknccorr',  exclude=[]):
+    def __init__(self, collections, image_to_z, dilate=False, template_padding=0, min_num_layers=None, self_similarity_method='sknccorr',  exclude=[]):
         super(GdpytCalibrationSet, self).__init__()
 
         self._template_padding = template_padding
@@ -69,7 +69,7 @@ class GdpytCalibrationSet(object):
                         image.set_z(img_to_z[image.filename])
 
                         # sets the "in_images" attribute for GdpytParticle
-                        # image.add_particles_in_image() # TODO: Method not working but also not important
+                        # image.add_particles_in_image()
 
         # Create the calibration stacks
         self._create_stacks(*collections, exclude=exclude, dilate=dilate, template_padding=template_padding,
@@ -171,7 +171,9 @@ class GdpytCalibrationSet(object):
                             new_stack.add_particle(particle)
                             stacks.update({particle.id: new_stack})
                         else:
+                            particle.set_use_raw(collection.stacks_use_raw)
                             stacks[particle.id].add_particle(particle)
+
                         ids_in_collects.append(particle.id)
 
             # once all the particles ID's have been assigned to a stack, build the calibration stack layers.
@@ -509,7 +511,7 @@ class GdpytImageInference(object):
                 particle.set_inference_stack_id(stack.id)
 
                 # infer z
-                stack.infer_z(particle, function=function, min_cm=min_cm, infer_sub_image=self._infer_sub_image) # Filtered templates are used for correlation calculations
+                stack.infer_z(particle, function=function, min_cm=min_cm, infer_sub_image=self._infer_sub_image)
 
     def ccorr(self, use_stack=None, min_cm=0):
         self._cross_correlation_inference('ccorr', use_stack=use_stack, min_cm=min_cm)

@@ -92,7 +92,7 @@ BASELINE_IMAGE = 'calib_58.tif'
 
 # calibration processing parameters
 CALIB_TEMPLATE_PADDING = 7
-CALIB_CROPPING_SPECS = {'xmin': 200, 'xmax': 400, 'ymin': 100, 'ymax': 400, 'pad': 30} # {'xmin': 350, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 30}
+CALIB_CROPPING_SPECS = {'xmin': 150, 'xmax': 350, 'ymin': 50, 'ymax': 450, 'pad': 30} # {'xmin': 350, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 30}
 CALIB_PROCESSING_METHOD = 'median'
 CALIB_PROCESSING_FILTER_TYPE = 'square'
 CALIB_PROCESSING_FILTER_SIZE = 2
@@ -117,7 +117,7 @@ SUB_IMAGE_INTERPOLATION = True
 # display options
 INSPECT_CALIB_CONTOURS = False
 SHOW_CALIB_PLOTS = False
-SAVE_CALIB_PLOTS = False
+SAVE_CALIB_PLOTS = True
 
 # ----- ----- ----- ----- ----- END CALIBRATION ----- ----- ----- ----- ----- ----- ----- --------
 
@@ -130,7 +130,7 @@ TEST_ID = DATASET + '-test'
 TEST_RESULTS_PATH = join(BASE_DIR, 'results/test')
 
 # test dataset information
-TEST_SUBSET = [1, 20]
+TEST_SUBSET = [1, 30]
 TRUE_NUM_PARTICLES_PER_IMAGE = TRUE_NUM_PARTICLES_PER_CALIB_IMAGE
 IF_TEST_IMAGE_STACK = 'first'
 TAKE_TEST_IMAGE_SUBSET_MEAN = []
@@ -156,7 +156,8 @@ SAVE_PLOTS = False
 
 # ----- ----- ----- ----- ----- SETUP DATALOADER ----- ----- ----- ----- ----- ----- ----- ----- --------
 
-calib_inputs = GdpytSetup.inputs(image_collection_type='calibration',
+calib_inputs = GdpytSetup.inputs(dataset=DATASET,
+                                 image_collection_type='calibration',
                                  image_path=CALIB_IMG_PATH,
                                  image_file_type=FILETYPE,
                                  image_base_string=CALIB_BASE_STRING,
@@ -200,7 +201,8 @@ calib_processing = GdpytSetup.processing(min_layers_per_stack=MIN_STACKS,
                                          zero_stacks_offset=ZERO_STACKS_OFFSET
                                          )
 
-test_inputs = GdpytSetup.inputs(image_collection_type='test',
+test_inputs = GdpytSetup.inputs(dataset=DATASET,
+                                image_collection_type='test',
                                 image_path=TEST_IMG_PATH,
                                 image_file_type=FILETYPE,
                                 image_base_string=TEST_BASE_STRING,
@@ -289,6 +291,11 @@ calib_set = calib_col.create_calibration(name_to_z=name_to_z,
                                          min_num_layers=calib_settings.processing.min_layers_per_stack * len(calib_col.images),
                                          self_similarity_method=test_settings.z_assessment.infer_method,
                                          dilate=calib_settings.processing.dilate)
+
+# calculate particle similarity per image
+df_sim = calib_col.calculate_image_particle_similarity()
+savedata = join('/Users/mackenzie/Desktop', 'similarity_' + calib_settings.inputs.dataset + '.xlsx')
+df_sim.to_excel(savedata, index=True)
 
 # plot the baseline image with particle ID's
 if calib_col.baseline is not None:
