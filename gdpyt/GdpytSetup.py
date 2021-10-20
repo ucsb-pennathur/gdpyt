@@ -42,7 +42,7 @@ class inputs(object):
                  image_subset=None, calibration_z_step_size=1, baseline_image=None, static_templates=False,
                  if_image_stack='first', take_image_stack_subset_mean_of=[], single_particle_calibration=False,
                  ground_truth_file_path=None, ground_truth_file_type=None, true_number_of_particles=None,
-                 hard_baseline=False):
+                 hard_baseline=False, overlapping_particles=True):
         """
 
         Parameters
@@ -81,6 +81,7 @@ class inputs(object):
         self.baseline_image = baseline_image
         self.hard_baseline = hard_baseline
         self.static_templates = static_templates
+        self.overlapping_particles = overlapping_particles
         self.if_image_stack = if_image_stack
         self.take_image_stack_subset_mean_of = take_image_stack_subset_mean_of
         self.true_number_of_particles = true_number_of_particles
@@ -260,13 +261,40 @@ class optics(object):
         # (ref 1: Rossi & Kahler 2014, DOI 10.1007 / s00348-014-1809-2)
         self.particle_diameter_z1 = self.effective_magnification * (self.c1 ** 2 * z_space ** 2 + self.c2 ** 2) ** 0.5
         # (ref 2: Rossi & Kahler 2014, )
-        self.particle_diameter_z2 = self.effective_magnification * particle_diameter
+        self.particle_diameter_z2 = self.effective_magnification * self.particle_diameter
 
-        # maximum intensity with distance from the focal plane (stigmatic system)
-        # NOTE: this should be multiplied by a constant that matches the experimental maximum intensity when in focus.
-
-    def stigmatic_maximum_intensity_z(self, z_space, max_intensity_in_focus, z_zero=None):
+    def stigmatic_diameter_z(self, z_space, z_zero):
         """
+        particle diameter with distance from the focal plane (stigmatic system)
+
+        z_space:
+        z_zero:
+        """
+        # if units of z are not in microns, adjust prior to calculating the intensity profile
+        mod = False
+        if np.max(np.abs(z_space)) > 1:
+            z_space = z_space * 1e-6
+            mod = True
+
+        # create dense z-space for smooth plotting
+        z_space = np.linspace(start=np.min(z_space), stop=np.max(z_space), num=250)
+
+        # particle image diameter with distance from focal plane (stigmatic system)
+        # (ref 1: Rossi & Kahler 2014, DOI 10.1007 / s00348-014-1809-2)
+        particle_diameter_z1 = self.effective_magnification * (self.c1 ** 2 * (z_space - z_zero*1e-6) ** 2 + self.c2 ** 2) ** 0.5
+
+        # convert units to microns
+        particle_diameter_z1 = particle_diameter_z1 * 1e6
+
+        if mod is True:
+            z_space = z_space * 1e6
+
+        return z_space, particle_diameter_z1
+
+    def stigmatic_maximum_intensity_z(self, z_space, max_intensity_in_focus, z_zero=0, background_intensity=0):
+        """
+        maximum intensity with distance from the focal plane (stigmatic system)
+
         z_space: list or array like; containing all the non-normalized z-coordinates in the collection
         max_intensity_in_focus: float; maximum mean particle intensity in the collection
             * Note: this is the maximum of the mean of the contour areas (region of signal) in the collection.
@@ -281,12 +309,13 @@ class optics(object):
         z_space = np.linspace(start=np.min(z_space), stop=np.max(z_space), num=250)
 
         # calculate the intensity profile as a function of z
-        stigmatic_intensity_profile = max_intensity_in_focus * self.c2 ** 2 / ((self.c1 ** 2 * z_space ** 2 + self.c2 **
-                                                                                2) ** 0.5 * (self.c1**2 * z_space ** 2 +
-                                                                                             self.c2 ** 2) ** 0.5)
+        stigmatic_intensity_profile = self.c2 ** 2 / ((self.c1 ** 2 * (z_space - z_zero*1e-6) ** 2 + self.c2 ** 2) **
+                                                      0.5 * (self.c1**2 * (z_space - z_zero*1e-6) ** 2 +
+                                                             self.c2 ** 2) ** 0.5)
 
         # normalize the intensity profile so it's maximum value is equal to the max_intensity_in_focus
-        stigmatic_intensity_profile = stigmatic_intensity_profile * max_intensity_in_focus / np.max(stigmatic_intensity_profile)
+        stigmatic_intensity_profile = (max_intensity_in_focus - background_intensity) * stigmatic_intensity_profile /\
+                                       np.max(stigmatic_intensity_profile) + background_intensity
 
         if mod is True:
             z_space = z_space * 1e6

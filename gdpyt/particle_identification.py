@@ -22,7 +22,7 @@ from skimage.feature import peak_local_max
 from skimage.segmentation import watershed
 
 
-def apply_threshold(img, parameter, min_particle_size=5, padding=3, invert=False):
+def apply_threshold(img, parameter, overlapping_particles=True, min_particle_size=5, padding=3, invert=False):
     if not len(parameter) == 1:
         raise ValueError("Thresholding parameter must be specified as a dictionary with one key and a list containing"
                          "supplementary arguments for that function as a value")
@@ -111,10 +111,78 @@ def apply_threshold(img, parameter, min_particle_size=5, padding=3, invert=False
             threshval = manual_initial_guess
 
         """
+        Options for Thresholding:
+        
+        #1 - Simple Threshold:
+            Used in a majority of cases; always for custom synthetics and experimental datasets because no bright outer
+            ring which messes up the contours. 
+        #2 - Dilate, Erode, Fill Contours:
+            Used for Datasets I and Datasets II when performing single particle calibration b/c it fills in the contour
+            of the bright outer ring. Really only necessary for GDPT Datasets where z<-40 um.
+        #3 - Erode, Dilate, Erode:
+            An older method; useful when >10 pixels per particle diameter; mostly Dataset I or Dataset II.
+        """
+
+        if overlapping_particles is True:
+            """
+            Option #1:
+            1. (9/27 - 10/9): Method used for GDPyT static and dynamic templates
+            2. 10/9: Method for Single Particle Calibration on Synthetic Grid (b/c z>35 um hard to identify)
+            """
+            thresh_img_one = img > threshval
+
+            thresh_img = clear_border(thresh_img_one, buffer_size=1)
+
+        else:
+            """ 
+            Option #2:
+            1. BEGIN NEW UPDATE: 10/9
+            2. 10/10: Removing b/c working with experimental particles with high degree of overlap
+            3. 10/19: Re-using to analyze calibration errors with Dataset I.
+            """
+            thresh_img_one = img > threshval
+
+            # apply a large dilation to connect streaks and slightly smooth image
+            dilation_size = np.min([3, min_particle_size])
+            selem2 = disk(dilation_size)
+            dilated = binary_dilation(thresh_img_one, selem=selem2)
+
+            # perform an erosion to resize contour to approximate original size
+            second_erosion_size = dilation_size - 1
+            selem3 = disk(second_erosion_size)
+            mask_closing = binary_erosion(dilated, selem=selem3)
+
+            thresh_img = clear_border(mask_closing, buffer_size=1)
+
+            contours = cv2.findContours(thresh_img.copy().astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+            contours = imutils.grab_contours(contours)
+
+            for contour in sorted(contours, key=lambda x: x[0][0][0], reverse=False):
+                M = cv2.moments(contour)
+                cntr = np.max([M["m00"], 1])
+                cX = int(M["m10"] / cntr)
+                cY = int(M["m01"] / cntr)
+
+                # if thresh_img[cY, cX] == 1:
+                seed = (cY, cX)
+                temp = flood_fill(thresh_img, seed_point=seed, new_value=1, in_place=False)
+                if np.count_nonzero(temp == 1) - np.count_nonzero(thresh_img == 1) < 750:
+                    thresh_img = temp
+
+                """
+                Plot to check flood filling contours
+                
+                fig, ax = plt.subplots()
+                ax.imshow(thresh_img)
+                plt.show()
+                """
+
+        """
+        Option #3:
         1. Up to 9/27: Old threshold method - Removed to focus on scikit-image segmentation methods.
         2. 11/9: Reusing for GDPT Dataset II
         3. 11/10: Stopped using for Synthetic Grid Overlap because reduces the number of particles identified
-        
+
         noisy_thresh_image = img > threshval
 
         # apply a small erosion to remove bright spots smaller than particle diameter
@@ -141,53 +209,6 @@ def apply_threshold(img, parameter, min_particle_size=5, padding=3, invert=False
         ax[1].imshow(thresh_img)
         plt.show()"""
 
-        """
-        1. (9/27 - 10/9): Method used for GDPyT static and dynamic templates
-        2. 10/9: Method for Single Particle Calibration on Synthetic Grid (b/c z>35 um hard to identify)
-        """
-        thresh_img_one = img > threshval
-
-        """ 
-        1. BEGIN NEW UPDATE: 10/9
-        2. 10/10: Removing b/c working with experimental particles with high degree of overlap
-        
-        # apply a large dilation to connect streaks and slightly smooth image
-        dilation_size = np.min([3, min_particle_size])
-        selem2 = disk(dilation_size)
-        dilated = binary_dilation(thresh_img_one, selem=selem2)
-
-        # perform an erosion to resize contour to approximate original size
-        second_erosion_size = dilation_size - 1
-        selem3 = disk(second_erosion_size)
-        mask_closing = binary_erosion(dilated, selem=selem3)
-        END NEW UPDATE: 10/9 """
-
-        thresh_img = clear_border(thresh_img_one, buffer_size=1)
-
-        # Flood fill contours
-        """
-        Flood filling contours is really only necessary for GDPT Datasets where z<-40 um the particles have a bright
-        outer ring but dark interior.
-
-        contours = cv2.findContours(thresh_img.copy().astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
-        contours = imutils.grab_contours(contours)
-        
-        for contour in sorted(contours, key=lambda x: x[0][0][0], reverse=False):
-            M = cv2.moments(contour)
-            cntr = np.max([M["m00"], 1])
-            cX = int(M["m10"] / cntr)
-            cY = int(M["m01"] / cntr)
-        
-            #if thresh_img[cY, cX] == 1:
-            seed = (cY, cX)
-            temp = flood_fill(thresh_img, seed_point=seed, new_value=1, in_place=False)
-            if np.count_nonzero(temp == 1) - np.count_nonzero(thresh_img == 1) < 750:
-                thresh_img = temp
-        
-            fig, ax = plt.subplots()
-            ax.imshow(thresh_img)
-            plt.show()
-        """
 
     if invert:
         thresh_img = ~thresh_img
@@ -232,9 +253,7 @@ def identify_contours(particle_mask):
 
     return contours, bboxes
 
-def identify_contours_sk(particle_mask, intensity_image, same_id_threshold, filename=None):
-
-    overlapping_particles = True
+def identify_contours_sk(particle_mask, intensity_image, same_id_threshold, overlapping_particles, filename=None):
 
     if overlapping_particles is True:
         # separate connected contours and label image
@@ -250,7 +269,8 @@ def identify_contours_sk(particle_mask, intensity_image, same_id_threshold, file
         label_image = label(particle_mask)
 
     # Plot to check the effectiveness of image segmentation
-    """fig, axes = plt.subplots(ncols=2, figsize=(8, 4), sharex=True, sharey=True)
+    """
+    fig, axes = plt.subplots(ncols=2, figsize=(8, 4), sharex=True, sharey=True)
     ax = axes.ravel()
 
     ax[0].imshow(particle_mask, cmap=plt.cm.gray)
@@ -267,7 +287,8 @@ def identify_contours_sk(particle_mask, intensity_image, same_id_threshold, file
         a.set_axis_off()
 
     fig.tight_layout()
-    plt.show()"""
+    plt.show()
+    """
 
     # region properties
     regions = regionprops(label_image=label_image, intensity_image=intensity_image)

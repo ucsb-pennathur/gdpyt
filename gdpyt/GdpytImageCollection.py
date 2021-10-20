@@ -34,7 +34,7 @@ class GdpytImageCollection(object):
                  stacks_use_raw=False, infer_sub_image=True, measurement_depth=None, true_num_particles=None,
                  if_img_stack_take='mean', take_subset_mean=None, inspect_contours_for_every_image=False,
                  template_padding=3, file_basestring=None, same_id_threshold=10, image_collection_type=None,
-                 calibration_stack_z_step=None,
+                 calibration_stack_z_step=None, overlapping_particles=True,
                  baseline=None, hard_baseline=False, particle_id_image=None, static_templates=False):
         """
 
@@ -108,6 +108,7 @@ class GdpytImageCollection(object):
         self.baseline = baseline
         self._static_templates = static_templates
         self.particle_id_image = particle_id_image
+        self._overlapping_particles = overlapping_particles
         self._template_padding = template_padding
         self._stacks_use_raw = stacks_use_raw
         self._infer_sub_image = infer_sub_image
@@ -321,7 +322,7 @@ class GdpytImageCollection(object):
             # Save all the files of the right filetype in this attribute
             self._files_ground_truth = save_files
 
-    def create_calibration(self, name_to_z, dilate=True, template_padding=0, min_num_layers=None,
+    def create_calibration(self, name_to_z, dilate=False, template_padding=0, min_num_layers=None,
                            self_similarity_method='sknccorr', exclude=[]):
         """
         This method:
@@ -475,7 +476,8 @@ class GdpytImageCollection(object):
                                         same_id_threshold=self._same_id_threshold,
                                         inspect_contours_for_every_image=self._inspect_contours_for_every_image,
                                         padding=self._template_padding, image_collection_type=self._image_collection_type,
-                                        particle_id_image=particle_identification_image)
+                                        particle_id_image=particle_identification_image,
+                                        overlapping_particles=self._overlapping_particles)
             logger.info("Identified {} particles on image {}".format(len(image.particles), image.filename))
 
     def _set_measurement_depth(self, measurement_depth):
@@ -1218,12 +1220,12 @@ class GdpytImageCollection(object):
         img_z = []
         img_sim = []
         for img in self.images.values():
+            logger.info("Calculating particle similarity in image {}".format(img.filename))
+
             sim = img.infer_self_similarity()
 
             img_sim.append(sim)
             img_z.append(img.z)
-
-            j =1
 
         df = pd.DataFrame(data=img_sim, index=img_z, columns=['sim'])
 
@@ -1255,7 +1257,7 @@ class GdpytImageCollection(object):
 
         return df.to_dict()
 
-    def calculate_measurement_quality_local(self, num_bins=20, min_cm=0.9, true_xy=False):
+    def calculate_measurement_quality_local(self, num_bins=20, min_cm=0.9, true_xy=False, true_num_particles=None):
         """
         Method Notes:
         """
@@ -1268,7 +1270,9 @@ class GdpytImageCollection(object):
         # read coords into dataframe
         dfz = pd.DataFrame(data=coords, columns=['id', 'z', 'true_z', 'cm', 'max_sim'])
 
-        collection_measurement_quality_local = binning.bin_local_rmse_z(dfz, num_bins=num_bins, min_cm=min_cm)
+        collection_measurement_quality_local = binning.bin_local_rmse_z(dfz, column_to_bin='true_z', bins=num_bins,
+                                                                        min_cm=min_cm, z_range=None, round_to_decimal=0,
+                                                                        true_num_particles=true_num_particles)
 
         """# round the true_z value (which is not important for this particular analysis so we do it early)
         # we have to correct to the correct decimal place to get at least 10-20 data points depending on our measurement
@@ -1478,12 +1482,17 @@ class GdpytImageCollection(object):
 
         return collection_measurement_quality_local
 
-    def bin_local_uncertainty(self, dfz, num_bins=20, min_cm=None):
-        dfz = binning.bin_local_rmse_z(dfz, num_bins=num_bins, min_cm=min_cm)
+    def bin_local_uncertainty(self, dfz, bins=20, min_cm=None):
+        dfz = binning.bin_local_rmse_z(dfz, column_to_bin='true_z', bins=bins,
+                                                                        min_cm=min_cm, z_range=None, round_to_decimal=0,
+                                                                        true_num_particles=None)
         return dfz
 
-    def bin_local_quantities(self, dfz, column_to_bin='true_z', num_bins=20):
-        dfz = binning.bin_local(dfz, column_to_bin=column_to_bin, num_bins=num_bins)
+    def bin_local_quantities(self, dfz, column_to_bin='true_z', bins=20, min_cm=None, true_num_particles=None):
+        if true_num_particles is None:
+            true_num_particles = self._true_num_particles
+        dfz = binning.bin_local(dfz, column_to_bin=column_to_bin, bins=bins, min_cm=min_cm, z_range=None, round_to_decimal=0,
+              true_num_particles=true_num_particles)
         return dfz
 
     def plot(self, raw=True, draw_particles=True, exclude=[], **kwargs):
@@ -1558,6 +1567,10 @@ class GdpytImageCollection(object):
 
     def plot_particle_signal(self, optics, collection_image_stats, particle_id):
         fig = plot_particle_signal(self, optics, collection_image_stats, particle_id)
+        return fig
+
+    def plot_particle_diameter(self, optics, collection_image_stats, particle_id):
+        fig = plot_particle_diameter(self, optics, collection_image_stats, particle_id)
         return fig
 
     def plot_calib_col_image_stats(self, data):
