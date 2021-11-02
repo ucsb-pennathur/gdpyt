@@ -39,8 +39,8 @@ REF_INDEX_LENS = 1.5
 PIXEL_SIZE = 16e-6
 PIXEL_DIM_X = 512
 PIXEL_DIM_Y = 512
-BKG_MEAN = 145
-BKG_NOISES = 7
+BKG_MEAN = 317  # BPE region = 145; Channel region = 317
+BKG_NOISES = 20  # BPE region: 7; Channel region: 20
 POINTS_PER_PIXEL = None
 N_RAYS = None
 GAIN = 4
@@ -92,7 +92,7 @@ BASELINE_IMAGE = 'calib_55.tif'
 
 # calibration processing parameters
 CALIB_TEMPLATE_PADDING = 5
-CALIB_CROPPING_SPECS = {'xmin': 150, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 30} # {'xmin': 350, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 30}
+CALIB_CROPPING_SPECS = {'xmin': 0, 'xmax': 100, 'ymin': 0, 'ymax': 512, 'pad': 30} # {'xmin': 350, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 30}
 CALIB_PROCESSING_METHOD = 'median'
 CALIB_PROCESSING_FILTER_TYPE = 'square'
 CALIB_PROCESSING_FILTER_SIZE = 2
@@ -102,7 +102,7 @@ CALIB_PROCESSING_FILTER_SIZE2 = 1
 CALIB_PROCESSING = None  # {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None, 'wrap']}}
 # CALIB_PROCESSING_METHOD2: {'args': [], 'kwargs': dict(sigma=CALIB_PROCESSING_FILTER_SIZE2, preserve_range=True)}}
 CALIB_THRESHOLD_METHOD = 'manual'
-CALIB_THRESHOLD_MODIFIER = 170
+CALIB_THRESHOLD_MODIFIER = BKG_MEAN + BKG_NOISES * 3 # BPE region = 170
 CALIB_THRESHOLD_PARAMS = {CALIB_THRESHOLD_METHOD: [CALIB_THRESHOLD_MODIFIER]}
 
 # similarity
@@ -141,7 +141,7 @@ TEST_TEMPLATE_PADDING = CALIB_TEMPLATE_PADDING - 3
 TEST_CROPPING_SPECS = CALIB_CROPPING_SPECS
 TEST_PROCESSING = CALIB_PROCESSING
 TEST_THRESHOLD_METHOD = 'manual'
-TEST_THRESHOLD_MODIFIER = 170
+TEST_THRESHOLD_MODIFIER = BKG_MEAN + BKG_NOISES * 3  # BPE region = 170
 TEST_THRESHOLD_PARAMS = {TEST_THRESHOLD_METHOD: [TEST_THRESHOLD_MODIFIER]}
 
 # similarity
@@ -374,10 +374,10 @@ test_col.infer_z(calib_set, infer_sub_image=test_settings.z_assessment.sub_image
 # export the particle coordinates
 test_coords = export_particle_coords(test_col, calib_settings, test_settings)
 
-"""
 # get test collection stats
 test_col_stats = test_col.calculate_image_stats()
 
+"""
 # get test collection inference local uncertainties
 test_col_local_meas_quality = test_col.calculate_measurement_quality_local(num_bins=20, min_cm=0.5,
                                                                            true_xy=test_settings.inputs.ground_truth_file_path)
@@ -388,16 +388,20 @@ export_local_meas_quality(calib_settings, test_settings, test_col_local_meas_qua
 # get test collection inference global uncertainties
 test_col_global_meas_quality = test_col.calculate_measurement_quality_global(local=test_col_local_meas_quality)
 
-# export data to excel
+"""
+# export settings and results to excel
 export_results_and_settings('test', calib_settings, calib_col, calib_stack_data, calib_col_stats,
-                            test_settings, test_col, test_col_global_meas_quality, test_col_stats)
+                            test_settings, test_col, test_col_global_meas_quality=None, test_col_stats=test_col_stats)
+"""
 
 # export key results to excel (redundant data as full excel export but useful for quickly ascertaining results)
 export_key_results(calib_settings, calib_col, calib_stack_data, calib_col_stats, test_settings, test_col,
                    test_col_global_meas_quality, test_col_stats)
 
+"""
 # plot
-plot_test(test_settings, test_col, test_col_stats, test_col_local_meas_quality, test_col_global_meas_quality)
+#plot_test(test_settings, test_col, test_col_stats, test_col_local_meas_quality=None, test_col_global_meas_quality=None)
+"""
 
 # assess every calib stack and particle ID
 assess_every_stack = False
@@ -463,6 +467,15 @@ test_col1.infer_z(calib_set, infer_sub_image=test_settings.z_assessment.sub_imag
 # export the particle coordinates
 test_coords1 = export_particle_coords(test_col1, calib_settings, test_settings)
 
+# get test collection stats
+test_col_stats1 = test_col1.calculate_image_stats()
+
+# export settings and results to excel
+export_results_and_settings('test', calib_settings, calib_col, calib_stack_data, calib_col_stats,
+                            test_settings, test_col1, test_col_global_meas_quality=None, test_col_stats=test_col_stats1)
+# plot
+#plot_test(test_settings, test_col1, test_col_stats1, test_col_local_meas_quality=None, test_col_global_meas_quality=None)
+
 
 # ----------------------------------------------------------------------------------------------------------------------
 
@@ -523,6 +536,15 @@ test_col2.infer_z(calib_set, infer_sub_image=test_settings.z_assessment.sub_imag
 # export the particle coordinates
 test_coords2 = export_particle_coords(test_col2, calib_settings, test_settings)
 
+# get test collection stats
+test_col_stats2 = test_col2.calculate_image_stats()
+
+# export settings and results to excel
+export_results_and_settings('test', calib_settings, calib_col, calib_stack_data, calib_col_stats,
+                            test_settings, test_col2, test_col_global_meas_quality=None, test_col_stats=test_col_stats2)
+# plot
+#plot_test(test_settings, test_col2, test_col_stats2, test_col_local_meas_quality=None, test_col_global_meas_quality=None)
+
 
 # ----------------------------------------------------------------------------------------------------------------------
 
@@ -582,6 +604,15 @@ test_col3.infer_z(calib_set, infer_sub_image=test_settings.z_assessment.sub_imag
 
 # export the particle coordinates
 test_coords3 = export_particle_coords(test_col3, calib_settings, test_settings)
+
+# get test collection stats
+test_col_stats3 = test_col3.calculate_image_stats()
+
+# export settings and results to excel
+export_results_and_settings('test', calib_settings, calib_col, calib_stack_data, calib_col_stats,
+                            test_settings, test_col3, test_col_global_meas_quality=None, test_col_stats=test_col_stats3)
+# plot
+#plot_test(test_settings, test_col3, test_col_stats3, test_col_local_meas_quality=None, test_col_global_meas_quality=None)
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -644,6 +675,14 @@ test_col4.infer_z(calib_set, infer_sub_image=test_settings.z_assessment.sub_imag
 # export the particle coordinates
 test_coords4 = export_particle_coords(test_col4, calib_settings, test_settings)
 
+# get test collection stats
+test_col_stats4 = test_col4.calculate_image_stats()
+
+# export settings and results to excel
+export_results_and_settings('test', calib_settings, calib_col, calib_stack_data, calib_col_stats,
+                            test_settings, test_col4, test_col_global_meas_quality=None, test_col_stats=test_col_stats4)
+# plot
+#plot_test(test_settings, test_col4, test_col_stats4, test_col_local_meas_quality=None, test_col_global_meas_quality=None)
 
 # ----------------------------------------------------------------------------------------------------------------------
 
@@ -704,3 +743,12 @@ test_col5.infer_z(calib_set, infer_sub_image=test_settings.z_assessment.sub_imag
 
 # export the particle coordinates
 test_coords5 = export_particle_coords(test_col5, calib_settings, test_settings)
+
+# get test collection stats
+test_col_stats5 = test_col5.calculate_image_stats()
+
+# export settings and results to excel
+export_results_and_settings('test', calib_settings, calib_col, calib_stack_data, calib_col_stats,
+                            test_settings, test_col5, test_col_global_meas_quality=None, test_col_stats=test_col_stats5)
+# plot
+#plot_test(test_settings, test_col5, test_col_stats5, test_col_local_meas_quality=None, test_col_global_meas_quality=None)

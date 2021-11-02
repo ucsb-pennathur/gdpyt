@@ -1,3 +1,7 @@
+
+# imports
+from gdpyt.utils import get
+
 from os.path import splitext, join
 import re
 import logging
@@ -30,7 +34,7 @@ def plot_baseline_image_and_particle_ids(collection, filename=None):
     else:
         baseline_image_filename = filename
 
-    fig, ax = plt.subplots(figsize=(10, 3))
+    fig, ax = plt.subplots(figsize=(12, 12))
     ax.imshow(collection.images[baseline_image_filename].draw_particles(raw=False, thickness=1, draw_id=True, draw_bbox=True))
     ax.set_title('z = {}'.format(np.round(collection.images[baseline_image_filename].z, 2)))
 
@@ -218,6 +222,7 @@ def plot_calib_stack_self_similarity(calib_stack):
 
     return fig
 
+
 def plot_adjacent_self_similarity(calib_stack, index=[]):
     """
     Parameters
@@ -233,7 +238,7 @@ def plot_adjacent_self_similarity(calib_stack, index=[]):
         if index[0] > len(stack_layers) - 2:
             index = [ind for ind in random.sample(set(np.arange(1, len(stack_layers) - 1)), 1)]
 
-        for i in index:
+        for i in index[:-1]:
             backward_image = stack_layers[i-1][1]
             backward_cm = calib_stack.self_similarity_forward[i-1][1]
 
@@ -478,6 +483,93 @@ def plot_particle_coordinate_calibration(collection, measurement_quality, plot_t
 
     return fig
 
+def plot_images_and_similarity_curve(calib_set, test_col, particle_id=None, image_id=None, min_cm=0.5,
+                                     sup_title=None, save_path=None):
+    """
+    Plot similarity curve with corresponding z-guess and z-true images.
+    """
+    margins = 0
+
+    particles_to_plot = []
+    z_trues = []
+
+    if particle_id is not None and image_id is not None:
+        # get a specific particle in a specific image
+        for particle in test_col.images[image_id]:
+            if particle.id == particle_id:
+                particles_to_plot.append(particle)
+                z_trues.append(particle.z_true)
+
+    elif particle_id is None and image_id is not None:
+        # get every particle in a specific image with c_m > min_cm
+        for particle in test_col.images[image_id]:
+            if particle.cm > min_cm:
+                particles_to_plot.append(particle)
+                z_trues.append(particle.z_true)
+
+    elif particle_id is not None and image_id is None:
+        # get a specific particle in every image
+        for image in test_col.images.values():
+            for particle in image.particles:
+                if particle.id == particle_id:
+                    particles_to_plot.append(particle)
+                    z_trues.append(particle.z_true)
+    else:
+        raise ValueError("Need to specify a particle ID or image ID.")
+
+    for p in particles_to_plot:
+
+        z_calib, template_calib = get.corresponding_calibration_stack_particle_template(calib_set, p.z_true, p.id)
+
+        # particle template: z_true
+        ax1 = plt.subplot(221)
+        ax1.margins(margins)
+        ax1.imshow(template_calib)
+        ax1.axis('off')
+        ax1.set_title(r'$z_{calib, nearest}=$ ' + '{}'.format(z_calib))
+
+        # particle template: z
+        ax2 = plt.subplot(222)
+        ax2.margins(margins)  # Values in (-0.5, 0.0) zooms in to center
+        ax2.imshow(p.template)
+        ax2.axis('off')
+        ax2.set_title(r'$z_{guess}=$ ' + '{}'.format(np.round(p.z, 3)))
+
+        ax3 = plt.subplot(212)
+        ax3.margins(margins)  # Default margin is 0.05, value 0 means fit
+
+        # discrete c_m
+        sim_z = p.similarity_curve.iloc[:, 0]
+        sim_cm = p.similarity_curve.iloc[:, 1]
+        ax3.plot(sim_z, sim_cm, color='tab:blue', label='c_m')
+        # interpolated c_m
+        interp_z = p.interpolation_curve.iloc[:, 0]
+        interp_cm = p.interpolation_curve.iloc[:, 1]
+        ax3.plot(interp_z, interp_cm, color='lightcoral', label='interp')
+        # z_true
+        ax3.scatter(p.z_true, 0.99, s=75, color='green', marker='*', label=r'$z_{true}$')
+
+        ax3.set_ylim([np.min(sim_cm), 1.0125])
+        ax3.set_xlabel(r'$z_{true}$')
+        ax3.set_ylabel(r'$c_{m}$')
+        ax3.set_title(r'$z_{true}$ = ' + str(np.round(p.z_true, 3)), fontsize=11)
+        ax3.grid(b=True, which='major', alpha=0.25)
+        ax3.grid(b=True, which='minor', alpha=0.125)
+
+        """# determine the major and minor axis labels
+        x_major = np.round((np.max(sim_z) - np.min(sim_z)) / 1, 1)
+        x_minor = np.round((np.max(sim_z) - np.min(sim_z)) / 2, 1)
+
+        ax3.xaxis.set_major_locator(MultipleLocator(x_major))
+        ax3.xaxis.set_minor_locator(MultipleLocator(x_minor))
+        ax3.yaxis.set_major_locator(MultipleLocator(0.05))
+        ax3.yaxis.set_minor_locator(MultipleLocator(0.01))"""
+
+        plt.suptitle(sup_title)
+        plt.tight_layout()
+        plt.savefig(fname=save_path, bbox_inches='tight')
+        plt.close()
+
 
 def plot_similarity_curve(collection, sub_image, method=None, min_cm=0, particle_id=None, image_id=None, imgs_per_row=9):
     """
@@ -701,7 +793,6 @@ def plot_similarity_curve(collection, sub_image, method=None, min_cm=0, particle
                         axes[i, j].axis('off')
                         axes[i, j].axis('off')
                     else:
-                        inspectvar = img_list[image_id][1].particles
                         for p in img_list[image_id][1].particles:
                             if p.id != k:
                                 pass

@@ -363,31 +363,36 @@ class GdpytImageCollection(object):
 
         sizey, sizex = np.shape((list(self.images.values())[0]._raw))
 
-        # --- compute the mean image intensity percentile across all images ---
-        background_add = np.zeros((sizey, sizex), dtype=np.uint16)
+        if self._background_subtraction == 'manual':
+            background_img = np.ones((sizey, sizex), dtype=np.uint16) * 250
 
-        for i in self.images.values():
-            image = i._raw.copy()
-            background_add = background_add + image  # add images
+        else:
 
-        # take mean
-        background_mean = np.divide(background_add, len(self.images))
+            # --- compute the mean image intensity percentile across all images ---
+            background_add = np.zeros((sizey, sizex), dtype=np.uint16)
 
-        # compute percentile limits
-        vmin, vmax = np.percentile(background_mean,
-                                   q=(0.005, 99.995))  # clip the bottom 0.005% and top 0.005% intensities
+            for i in self.images.values():
+                image = i._raw.copy()
+                background_add = background_add + image  # add images
 
-        # --- compute the minimum pixel intensity across all images ---
-        background_img = np.ones((sizey, sizex), dtype=np.uint16) * 2 ** 16
-        # loop through images
-        for i in self.images.values():
-            image = i._raw.copy()
-            if self._background_subtraction == 'min':
-                image = np.where(image < vmax, image, vmax)  # clip upper percentile
-                image = np.where(image > vmin, image, vmin)  # clip lower percentile
-                background_img = np.where(image < background_img, image, background_img)  # take min value
-            else:
-                raise ValueError("{} background subtraction method is not yet implemented".format(self._background_subtraction))
+            # take mean
+            background_mean = np.divide(background_add, len(self.images))
+
+            # compute percentile limits
+            vmin, vmax = np.percentile(background_mean,
+                                       q=(0.005, 99.995))  # clip the bottom 0.005% and top 0.005% intensities
+
+            # --- compute the minimum pixel intensity across all images ---
+            background_img = np.ones((sizey, sizex), dtype=np.uint16) * 2 ** 16
+            # loop through images
+            for i in self.images.values():
+                image = i._raw.copy()
+                if self._background_subtraction == 'min':
+                    image = np.where(image < vmax, image, vmax)  # clip upper percentile
+                    image = np.where(image > vmin, image, vmin)  # clip lower percentile
+                    background_img = np.where(image < background_img, image, background_img)  # take min value
+                else:
+                    raise ValueError("{} background subtraction method is not yet implemented".format(self._background_subtraction))
 
         # store background image
         self._background_img = background_img
