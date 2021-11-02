@@ -68,7 +68,7 @@ def generate_grid_input(settings_file, n_images, grid, range_z=(-40, 40), partic
 
     img_shape = (settings_dict['pixel_dim_x'], settings_dict['pixel_dim_y'])
 
-    for i in range(n_images):
+    for i in range(1, n_images+1):
         fname = 'B{0:04d}'.format(i)
 
         # option for particle overlap array
@@ -322,7 +322,118 @@ def _generate_scaled_overlap_grid_coordinates(grid, imshape, z=None, overlap_sca
     return coords
 
 
+def _generate_scaled_overlap_paired_uniform_z_grid_coordinates(grid, imshape, z=None, overlap_scale=5):
+    assert len(imshape) == 2
+
+    # Particle grid
+    xtot, ytot = imshape
+    n_x, n_y = grid
+    n_particles = n_x * n_y
+    edge_x = xtot / (n_x + 1)
+    edge_y = ytot / (n_y + 1)
+
+    # Make particle coordinates
+    xy_coords = np.mgrid[edge_x:xtot - edge_x:np.complex(0, n_x),
+                edge_y:ytot - edge_y:np.complex(0, n_y)].reshape(2, -1).T
+
+    # make linearly shifted particle coordinates
+
+    # create cutoff limits (exclude first and last rows to not expand the image size)
+    xl = n_x
+    xh = n_x * (n_y - 1)
+
+    # copy the x-coordinates from original grid
+    xyc = xy_coords[:, 0].copy()
+
+    # calculate the step size for linearly arrayed overlapping
+    grid_step_size = (xyc[11] - xyc[0]) / xyc[0] * overlap_scale
+
+    # add x-dependent spacing to particles
+    xyc = xyc[:] + (xyc[:] - xyc[0]) / xyc[0] * overlap_scale
+
+    # stack the new x-coordinates with the original y-coordinates
+    xy_overlap_coords = np.vstack((xyc, xy_coords[:, 1])).T
+
+    if z is None:
+        return xy_coords
+
+    if isinstance(z, int) or isinstance(z, float):
+        z_coords = z * np.ones((n_particles, 1))
+    else:
+        raise ValueError("z must be an integer or float.")
+
+    # stack the original particles with a random z-height
+    coords = np.hstack([xy_coords, z_coords])
+
+    # stack the paired overlapping particles with the corresponding z-height as the original particle
+    overlap_coords = np.hstack([xy_overlap_coords, z_coords])
+
+    # grab only the inner columns of the overlap particles
+    overlap_coords = overlap_coords[xl:xh]
+
+    # stack the original particles and overlapped particles with matching z-heights together
+    xyo_coords = np.vstack((coords, overlap_coords))
+
+    return xyo_coords
+
+
 def _generate_scaled_overlap_paired_random_z_grid_coordinates(grid, imshape, z=None, overlap_scale=5):
+
+    assert len(imshape) == 2
+
+    # Particle grid
+    xtot, ytot = imshape
+    n_x, n_y = grid
+    n_particles = n_x * n_y
+    edge_x = xtot / (n_x + 1)
+    edge_y = ytot / (n_y + 1)
+
+    # Make particle coordinates
+    xy_coords = np.mgrid[edge_x:xtot - edge_x:np.complex(0, n_x),
+                edge_y:ytot - edge_y:np.complex(0, n_y)].reshape(2, -1).T
+
+    # make linearly shifted particle coordinates
+
+    # create cutoff limits (exclude first and last rows to not expand the image size)
+    xl = n_x
+    xh = n_x * (n_y - 1)
+
+    # copy the x-coordinates from original grid
+    xyc = xy_coords[:, 0].copy()
+
+    # calculate the step size for linearly arrayed overlapping
+    grid_step_size = (xyc[11] - xyc[0]) / xyc[0] * overlap_scale
+
+    # add x-dependent spacing to particles
+    xyc = xyc[:] + (xyc[:] - xyc[0]) / xyc[0] * overlap_scale
+
+    # stack the new x-coordinates with the original y-coordinates
+    xy_overlap_coords = np.vstack((xyc, xy_coords[:, 1])).T
+
+    if z is None:
+        return xy_coords
+
+    z_coords_up_to_last_column = np.random.uniform(z[0], z[1], size=(n_particles - n_x, 1))
+    z_second_to_last_column = z_coords_up_to_last_column[-n_x:]
+    z_coords = np.vstack((z_coords_up_to_last_column, z_second_to_last_column))
+
+
+    # stack the original particles with a random z-height
+    coords = np.hstack([xy_coords, z_coords])
+
+    # stack the paired overlapping particles with the corresponding z-height as the original particle
+    overlap_coords = np.hstack([xy_overlap_coords, z_coords])
+
+    # grab only the inner columns of the overlap particles
+    overlap_coords = overlap_coords[xl:xh]
+
+    # stack the original particles and overlapped particles with matching z-heights together
+    xyo_coords = np.vstack((coords, overlap_coords))
+
+    return xyo_coords
+
+
+def _generate_scaled_overlap_random_z_grid_coordinates(grid, imshape, z=None, overlap_scale=5):
     assert len(imshape) == 2
 
     # Particle grid
@@ -443,6 +554,265 @@ def _append_particle_diam(coords, particle_diameter):
         out = np.append(coords, np.random.uniform(particle_diameter[0],
                                                   particle_diameter[1], size=(n_particles, 1)), axis=1)
     return out
+
+# ------------------------- ------------------------- ------------------------- ------------------------- -------------
+
+
+def generate_uniform_z_grid(settings_file, grid, z_levels, particle_diameter=2, create_multiple=None):
+    """
+    1. Grid: uniform z-coordinate
+        * Generate images according to z-levels where all particles are at the same z-coordinate.
+    """
+
+    settings_path = Path(settings_file)
+    calib_path = join(settings_path.parent, 'calibration_input')
+
+    if isdir(calib_path):
+        raise ValueError('Folder {} already exists. Specify a new one'.format(calib_path))
+    else:
+        mkdir(calib_path)
+
+    settings_dict = {}
+    with open(settings_file) as file:
+        for line in file:
+            thisline = line.split('=')
+            settings_dict.update({thisline[0].strip(): eval(thisline[1].strip())})
+
+    img_shape = (settings_dict['pixel_dim_x'], settings_dict['pixel_dim_y'])
+
+    for z in z_levels:
+
+        coordinates = _generate_grid_coordinates(grid, img_shape, z=z)
+
+        output = _append_particle_diam(coordinates, particle_diameter)
+
+        if create_multiple is None:
+            fname = 'calib_{}'.format(z)
+            savepath = join(calib_path, fname + '.txt')
+            np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+        else:
+            assert isinstance(create_multiple, int)
+            for i in range(create_multiple):
+                fname = 'calib{}_{}'.format(i, z)
+                savepath = join(calib_path, fname + '.txt')
+                np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+# ------------------------- ------------------------- ------------------------- ------------------------- -------------
+
+
+def generate_random_z_grid(settings_file, n_images, grid, range_z=(-40, 40), particle_diameter=2):
+    """
+    2. Grid: random z-coordinate
+        * Generate images according to z-levels where all particles are at a random z-coordinate.
+    """
+    settings_path = Path(settings_file)
+    txtfolder = join(settings_path.parent, 'input')
+
+    if isdir(txtfolder):
+        raise ValueError('Folder {} already exists. Specify a new one'.format(txtfolder))
+    else:
+        mkdir(txtfolder)
+
+    settings_dict = {}
+    with open(settings_file) as file:
+        for line in file:
+            thisline = line.split('=')
+            settings_dict.update({thisline[0].strip(): eval(thisline[1].strip())})
+
+    img_shape = (settings_dict['pixel_dim_x'], settings_dict['pixel_dim_y'])
+
+    for i in range(1, n_images + 1):
+        fname = 'B{0:04d}'.format(i)
+
+        coordinates = _generate_grid_coordinates(grid, img_shape, z=range_z)
+
+        output = _append_particle_diam(coordinates, particle_diameter)
+        savepath = join(txtfolder, fname + '.txt')
+        np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+# ------------------------- ------------------------- ------------------------- ------------------------- -------------
+
+
+def generate_uniform_z_overlap_grid(settings_file, grid, z_levels, particle_diameter=2, linear_overlap=5):
+    """
+    3. Grid overlap: uniform z-coordinate
+        * Generate images according to z-levels with linearly-arrayed overlapped particles at the same z-coordinate.
+    """
+
+    settings_path = Path(settings_file)
+    calib_path = join(settings_path.parent, 'calibration_input')
+
+    if isdir(calib_path):
+        raise ValueError('Folder {} already exists. Specify a new one'.format(calib_path))
+    else:
+        mkdir(calib_path)
+
+    settings_dict = {}
+    with open(settings_file) as file:
+        for line in file:
+            thisline = line.split('=')
+            settings_dict.update({thisline[0].strip(): eval(thisline[1].strip())})
+
+    img_shape = (settings_dict['pixel_dim_x'], settings_dict['pixel_dim_y'])
+
+    for z in z_levels:
+
+        coordinates = _generate_scaled_overlap_paired_uniform_z_grid_coordinates(grid, img_shape, z=z,
+                                                                                overlap_scale=linear_overlap)
+        output = _append_particle_diam(coordinates, particle_diameter)
+
+        fname = 'calib_{}'.format(z)
+        savepath = join(calib_path, fname + '.txt')
+        np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+# ------------------------- ------------------------- ------------------------- ------------------------- -------------
+
+
+def generate_paired_random_z_overlap_grid(settings_file, n_images, grid, range_z=(-40, 40), particle_diameter=2,
+                                   linear_overlap=5):
+    """
+    4. Grid overlap: random z-coordinate
+        * Generate images according to z-levels with linearly-arrayed overlapped particles at random z-coordinates.
+    """
+    settings_path = Path(settings_file)
+    txtfolder = join(settings_path.parent, 'input')
+
+    if isdir(txtfolder):
+        raise ValueError('Folder {} already exists. Specify a new one'.format(txtfolder))
+    else:
+        mkdir(txtfolder)
+
+    settings_dict = {}
+    with open(settings_file) as file:
+        for line in file:
+            thisline = line.split('=')
+            settings_dict.update({thisline[0].strip(): eval(thisline[1].strip())})
+
+    img_shape = (settings_dict['pixel_dim_x'], settings_dict['pixel_dim_y'])
+
+    for i in range(1, n_images + 1):
+        fname = 'B{0:04d}'.format(i)
+
+        coordinates = _generate_scaled_overlap_paired_random_z_grid_coordinates(grid, img_shape, z=range_z,
+                                                                                overlap_scale=linear_overlap)
+        output = _append_particle_diam(coordinates, particle_diameter)
+
+        savepath = join(txtfolder, fname + '.txt')
+        np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+
+def generate_random_z_overlap_grid(settings_file, n_images, grid, range_z=(-40, 40), particle_diameter=2,
+                                   linear_overlap=5):
+    """
+    4. Grid overlap: random z-coordinate
+        * Generate images according to z-levels with linearly-arrayed overlapped particles at random z-coordinates.
+    """
+    settings_path = Path(settings_file)
+    txtfolder = join(settings_path.parent, 'input')
+
+    if isdir(txtfolder):
+        raise ValueError('Folder {} already exists. Specify a new one'.format(txtfolder))
+    else:
+        mkdir(txtfolder)
+
+    settings_dict = {}
+    with open(settings_file) as file:
+        for line in file:
+            thisline = line.split('=')
+            settings_dict.update({thisline[0].strip(): eval(thisline[1].strip())})
+
+    img_shape = (settings_dict['pixel_dim_x'], settings_dict['pixel_dim_y'])
+
+    for i in range(1, n_images + 1):
+        fname = 'B{0:04d}'.format(i)
+
+        coordinates = _generate_scaled_overlap_random_z_grid_coordinates(grid, img_shape, z=range_z,
+                                                                                overlap_scale=linear_overlap)
+        output = _append_particle_diam(coordinates, particle_diameter)
+
+        savepath = join(txtfolder, fname + '.txt')
+        np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+# ------------------------- ------------------------- ------------------------- ------------------------- -------------
+
+def generate_uniform_z_density_distribution(settings_file, z_levels, particle_density, particle_diameter=2,
+                                            create_multiple=None):
+    """
+    5. Random distribution by density: uniform z-coordinate
+        * Generate images according to z-levels with randomly distributed particles at uniform z-coordinates.
+    """
+
+    settings_path = Path(settings_file)
+    calib_path = join(settings_path.parent, 'calibration_input')
+
+    if isdir(calib_path):
+        raise ValueError('Folder {} already exists. Specify a new one'.format(calib_path))
+    else:
+        mkdir(calib_path)
+
+    settings_dict = {}
+    with open(settings_file) as file:
+        for line in file:
+            thisline = line.split('=')
+            settings_dict.update({thisline[0].strip(): eval(thisline[1].strip())})
+
+    xy_coordinates = _generate_random_xy_coordinates_by_density(particle_density=particle_density,
+                                                                setup_params=settings_dict)
+    for z in z_levels:
+
+        coordinates = _add_z_coord(xy_coords=xy_coordinates, z=z)
+
+        output = _append_particle_diam(coordinates, particle_diameter)
+
+        if create_multiple is None:
+            fname = 'calib_{}'.format(z)
+            savepath = join(calib_path, fname + '.txt')
+            np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+        else:
+            assert isinstance(create_multiple, int)
+            for i in range(create_multiple):
+                fname = 'calib{}_{}'.format(i, z)
+                savepath = join(calib_path, fname + '.txt')
+                np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+# ------------------------- ------------------------- ------------------------- ------------------------- -------------
+
+
+def generate_random_z_density_distribution(settings_file, n_images, particle_density, range_z=(-40, 40),
+                                           particle_diameter=2):
+    """
+    6. Random distribution by density: random z-coordinate
+        * Generate images according to z-levels with randomly distributed particles at random z-coordinates.
+    """
+
+    settings_path = Path(settings_file)
+    txtfolder = join(settings_path.parent, 'input')
+
+    if isdir(txtfolder):
+        raise ValueError('Folder {} already exists. Specify a new one'.format(txtfolder))
+    else:
+        mkdir(txtfolder)
+
+    settings_dict = {}
+    with open(settings_file) as file:
+        for line in file:
+            thisline = line.split('=')
+            settings_dict.update({thisline[0].strip(): eval(thisline[1].strip())})
+
+    xy_coordinates = _generate_random_xy_coordinates_by_density(particle_density=particle_density,
+                                                                setup_params=settings_dict)
+    for i in range(1, n_images + 1):
+        fname = 'B{0:04d}'.format(i)
+
+        coordinates = _add_z_coord(xy_coords=xy_coordinates, z=range_z)
+
+        output = _append_particle_diam(coordinates, particle_diameter)
+
+        savepath = join(txtfolder, fname + '.txt')
+        np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+
+
 
 
 if __name__ == '__main__':

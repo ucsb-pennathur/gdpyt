@@ -317,6 +317,8 @@ class GdpytCalibrationSet(object):
         return df_stacks
 
     def plot_stacks_self_similarity(self, min_num_layers=0):
+        for key, stack in self._calibration_stacks.items():
+            stack.infer_self_similarity()
         return plotting.plot_stacks_self_similarity(calib_set=self, min_num_layers=min_num_layers)
 
     def train_cnn(self,

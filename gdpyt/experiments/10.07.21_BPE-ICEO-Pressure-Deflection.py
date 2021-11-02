@@ -14,8 +14,8 @@ from skimage.morphology import disk, square
 from gdpyt import GdpytSetup, GdpytImageCollection
 from gdpyt.GdpytCharacterize import *
 
-DATASET = '10.07.21-BPE_Pressure_Deflection'
-TESTSET = 'z4000um'
+DATASET = '10.07.21-BPE_Pressure_Deflection_20X'
+TESTSET = 'z1500um'
 STATIC_TEMPLATES = True
 HARD_BASELINE = True
 SINGLE_PARTICLE_CALIBRATION = False
@@ -70,7 +70,7 @@ optics = GdpytSetup.optics(particle_diameter=PARTICLE_DIAMETER,
 # image pre-processing
 DILATE = None  # None or True
 SHAPE_TOL = None  # None == take any shape; 1 == take perfectly circular shape only.
-MIN_P_AREA = 20  # minimum particle size (area: units are in pixels) (recommended: 5)
+MIN_P_AREA = 18  # minimum particle size (area: units are in pixels) (recommended: 5)
 MAX_P_AREA = 1200  # maximum particle size (area: units are in pixels) (recommended: 200)
 SAME_ID_THRESH = 5  # maximum tolerance in x- and y-directions for particle to have the same ID between images
 OVERLAP_THRESHOLD = 0.1
@@ -83,16 +83,16 @@ CALIB_ID = DATASET + '-calib'
 CALIB_RESULTS_PATH = join(BASE_DIR, 'results/calibration')
 
 # calib dataset information
-CALIB_SUBSET = None
+CALIB_SUBSET = [20, 60]
 CALIBRATION_Z_STEP_SIZE = 1.0
 TRUE_NUM_PARTICLES_PER_CALIB_IMAGE = 600
 IF_CALIB_IMAGE_STACK = 'first'
 TAKE_CALIB_IMAGE_SUBSET_MEAN = None
-BASELINE_IMAGE = 'calib_58.tif'
+BASELINE_IMAGE = 'calib_36.tif'
 
 # calibration processing parameters
 CALIB_TEMPLATE_PADDING = 7
-CALIB_CROPPING_SPECS = {'xmin': 150, 'xmax': 350, 'ymin': 50, 'ymax': 450, 'pad': 30} # {'xmin': 350, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 30}
+CALIB_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 30} # {'xmin': 350, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 30}
 CALIB_PROCESSING_METHOD = 'median'
 CALIB_PROCESSING_FILTER_TYPE = 'square'
 CALIB_PROCESSING_FILTER_SIZE = 2
@@ -117,7 +117,7 @@ SUB_IMAGE_INTERPOLATION = True
 # display options
 INSPECT_CALIB_CONTOURS = False
 SHOW_CALIB_PLOTS = False
-SAVE_CALIB_PLOTS = True
+SAVE_CALIB_PLOTS = False
 
 # ----- ----- ----- ----- ----- END CALIBRATION ----- ----- ----- ----- ----- ----- ----- --------
 
@@ -130,7 +130,7 @@ TEST_ID = DATASET + '-test'
 TEST_RESULTS_PATH = join(BASE_DIR, 'results/test')
 
 # test dataset information
-TEST_SUBSET = [1, 30]
+TEST_SUBSET = [1, 10]
 TRUE_NUM_PARTICLES_PER_IMAGE = TRUE_NUM_PARTICLES_PER_CALIB_IMAGE
 IF_TEST_IMAGE_STACK = 'first'
 TAKE_TEST_IMAGE_SUBSET_MEAN = []
@@ -278,6 +278,7 @@ calib_col = GdpytImageCollection(folder=calib_settings.inputs.image_path,
                                  baseline=calib_settings.inputs.baseline_image,
                                  hard_baseline=HARD_BASELINE,
                                  static_templates=calib_settings.inputs.static_templates,
+                                 overlapping_particles=calib_settings.inputs.overlapping_particles,
                                  )
 
 # method for converting filenames to z-coordinates
@@ -293,9 +294,9 @@ calib_set = calib_col.create_calibration(name_to_z=name_to_z,
                                          dilate=calib_settings.processing.dilate)
 
 # calculate particle similarity per image
-df_sim = calib_col.calculate_image_particle_similarity()
+"""df_sim = calib_col.calculate_image_particle_similarity()
 savedata = join('/Users/mackenzie/Desktop', 'similarity_' + calib_settings.inputs.dataset + '.xlsx')
-df_sim.to_excel(savedata, index=True)
+df_sim.to_excel(savedata, index=True)"""
 
 # plot the baseline image with particle ID's
 if calib_col.baseline is not None:
@@ -348,7 +349,7 @@ test_col = GdpytImageCollection(folder=test_settings.inputs.image_path,
                                 shape_tol=test_settings.processing.shape_tolerance,
                                 overlap_threshold=test_settings.processing.overlap_threshold,
                                 same_id_threshold=test_settings.processing.same_id_threshold_distance,
-                                measurement_depth=100,  # calib_col.measurement_range,
+                                measurement_depth=calib_col.measurement_range,
                                 template_padding=test_settings.processing.template_padding,
                                 if_img_stack_take=test_settings.inputs.if_image_stack,
                                 take_subset_mean=test_settings.inputs.take_image_stack_subset_mean_of,
@@ -357,6 +358,7 @@ test_col = GdpytImageCollection(folder=test_settings.inputs.image_path,
                                 hard_baseline=HARD_BASELINE,
                                 static_templates=test_settings.inputs.static_templates,
                                 particle_id_image=test_particle_id_image,
+                                overlapping_particles=test_settings.inputs.overlapping_particles,
                                 )
 
 # method for converting filenames to z-coordinates

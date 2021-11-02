@@ -225,7 +225,7 @@ class GdpytCalibrationStack(object):
         # pad the calibration image templates to allow for test particle template sliding across the calibration image
         temp_calib = []
         for t in temp_calib_original:
-            temp_calib.append(np.pad(t, pad_width=3, mode='constant', constant_values=np.min(t)))
+            temp_calib.append(np.pad(t, pad_width=1, mode='constant', constant_values=np.min(t)))
         temp_calib = np.array(temp_calib)
 
         """ End Note """
@@ -368,6 +368,7 @@ class GdpytCalibrationStack(object):
         self._self_similarity = np.vstack((z_self, sim_self)).T
 
     def plot_adjacent_self_similarity(self, index=[]):
+        self.infer_self_similarity(function='sknccorr')
         fig = plot_adjacent_self_similarity(self, index=index)
         return fig
 

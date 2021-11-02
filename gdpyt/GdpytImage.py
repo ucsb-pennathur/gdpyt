@@ -158,15 +158,15 @@ class GdpytImage(object):
 
         This method should assign self._subbg
         """
-        valid_bs_methods = ['min']
+        valid_bs_methods = ['min', 'manual']
 
         if background_subtraction not in valid_bs_methods:
             raise ValueError("{} is not a valid method. Implemented so far are {}".format(background_subtraction,
                                                                                           valid_bs_methods))
-            self._subbg = None
         else:
             img = self._raw.copy()
             self._subbg = img - background_img
+            self._raw = self._subbg
 
 
 
@@ -290,17 +290,24 @@ class GdpytImage(object):
             # filter on area
             area = region.area
             if area < min_size or area > max_size:
+                j = 1
                 skipped_contours.append(region.label)
                 continue
 
-            # filter on aspect ratio
+            # filter on length of minor axis
             if region.minor_axis_length < 2:
                 logger.warning("Region skipped b/c minor axis length {} < 2".format(region.minor_axis_length))
                 skipped_contours.append(region.label)
                 continue
+
+            # filter on aspect ratio
             aspect_ratio = region.major_axis_length / region.minor_axis_length
-            if aspect_ratio > 6:
-                logger.warning("Region skipped b/c aspect ratio = {} > 3.".format(aspect_ratio))
+            if overlapping_particles is True:
+                aspect_ratio_threshold = 6
+            else:
+                aspect_ratio_threshold = 2.5
+            if aspect_ratio > aspect_ratio_threshold:
+                logger.warning("Region skipped b/c aspect ratio = {} > {}.".format(aspect_ratio, aspect_ratio_threshold))
                 skipped_contours.append(region.label)
                 continue
 
@@ -372,7 +379,6 @@ class GdpytImage(object):
             self._add_particle(id_, contour_coords, bbox, particle_mask, particle_collection_type=image_collection_type,
                                location=(cX, cY))
             id_ = id_ + 1
-
 
         # Calculate contour statistics
         if len(contour_areas) > 0:

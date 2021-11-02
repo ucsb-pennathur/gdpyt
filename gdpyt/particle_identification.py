@@ -143,7 +143,7 @@ def apply_threshold(img, parameter, overlapping_particles=True, min_particle_siz
             thresh_img_one = img > threshval
 
             # apply a large dilation to connect streaks and slightly smooth image
-            dilation_size = np.min([3, min_particle_size])
+            dilation_size = np.min([5, min_particle_size])
             selem2 = disk(dilation_size)
             dilated = binary_dilation(thresh_img_one, selem=selem2)
 

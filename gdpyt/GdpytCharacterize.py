@@ -5,6 +5,8 @@ Test harness for GDPyT characterization
 
 # imports
 from gdpyt import GdpytImageCollection
+from gdpyt.utils import plotting
+from gdpyt.utils import get
 from os.path import join
 from datetime import datetime
 import random
@@ -60,14 +62,9 @@ def test(calib_settings, test_settings, return_variables=None):
         # if standard gdpt calibration dataset
         if calib_settings.inputs.ground_truth_file_path == 'standard_gdpt':
             N_CAL = float(len(calib_col.images))
-
             z_val = (float(image.filename.split(calib_settings.inputs.image_base_string)[-1].split('.tif')[0]) *
                      (calib_col.measurement_range / N_CAL)) - (calib_col._calibration_stack_z_step / 2) + \
                     calib_settings.processing.zero_stacks_offset
-
-            step_error = np.random.normal(loc=0, scale=0.05)
-            z_error = z_val + step_error
-
             name_to_z.update({image.filename: z_val})
         else:
             # calib_settings.inputs == 'synthetic'
@@ -113,15 +110,25 @@ def test(calib_settings, test_settings, return_variables=None):
         """ any analysis where the particle distribution in the test collection matches the calibration collection """
         test_collection_baseline = calib_set
         test_particle_id_image = test_settings.inputs.baseline_image
+        use_stack_for_inference = None
+    elif calib_settings.inputs.ground_truth_file_path is not None and calib_settings.inputs.single_particle_calibration is False:
+        """ synthetic particle dataset with identical calibration and test particle distributions """
+        test_collection_baseline = calib_set
+        test_particle_id_image = test_settings.inputs.baseline_image
+        use_stack_for_inference = None
     elif calib_settings.inputs.ground_truth_file_path == 'standard_gdpt':
         """ standard GDPT dataset with a single calibration image """
         assert calib_settings.inputs.single_particle_calibration is True
         test_collection_baseline = test_settings.inputs.baseline_image  # test_collection_baseline = None
         test_particle_id_image = None
+        use_stack_for_inference = 0
     elif calib_settings.inputs.single_particle_calibration is True:
         """ random synthetic particle dataset with a single calibration image """
         test_collection_baseline = test_settings.inputs.baseline_image
         test_particle_id_image = None
+        use_stack_for_inference = 0
+    else:
+        raise ValueError("Unknown test situation.")
 
     # test collection
     test_col = GdpytImageCollection(folder=test_settings.inputs.image_path,
@@ -159,7 +166,6 @@ def test(calib_settings, test_settings, return_variables=None):
         pass
         # offset = calib_col.in_focus_z - test_col.in_focus_z
         # calib_set.zero_stacks(z_zero=test_col.in_focus_z, offset=offset, exclude_ids=None)
-
     # if performing meta-characterization on an experimental calibration set, set true_z for the test_collection
     else:
         # method for converting filenames to z-coordinates
@@ -171,7 +177,7 @@ def test(calib_settings, test_settings, return_variables=None):
 
     # Infer the z-height of each particle
     test_col.infer_z(calib_set, infer_sub_image=test_settings.z_assessment.sub_image_interpolation).sknccorr(
-        min_cm=test_settings.z_assessment.min_cm, use_stack=0)
+        min_cm=test_settings.z_assessment.min_cm, use_stack=use_stack_for_inference)
 
     # export the particle coordinates
     test_coords = export_particle_coords(test_col, calib_settings, test_settings)
@@ -180,7 +186,7 @@ def test(calib_settings, test_settings, return_variables=None):
     test_col_stats = test_col.calculate_image_stats()
 
     # get test collection inference local uncertainties
-    test_col_local_meas_quality = test_col.calculate_measurement_quality_local(num_bins=20, min_cm=0.5,
+    test_col_local_meas_quality = test_col.calculate_measurement_quality_local(num_bins=25, min_cm=0.5,
                                                                                true_xy=test_settings.inputs.ground_truth_file_path)
 
     # export local measurement quality
@@ -198,7 +204,7 @@ def test(calib_settings, test_settings, return_variables=None):
                        test_col_global_meas_quality, test_col_stats)
 
     # plot
-    plot_test(test_settings, test_col, test_col_stats, test_col_local_meas_quality, test_col_global_meas_quality)
+    plot_test(test_settings, test_col, test_col_stats, test_col_local_meas_quality, test_col_global_meas_quality, calib_set)
 
     # assess every calib stack and particle ID
     assess_every_stack = False
@@ -206,106 +212,112 @@ def test(calib_settings, test_settings, return_variables=None):
         assess_every_particle_and_stack_id(test_settings, calib_set, test_col)
 
     # all outputs
-    return calib_col, calib_set, calib_col_image_stats, calib_stack_data, test_col, test_col_stats, \
-           test_col_local_meas_quality, test_col_global_meas_quality
+    output_vars = False
+    if output_vars is False:
+        del calib_col, calib_set, calib_col_image_stats, calib_stack_data, test_col, test_col_stats, \
+            test_col_local_meas_quality, test_col_global_meas_quality
+    else:
+        return calib_col, calib_set, calib_col_image_stats, calib_stack_data, test_col, test_col_stats, \
+               test_col_local_meas_quality, test_col_global_meas_quality
 
 
-def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, test_col_global_meas_quality):
+def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, test_col_global_meas_quality, calib_set):
     if settings.outputs.save_plots or settings.outputs.show_plots:
 
-        # plot NEW normalized local rmse uncertainty
-        fig = test_col.plot_bin_local_rmse_z(measurement_quality=test_col_local_meas_quality,
-                                             measurement_depth=test_col.measurement_depth,
-                                             second_plot=None)
-        fig.suptitle(settings.outputs.save_id_string)
-        plt.tight_layout()
-        if settings.outputs.save_plots is True:
-            savefigpath = join(settings.outputs.results_path,
-                               settings.outputs.save_id_string + '_new_rmse_depth_uncertainty.png')
-            fig.savefig(fname=savefigpath, bbox_inches='tight')
-            plt.close()
-        if settings.outputs.show_plots:
-            fig.show()
+        if test_col_local_meas_quality is not None:
+            # plot NEW normalized local rmse uncertainty
+            fig = test_col.plot_bin_local_rmse_z(measurement_quality=test_col_local_meas_quality,
+                                                 measurement_depth=test_col.measurement_depth,
+                                                 second_plot=None)
+            fig.suptitle(settings.outputs.save_id_string)
+            plt.tight_layout()
+            if settings.outputs.save_plots is True:
+                savefigpath = join(settings.outputs.results_path,
+                                   settings.outputs.save_id_string + '_new_rmse_depth_uncertainty.png')
+                fig.savefig(fname=savefigpath, bbox_inches='tight')
+                plt.close()
+            if settings.outputs.show_plots:
+                fig.show()
 
-        # plot normalized local rmse uncertainty
-        fig = test_col.plot_local_rmse_uncertainty(measurement_quality=test_col_local_meas_quality,
-                                                   measurement_depth=test_col.measurement_depth,
-                                                   measurement_width=settings.optics.field_of_view)
-        fig.suptitle(settings.outputs.save_id_string)
-        plt.tight_layout()
-        if settings.outputs.save_plots is True:
-            savefigpath = join(settings.outputs.results_path,
-                               settings.outputs.save_id_string + '_rmse_depth_uncertainty.png')
-            fig.savefig(fname=savefigpath, bbox_inches='tight')
-            plt.close()
-        if settings.outputs.show_plots:
-            fig.show()
+            # plot normalized local rmse uncertainty
+            fig = test_col.plot_local_rmse_uncertainty(measurement_quality=test_col_local_meas_quality,
+                                                       measurement_depth=test_col.measurement_depth,
+                                                       measurement_width=settings.optics.field_of_view)
+            fig.suptitle(settings.outputs.save_id_string)
+            plt.tight_layout()
+            if settings.outputs.save_plots is True:
+                savefigpath = join(settings.outputs.results_path,
+                                   settings.outputs.save_id_string + '_rmse_depth_uncertainty.png')
+                fig.savefig(fname=savefigpath, bbox_inches='tight')
+                plt.close()
+            if settings.outputs.show_plots:
+                fig.show()
 
-        # plot normalized local rmse uncertainty and correlation value
-        fig = test_col.plot_local_rmse_uncertainty(measurement_quality=test_col_local_meas_quality,
-                                                   measurement_depth=test_col.measurement_depth,
-                                                   measurement_width=settings.optics.field_of_view,
-                                                   second_plot='cm')
-        fig.suptitle(settings.outputs.save_id_string)
-        plt.tight_layout()
-        if settings.outputs.save_plots is True:
-            savefigpath = join(settings.outputs.results_path,
-                               settings.outputs.save_id_string + '_rmse_depth_uncertainty_and_cm.png')
-            fig.savefig(fname=savefigpath, bbox_inches='tight')
-            plt.close()
-        if settings.outputs.show_plots:
-            fig.show()
+            # plot normalized local rmse uncertainty and correlation value
+            fig = test_col.plot_local_rmse_uncertainty(measurement_quality=test_col_local_meas_quality,
+                                                       measurement_depth=test_col.measurement_depth,
+                                                       measurement_width=settings.optics.field_of_view,
+                                                       second_plot='cm')
+            fig.suptitle(settings.outputs.save_id_string)
+            plt.tight_layout()
+            if settings.outputs.save_plots is True:
+                savefigpath = join(settings.outputs.results_path,
+                                   settings.outputs.save_id_string + '_rmse_depth_uncertainty_and_cm.png')
+                fig.savefig(fname=savefigpath, bbox_inches='tight')
+                plt.close()
+            if settings.outputs.show_plots:
+                fig.show()
 
-        # plot normalized local rmse uncertainty and valid z-measurements
-        fig = test_col.plot_local_rmse_uncertainty(measurement_quality=test_col_local_meas_quality,
-                                                   measurement_depth=test_col.measurement_depth,
-                                                   measurement_width=settings.optics.field_of_view,
-                                                   second_plot='num_valid_z_measure')
-        fig.suptitle(settings.outputs.save_id_string)
-        plt.tight_layout()
-        if settings.outputs.save_plots is True:
-            savefigpath = join(settings.outputs.results_path,
-                               settings.outputs.save_id_string + '_rmse_depth_uncertainty_and_valid_z.png')
-            fig.savefig(fname=savefigpath, bbox_inches='tight')
-            plt.close()
-        if settings.outputs.show_plots:
-            fig.show()
+            # plot normalized local rmse uncertainty and valid z-measurements
+            fig = test_col.plot_local_rmse_uncertainty(measurement_quality=test_col_local_meas_quality,
+                                                       measurement_depth=test_col.measurement_depth,
+                                                       measurement_width=settings.optics.field_of_view,
+                                                       second_plot='num_valid_z_measure')
+            fig.suptitle(settings.outputs.save_id_string)
+            plt.tight_layout()
+            if settings.outputs.save_plots is True:
+                savefigpath = join(settings.outputs.results_path,
+                                   settings.outputs.save_id_string + '_rmse_depth_uncertainty_and_valid_z.png')
+                fig.savefig(fname=savefigpath, bbox_inches='tight')
+                plt.close()
+            if settings.outputs.show_plots:
+                fig.show()
 
-        # plot local rmse uncertainty in real-coordinates
-        fig = test_col.plot_local_rmse_uncertainty(measurement_quality=test_col_local_meas_quality)
-        fig.suptitle(settings.outputs.save_id_string)
-        plt.tight_layout()
-        if settings.outputs.save_plots is True:
-            savefigpath = join(settings.outputs.results_path, settings.outputs.save_id_string + '_rmse_uncertainty.png')
-            fig.savefig(fname=savefigpath, bbox_inches='tight')
-            plt.close()
-        if settings.outputs.show_plots:
-            fig.show()
+            # plot local rmse uncertainty in real-coordinates
+            fig = test_col.plot_local_rmse_uncertainty(measurement_quality=test_col_local_meas_quality)
+            fig.suptitle(settings.outputs.save_id_string)
+            plt.tight_layout()
+            if settings.outputs.save_plots is True:
+                savefigpath = join(settings.outputs.results_path, settings.outputs.save_id_string + '_rmse_uncertainty.png')
+                fig.savefig(fname=savefigpath, bbox_inches='tight')
+                plt.close()
+            if settings.outputs.show_plots:
+                fig.show()
 
-        # plot local rmse uncertainty and correlation value
-        fig = test_col.plot_local_rmse_uncertainty(measurement_quality=test_col_local_meas_quality, second_plot='cm')
-        fig.suptitle(settings.outputs.save_id_string)
-        plt.tight_layout()
-        if settings.outputs.save_plots is True:
-            savefigpath = join(settings.outputs.results_path,
-                               settings.outputs.save_id_string + '_rmse_uncertainty_and_cm.png')
-            fig.savefig(fname=savefigpath, bbox_inches='tight')
-            plt.close()
-        if settings.outputs.show_plots:
-            fig.show()
+            # plot local rmse uncertainty and correlation value
+            fig = test_col.plot_local_rmse_uncertainty(measurement_quality=test_col_local_meas_quality, second_plot='cm')
+            fig.suptitle(settings.outputs.save_id_string)
+            plt.tight_layout()
+            if settings.outputs.save_plots is True:
+                savefigpath = join(settings.outputs.results_path,
+                                   settings.outputs.save_id_string + '_rmse_uncertainty_and_cm.png')
+                fig.savefig(fname=savefigpath, bbox_inches='tight')
+                plt.close()
+            if settings.outputs.show_plots:
+                fig.show()
 
-        # plot normalized local rmse uncertainty and valid z-measurements
-        fig = test_col.plot_local_rmse_uncertainty(measurement_quality=test_col_local_meas_quality,
-                                                   second_plot='num_valid_z_measure')
-        fig.suptitle(settings.outputs.save_id_string)
-        plt.tight_layout()
-        if settings.outputs.save_plots is True:
-            savefigpath = join(settings.outputs.results_path,
-                               settings.outputs.save_id_string + '_rmse_uncertainty_and_valid_z.png')
-            fig.savefig(fname=savefigpath, bbox_inches='tight')
-            plt.close()
-        if settings.outputs.show_plots:
-            fig.show()
+            # plot normalized local rmse uncertainty and valid z-measurements
+            fig = test_col.plot_local_rmse_uncertainty(measurement_quality=test_col_local_meas_quality,
+                                                       second_plot='num_valid_z_measure')
+            fig.suptitle(settings.outputs.save_id_string)
+            plt.tight_layout()
+            if settings.outputs.save_plots is True:
+                savefigpath = join(settings.outputs.results_path,
+                                   settings.outputs.save_id_string + '_rmse_uncertainty_and_valid_z.png')
+                fig.savefig(fname=savefigpath, bbox_inches='tight')
+                plt.close()
+            if settings.outputs.show_plots:
+                fig.show()
 
         # plot particle area vs z/h for every particle
         fig = test_col.plot_particles_stats()
@@ -331,6 +343,7 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
         if settings.outputs.show_plots:
             plt.show()
 
+        """
         # plot snr and area
         test_col.plot_particle_snr_and(second_plot='area')
         plt.suptitle(settings.outputs.save_id_string)
@@ -364,13 +377,28 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
             plt.close()
         if settings.outputs.show_plots:
             plt.show()
+        """
 
         # plot for a random selection of particles in the test collection
         if len(test_col.particle_ids) >= 25:
             P_INSPECTS = [int(p) for p in random.sample(set(test_col.particle_ids), 25)]
         else:
             P_INSPECTS = test_col.particle_ids
+
         for P_INSPECT in P_INSPECTS:
+
+            P_INSPECT = int(P_INSPECT)
+
+            # plot particle template at z_guess and z_calib_nearest_true
+            if settings.outputs.save_plots is True:
+                sup_title = settings.outputs.save_id_string + ': particle id {}'.format(P_INSPECT)
+                savefigpath = join(settings.outputs.results_path,
+                                   settings.outputs.save_id_string + '_z_error_pid{}.png'.format(P_INSPECT))
+            error = 5
+            particles_errors = get.particles_with_large_z_error(error, test_col, particle_id=P_INSPECT, image_id=None)
+            plotting.plot_images_and_similarity_curve(calib_set, test_col, particle_id=P_INSPECT, image_id=None,
+                                                      min_cm=0.5, sup_title=sup_title, save_path=savefigpath)
+
 
             # plot particle stack with z and true_z as subplot titles
             fig = test_col.plot_single_particle_stack(particle_id=P_INSPECT)
@@ -379,14 +407,13 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
                 plt.tight_layout()
                 if settings.outputs.save_plots is True:
                     savefigpath = join(settings.outputs.results_path,
-                                       settings.outputs.save_id_string + '_correlation_pid{}.png'.format(P_INSPECT))
+                                       settings.outputs.save_id_string + '_particle_stack_pid{}.png'.format(P_INSPECT))
                     fig.savefig(fname=savefigpath)
                     plt.close()
                 if settings.outputs.show_plots:
                     fig.show()
 
             # plot interpolation curves for every particle
-            """
             fig = test_col.plot_similarity_curve(sub_image=settings.z_assessment.sub_image_interpolation, method=settings.z_assessment.infer_method, min_cm=settings.z_assessment.min_cm,
                                                  particle_id=P_INSPECT, image_id=None)
             if fig is not None:
@@ -398,7 +425,6 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
                     plt.close()
                 if settings.outputs.show_plots:
                     fig.show()
-            """
 
         # plot test collection images with particles
         if len(test_col.files) >= 4:
@@ -406,7 +432,7 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
             fig, ax = plt.subplots(ncols=4, figsize=(12, 3))
             for i, img in enumerate(plot_test_col_imgs):
                 ax[i].imshow(
-                    test_col.images[img].draw_particles(raw=False, thickness=1, draw_id=True, draw_bbox=True))
+                    test_col.images[img].draw_particles(raw=False, thickness=1, draw_id=True, draw_bbox=False))
                 img_formatted = np.round(float(img.split(settings.inputs.image_base_string)[-1].split('.tif')[0]),
                                          3)
                 ax[i].set_title('{}'.format(img_formatted))
@@ -424,7 +450,7 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
         plot_test_col_imgs = test_col.files
         for i, img in enumerate(plot_test_col_imgs):
             fig, ax = plt.subplots(figsize=(8, 8))
-            ax.imshow(test_col.images[img].draw_particles(raw=False, thickness=1, draw_id=True, draw_bbox=True))
+            ax.imshow(test_col.images[img].draw_particles(raw=False, thickness=1, draw_id=True, draw_bbox=False))
             ax.set_title('{}'.format(img))
             plt.suptitle(settings.outputs.save_id_string)
             plt.tight_layout()
@@ -448,7 +474,6 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
             plt.show()
 
         # plot interpolation curves for every particle on image_id N_CAL//2
-        """
         for IMG_INSPECT in np.arange(start=0, stop=len(test_col.images), step=10):
             fig = test_col.plot_similarity_curve(sub_image=settings.z_assessment.sub_image_interpolation, method=settings.z_assessment.infer_method, min_cm=settings.z_assessment.min_cm,
                                                  particle_id=None, image_id=IMG_INSPECT)
@@ -462,7 +487,6 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
                 if settings.outputs.show_plots:
                     fig.show()
                 plt.close(fig)
-        """
 
         # plot the particle image PSF-model-based z-calibration function
         """
@@ -577,7 +601,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
         plot_calib_col_imgs = calib_col.files
         for i, img in enumerate(plot_calib_col_imgs):
             fig, ax = plt.subplots(figsize=(8, 8))
-            ax.imshow(calib_col.images[img].draw_particles(raw=False, thickness=1, draw_id=True, draw_bbox=True))
+            ax.imshow(calib_col.images[img].draw_particles(raw=False, thickness=1, draw_id=False, draw_bbox=False))
             ax.set_title('{}'.format(img))
             plt.suptitle(settings.outputs.save_id_string)
             plt.tight_layout()
@@ -601,7 +625,6 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
             plt.show()
 
         # plot calibration set's stack's self similarity: '_calibset_stacks_self_similarity_{}.png'
-        """
         fig = calib_set.plot_stacks_self_similarity(min_num_layers=settings.processing.min_layers_per_stack)
         plt.suptitle(settings.outputs.save_id_string + ', infer: {}'.format(test_settings.z_assessment.infer_method))
         plt.tight_layout()
@@ -611,7 +634,6 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
             plt.close()
         if settings.outputs.show_plots is True:
             plt.show()
-        """
 
         """
         per-particle (in calibration set) plots:
@@ -648,7 +670,6 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.show()
 
             # plot calibration stack and filled contour for a single particle: '_calib_stack_contours.png'
-            """
             calib_set.calibration_stacks[id].plot_calib_stack(imgs_per_row=9, fill_contours=True, fig=None, ax=None,
                                                   format_string=False)
             plt.suptitle(save_calib_pid)
@@ -659,7 +680,6 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.close()
             if settings.outputs.show_plots is True:
                 plt.show()
-                """
 
             # plot calibration stack self similarity: '_calib_stack_self_similarity_{}.png'
             fig = calib_set.calibration_stacks[id].plot_self_similarity()
@@ -710,7 +730,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.show()
 
             # plot 3D calibration stack for a single particle: '_calib_stack_3d.png'
-            """calib_set.calibration_stacks[id].plot_3d_stack(intensity_percentile=(20, 99), stepsize=len(calib_col.images) // 10,
+            calib_set.calibration_stacks[id].plot_3d_stack(intensity_percentile=(20, 99), stepsize=len(calib_col.images) // 10,
                                                            aspect_ratio=2.5)
             plt.suptitle(save_calib_pid)
             plt.tight_layout()
@@ -719,7 +739,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.savefig(savepath, bbox_inches="tight")
                 plt.close()
             if settings.outputs.show_plots is True:
-                plt.show()"""
+                plt.show()
 
             # plot adjacent similarities with template images: '_calib_stack_index_{}_adjacent_similarity_{}.png'
             """indices = [ind for ind in random.sample(set(np.arange(2, len(calib_col.files))), 4)]
@@ -940,17 +960,20 @@ def export_results_and_settings(export='test', calib_settings=None, calib_col=No
         'test_col_number_of_images_averaged_per_z': test_col.num_images_if_mean,
     }
 
-    test_col_stats_dict = {
-        'test_col_percent_particles_idd': test_col_stats['percent_particles_idd'],
-        'test_col_mean_pixel_density': test_col_stats['mean_pixel_density'],
-        'test_col_mean_particle_density': test_col_stats['mean_particle_density'],
-        'test_col_mean_snr_filtered': test_col_stats['mean_snr_filtered'],
-        'test_col_mean_signal': test_col_stats['mean_signal'],
-        'test_col_mean_background': test_col_stats['mean_background'],
-        'test_col_mean_std_background': test_col_stats['std_background'],
-    }
+    if test_col_stats is not None:
+        test_col_stats_dict = {
+            'test_col_percent_particles_idd': test_col_stats['percent_particles_idd'],
+            'test_col_mean_pixel_density': test_col_stats['mean_pixel_density'],
+            'test_col_mean_particle_density': test_col_stats['mean_particle_density'],
+            'test_col_mean_snr_filtered': test_col_stats['mean_snr_filtered'],
+            'test_col_mean_signal': test_col_stats['mean_signal'],
+            'test_col_mean_background': test_col_stats['mean_background'],
+            'test_col_mean_std_background': test_col_stats['std_background'],
+        }
+    else:
+        test_col_stats_dict = {}
 
-    if test_settings.inputs.ground_truth_file_path is not None:
+    if test_settings.inputs.ground_truth_file_path is not None and test_col_global_meas_quality is not None:
         test_col_global_meas_quality_dict = {
             # 'mean_error_x': test_col_global_meas_quality['error_x'],
             # 'mean_error_y': test_col_global_meas_quality['error_y'],
@@ -968,7 +991,7 @@ def export_results_and_settings(export='test', calib_settings=None, calib_col=No
             'mean_cm': test_col_global_meas_quality['cm'],
             'max_sim': test_col_global_meas_quality['max_sim']
         }
-    else:
+    elif test_col_global_meas_quality is not None:
         test_col_global_meas_quality_dict = {
             # 'mean_error_z': test_col_global_meas_quality['error_z'],
             'mean_rmse_z': test_col_global_meas_quality['rmse_z'],
@@ -979,6 +1002,8 @@ def export_results_and_settings(export='test', calib_settings=None, calib_col=No
             'mean_cm': test_col_global_meas_quality['cm'],
             'max_sim': test_col_global_meas_quality['max_sim']
         }
+    else:
+        test_col_global_meas_quality_dict = {}
 
     dicts = [optics_dict, test_col_global_meas_quality_dict, calib_settings_dict, calib_col_dict, calib_col_stats_dict,
              calib_stack_data_dict, test_settings_dict, test_col_dict, test_col_stats_dict]
