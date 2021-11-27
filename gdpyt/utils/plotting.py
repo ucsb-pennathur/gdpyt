@@ -230,15 +230,20 @@ def plot_adjacent_self_similarity(calib_stack, index=[]):
     calib_stack
     index: the index of N_CAL images between z=0 and z=h. Note, these are different index units than similarity arrays.
     """
+    fig = None
+
     if len(index) == 0:
         raise ValueError("Need to input z-value index to plot adjacent self similarities with images")
     else:
         stack_layers = list(calib_stack.layers.items())
 
-        if index[0] > len(stack_layers) - 2:
-            index = [ind for ind in random.sample(set(np.arange(1, len(stack_layers) - 1)), 1)]
+        if index[0] > len(stack_layers) - 3:
+            #index = [ind for ind in random.sample(set(np.arange(1, len(stack_layers) - 1)), 1)]
+            index = [index[0] - 4]
+        elif index[0] < 2:
+            index = [2]
 
-        for i in index[:-1]:
+        for i in index:
             backward_image = stack_layers[i-1][1]
             backward_cm = calib_stack.self_similarity_forward[i-1][1]
 
@@ -250,21 +255,24 @@ def plot_adjacent_self_similarity(calib_stack, index=[]):
 
             fig, (ax1, ax2, ax3) = plt.subplots(ncols=3, figsize=(10, 6), sharey=True)
             ax1.imshow(backward_image, cmap='viridis')
-            ax1.set_xlabel(r'$z_{true}$ / h = ' + str(calib_stack.self_similarity_forward[i-1][0]))
+            ax1.set_xlabel(r'$z_{true}$ = ' + str(calib_stack.self_similarity_forward[i-1][0]))
             ax1.set_title(r'$c_{m}(i-1, i)$' + '={}'.format(np.round(backward_cm, 4)))
             ax1.grid(color='gray', alpha=0.5)
             ax2.imshow(center_image, cmap='viridis')
-            ax2.set_xlabel(r'$z_{true}$ / h = ' + str(calib_stack.self_similarity[i-1][0]))
+            ax2.set_xlabel(r'$z_{true}$ = ' + str(calib_stack.self_similarity[i-1][0]))
             ax2.set_title(r'|$c_{m}(i-1, i), c_{m}(i, i+1)$|' + '={}'.format(np.round(mean_adjacent_cm, 4)))
             ax2.grid(color='gray', alpha=0.5)
             ax3.imshow(forward_image, cmap='viridis')
-            ax3.set_xlabel(r'$z_{true}$ / h = ' + str(calib_stack.self_similarity_forward[i+1][0]))
+            ax3.set_xlabel(r'$z_{true}$ = ' + str(calib_stack.self_similarity_forward[i+1][0]))
             ax3.set_title(r'$c_{m}(i, i+1)$' + '={}'.format(np.round(forward_cm, 4)))
             ax3.grid(color='gray', alpha=0.5)
 
             plt.tight_layout()
 
-        return fig
+        if fig is None:
+            fig, ax = plt.subplots()
+
+    return fig
 
 
 def plot_img_collection(collection, raw=True, draw_particles=True, exclude=[], **kwargs):
@@ -483,7 +491,7 @@ def plot_particle_coordinate_calibration(collection, measurement_quality, plot_t
 
     return fig
 
-def plot_images_and_similarity_curve(calib_set, test_col, particle_id=None, image_id=None, min_cm=0.5,
+def plot_images_and_similarity_curve(calib_set, test_col, particle_id=None, image_id=None, min_cm=0.5, error=5,
                                      sup_title=None, save_path=None):
     """
     Plot similarity curve with corresponding z-guess and z-true images.
@@ -497,29 +505,38 @@ def plot_images_and_similarity_curve(calib_set, test_col, particle_id=None, imag
         # get a specific particle in a specific image
         for particle in test_col.images[image_id]:
             if particle.id == particle_id:
-                particles_to_plot.append(particle)
-                z_trues.append(particle.z_true)
+                if not np.isnan(particle.z):
+                    if np.abs(particle.z_true - particle.z) > error:
+                        particles_to_plot.append(particle)
+                        z_trues.append(particle.z_true)
 
     elif particle_id is None and image_id is not None:
         # get every particle in a specific image with c_m > min_cm
         for particle in test_col.images[image_id]:
             if particle.cm > min_cm:
-                particles_to_plot.append(particle)
-                z_trues.append(particle.z_true)
+                if not np.isnan(particle.z):
+                    if np.abs(particle.z_true - particle.z) > error:
+                        particles_to_plot.append(particle)
+                        z_trues.append(particle.z_true)
 
     elif particle_id is not None and image_id is None:
         # get a specific particle in every image
         for image in test_col.images.values():
             for particle in image.particles:
                 if particle.id == particle_id:
-                    particles_to_plot.append(particle)
-                    z_trues.append(particle.z_true)
+                    if not np.isnan(particle.z):
+                        if np.abs(particle.z_true - particle.z) > error:
+                            particles_to_plot.append(particle)
+                            z_trues.append(particle.z_true)
     else:
         raise ValueError("Need to specify a particle ID or image ID.")
 
     for p in particles_to_plot:
 
         z_calib, template_calib = get.corresponding_calibration_stack_particle_template(calib_set, p.z_true, p.id)
+
+        # calculate error
+        p_error = np.round(np.abs(p.z_true - p.z), 2)
 
         # particle template: z_true
         ax1 = plt.subplot(221)
@@ -547,12 +564,12 @@ def plot_images_and_similarity_curve(calib_set, test_col, particle_id=None, imag
         interp_cm = p.interpolation_curve.iloc[:, 1]
         ax3.plot(interp_z, interp_cm, color='lightcoral', label='interp')
         # z_true
-        ax3.scatter(p.z_true, 0.99, s=75, color='green', marker='*', label=r'$z_{true}$')
+        ax3.scatter(p.z_true, p.cm, s=75, color='green', marker='*', label=r'$z_{true}$')
 
         ax3.set_ylim([np.min(sim_cm), 1.0125])
         ax3.set_xlabel(r'$z_{true}$')
         ax3.set_ylabel(r'$c_{m}$')
-        ax3.set_title(r'$z_{true}$ = ' + str(np.round(p.z_true, 3)), fontsize=11)
+        ax3.set_title(r'$z_{true}$ = ' + str(np.round(p.z_true, 3)) + ', ' + r'$\epsilon_{z}$ = ' + str(p_error), fontsize=11)
         ax3.grid(b=True, which='major', alpha=0.25)
         ax3.grid(b=True, which='minor', alpha=0.125)
 
@@ -1316,28 +1333,65 @@ def plot_particle_snr_and(collection, second_plot='area', particle_id=None):
     return fig
 
 
-def plot_particle_peak_intensity(collection):
+def plot_particle_peak_intensity(collection, particle_id=None):
 
     values = []
-    for img in collection.images.values():
-        for p in img.particles:
-            if p.z_true is not None:
-                values.append([p.id, p.z_true, p.peak_intensity])
+    if collection.image_collection_type == 'calibration':
+        if particle_id is not None:
+            for img in collection.images.values():
+                for p in img.particles:
+                    if int(p.id) == particle_id and p.z_true is not None:
+                        values.append([p.id, p.z_true, p.peak_intensity])
+        else:
+            for img in collection.images.values():
+                for p in img.particles:
+                    if p.z_true is not None:
+                        values.append([p.id, p.z_true, p.peak_intensity])
 
-    df = pd.DataFrame(data=values, columns=['id', 'true_z', 'peak_intensity'])
+        df = pd.DataFrame(data=values, columns=['id', 'true_z', 'peak_intensity'])
 
-    # group by true_z to get aggregate values to plot
-    df_z_count = df.groupby(['true_z']).count()
-    df_z_mean = df.groupby(['true_z']).mean()
-    df_z_std = df.groupby(['true_z']).std()
+        # group by true_z to get aggregate values to plot
+        df_z_count = df.groupby(['true_z']).count()
+        df_z_mean = df.groupby(['true_z']).mean()
+        df_z_std = df.groupby(['true_z']).std()
+    else:
+        if particle_id is not None:
+            for img in collection.images.values():
+                for p in img.particles:
+                    part_id = int(p.id)
+                    if part_id == particle_id:
+                        j = 1
+                    if int(p.id) == particle_id:
+                        j = np.isnan(p.z)
+                        h = 1
+                        if not np.isnan(p.z):
+                            values.append([p.id, p.z, p.peak_intensity])
+        else:
+            for img in collection.images.values():
+                for p in img.particles:
+                    if not np.isnan(p.z):
+                        values.append([p.id, p.z, p.peak_intensity])
+
+        if len(values) == 0:
+            return None
+
+        df = pd.DataFrame(data=values, columns=['id', 'z', 'peak_intensity'])
+
+        # group by true_z to get aggregate values to plot
+        df_z_count = df.groupby(['z']).count()
+        df_z_mean = df.groupby(['z']).mean()
+        df_z_std = df.groupby(['z']).std()
 
     fig, ax = plt.subplots()
 
     ax.errorbar(x=df_z_mean.index, y=df_z_mean.peak_intensity, yerr=df_z_std.peak_intensity, fmt='o', color='darkblue', ecolor='lightblue',
                 elinewidth=1, capsize=2)
     ax.plot(df_z_mean.index, df_z_mean.peak_intensity, color='darkblue', alpha=0.25)
-    ax.set_xlabel(r'$z_{true}$ ($\mu m$)')
     ax.set_ylabel(r'$I_{max}$ (A.U.)', color='darkblue')
+    if collection.image_collection_type == 'calibration':
+        ax.set_xlabel(r'$z_{true}$ ($\mu m$)')
+    else:
+        ax.set_xlabel(r'$z$ ($\mu m$)')
 
     ax2 = ax.twinx()
     ax2.scatter(df_z_mean.index, df_z_count.peak_intensity, color='darkgreen', alpha=0.25)

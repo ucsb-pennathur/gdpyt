@@ -558,14 +558,19 @@ def _append_particle_diam(coords, particle_diameter):
 # ------------------------- ------------------------- ------------------------- ------------------------- -------------
 
 
-def generate_uniform_z_grid(settings_file, grid, z_levels, particle_diameter=2, create_multiple=None):
+def generate_uniform_z_grid(settings_file, grid, z_levels, particle_diameter=2, create_multiple=None,
+                            dataset='calibration'):
     """
     1. Grid: uniform z-coordinate
         * Generate images according to z-levels where all particles are at the same z-coordinate.
     """
 
     settings_path = Path(settings_file)
-    calib_path = join(settings_path.parent, 'calibration_input')
+
+    if dataset == 'calibration':
+        calib_path = join(settings_path.parent, 'grid-uniform-z-calibration_input')
+    else:
+        calib_path = join(settings_path.parent, 'grid-uniform-z-input')
 
     if isdir(calib_path):
         raise ValueError('Folder {} already exists. Specify a new one'.format(calib_path))
@@ -606,7 +611,7 @@ def generate_random_z_grid(settings_file, n_images, grid, range_z=(-40, 40), par
         * Generate images according to z-levels where all particles are at a random z-coordinate.
     """
     settings_path = Path(settings_file)
-    txtfolder = join(settings_path.parent, 'input')
+    txtfolder = join(settings_path.parent, 'grid-random-z-input')
 
     if isdir(txtfolder):
         raise ValueError('Folder {} already exists. Specify a new one'.format(txtfolder))
@@ -774,6 +779,78 @@ def generate_uniform_z_density_distribution(settings_file, z_levels, particle_de
                 fname = 'calib{}_{}'.format(i, z)
                 savepath = join(calib_path, fname + '.txt')
                 np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+# ------------------------- ------------------------- ------------------------- ------------------------- -------------
+
+def generate_uniform_z_density_distribution_collection(settings_file, z_levels, zt_levels, particle_densities, particle_diameter=2,
+                                            create_multiple=None):
+    """
+    5. Random distribution by density: uniform z-coordinate
+        * Generate images according to z-levels with randomly distributed particles at uniform z-coordinates.
+    """
+
+    settings_path = Path(settings_file)
+
+    max_particle_density = np.max(particle_densities)
+
+    settings_dict = {}
+    with open(settings_file) as file:
+        for line in file:
+            thisline = line.split('=')
+            settings_dict.update({thisline[0].strip(): eval(thisline[1].strip())})
+
+    xy_coordinates = _generate_random_xy_coordinates_by_density(particle_density=max_particle_density,
+                                                                setup_params=settings_dict)
+    num_particles = len(xy_coordinates[:, 0])
+
+    # start loop
+    for pd in particle_densities:
+
+        percent_particles = int(pd / max_particle_density * num_particles)
+        xy_coordinates_pd = xy_coordinates[:percent_particles, :]
+
+        calib_path = join(settings_path.parent, 'calibration_{}_input'.format(pd))
+        test_path = join(settings_path.parent, 'test_{}_input'.format(pd))
+
+        if isdir(calib_path):
+            raise ValueError('Folder {} already exists. Specify a new one'.format(calib_path))
+        else:
+            mkdir(calib_path)
+            mkdir(test_path)
+
+        for z in z_levels:
+
+            coordinates = _add_z_coord(xy_coords=xy_coordinates_pd, z=z)
+
+            output = _append_particle_diam(coordinates, particle_diameter)
+
+            if create_multiple is None:
+                fname = 'calib_{}'.format(z)
+                savepath = join(calib_path, fname + '.txt')
+                np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+            else:
+                assert isinstance(create_multiple, int)
+                for i in range(create_multiple):
+                    fname = 'calib{}_{}'.format(i, z)
+                    savepath = join(calib_path, fname + '.txt')
+                    np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+        for zt in zt_levels:
+
+            tcoordinates = _add_z_coord(xy_coords=xy_coordinates_pd, z=zt)
+
+            toutput = _append_particle_diam(tcoordinates, particle_diameter)
+
+            if create_multiple is None:
+                fname = 'calib_{}'.format(zt)
+                savepath = join(test_path, fname + '.txt')
+                np.savetxt(savepath, toutput, fmt='%.6f', delimiter=' ')
+            else:
+                assert isinstance(create_multiple, int)
+                for i in range(create_multiple):
+                    fname = 'calib{}_{}'.format(i, zt)
+                    savepath = join(test_path, fname + '.txt')
+                    np.savetxt(savepath, toutput, fmt='%.6f', delimiter=' ')
 
 # ------------------------- ------------------------- ------------------------- ------------------------- -------------
 

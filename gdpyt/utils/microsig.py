@@ -25,6 +25,13 @@ def generate_synthetic_images(settings_file, txt_folder, destination_folder):
         mic['n_rays'] = int(mic['n_rays'])
 
     data_files = [os.path.join(txt_folder, fname) for fname in os.listdir(txt_folder) if fname.endswith('.txt')]
+
+    # sean mack edit: 11/21
+    data_files = [fname[:-4] for fname in os.listdir(txt_folder) if fname.endswith('.txt')]
+    image_files = [fname[:-4] for fname in os.listdir(destination_folder) if fname.endswith('.tif')]
+    data_files = [d for d in data_files if d not in image_files]
+    data_files = [os.path.join(txt_folder, fname + '.txt') for fname in data_files]
+
     #%%
     #ii = 0
     #ii_tot = len(data_files)

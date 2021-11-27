@@ -168,8 +168,6 @@ class GdpytImage(object):
             self._subbg = img - background_img
             self._raw = self._subbg
 
-
-
     def filter_image(self, filterspecs, force_rawdtype=True):
         """
         Steps:
@@ -290,7 +288,6 @@ class GdpytImage(object):
             # filter on area
             area = region.area
             if area < min_size or area > max_size:
-                j = 1
                 skipped_contours.append(region.label)
                 continue
 
@@ -303,7 +300,7 @@ class GdpytImage(object):
             # filter on aspect ratio
             aspect_ratio = region.major_axis_length / region.minor_axis_length
             if overlapping_particles is True:
-                aspect_ratio_threshold = 6
+                aspect_ratio_threshold = 2.5
             else:
                 aspect_ratio_threshold = 2.5
             if aspect_ratio > aspect_ratio_threshold:
@@ -339,11 +336,11 @@ class GdpytImage(object):
             bbox, bbox_center = self.pad_and_center_region(cX, cY, bbox, padding=padding)
 
             # discard contours that are too close to the image borders to include the desired padding
-            if bbox[0] - padding < 1 or bbox[1] - padding < 1:
+            if bbox[0] - padding * 0.5 < 1 or bbox[1] - padding * 0.5 < 1:
                 skipped_contours.append(region.label)
                 print("Skipped because template + padding near the image borders")
                 continue
-            elif bbox[0] + bbox[2] + padding >= self.shape[1] or bbox[1] + bbox[3] + padding >= self.shape[0]:
+            elif bbox[0] + bbox[2] + padding * 0.5 >= self.shape[1] or bbox[1] + bbox[3] + padding * 0.5 >= self.shape[0]:
                 skipped_contours.append(region.label)
                 print("Skipped because template + padding near the image borders")
                 continue
@@ -651,12 +648,25 @@ class GdpytImage(object):
 
         # check if image is a stack
         if len(np.shape(img)) > 2:   # image is a stack
+
+            if np.shape(img)[0] < np.shape(img)[2]:
+                stack_axis = 0
+            else:
+                stack_axis = 2
+
             if if_img_stack_take == 'mean':
-                img = np.rint(np.mean(img, axis=0, dtype=float)).astype(np.int16)
+                img = np.rint(np.mean(img, axis=stack_axis, dtype=float)).astype(np.int16)
             elif if_img_stack_take == 'first':
-                img = img[0, :, :]
+                if stack_axis == 0:
+                    img = img[0, :, :]
+                elif stack_axis == 2:
+                    img = img[:, :, 0]
             elif if_img_stack_take == 'subset':
-                img = np.rint(np.mean(img[take_subset_mean[0]:take_subset_mean[1], :, :], axis=0, dtype=float)).astype(np.int16)
+                if stack_axis == 0:
+                    img = np.rint(
+                        np.mean(img[take_subset_mean[0]:take_subset_mean[1], :, :], axis=0, dtype=float)).astype(np.int16)
+                elif stack_axis == 2:
+                    img = np.rint(np.mean(img[:, :, take_subset_mean[0]:take_subset_mean[1]], axis=2, dtype=float)).astype(np.int16)
             else:
                 raise ValueError("if_img_stack_take must equal 'mean', 'first', or 'subset'. If 'subset', take_subset_mean must be a 2-item tuple or list indicating a START and STOP index.")
 
@@ -830,19 +840,20 @@ class GdpytImage(object):
             cx = float(bbox[2] - bbox[0])
             cy = float(bbox[3] - bbox[1])
 
-    def infer_self_similarity(self, function='sknccorr'):
+    def infer_self_similarity(self, function='sknccorr', inspect_particle_ids=None):
 
         sim_func = sk_norm_cross_correlation
 
         sims = []
+        inspect_sims = []
+
         for p_image in self.particles:
             img = p_image.template
-
             for p_template in self.particles:
-
                 if p_template.id == p_image.id:
                     continue
 
+                # ensure image and template are sized correctly
                 padx, pady = 0, 0
                 temp = p_template.template
                 imgx, imgy = img.shape
@@ -855,14 +866,28 @@ class GdpytImage(object):
 
                 padded_img = np.pad(img, pad_width=[padx, pady], mode='constant', constant_values=np.min(img))
 
+                # compute cross-correlation
                 sim = sim_func(padded_img, temp)
+
+                # append to inspection-correlation list
+                if inspect_particle_ids is None:
+                    inspect_sims.append([self.frame, self.z, p_image.id, p_template.id, sim])
+                else:
+                    if p_template.id in inspect_particle_ids and p_image.id in inspect_particle_ids:
+                        inspect_sims.append([self.frame, self.z, p_image.id, p_template.id, sim])
+
+                # append average-correlation list
                 sims.append(sim)
 
+        # make array from list of lists
+        # inspect_sims = np.array(inspect_sims)
+
+        # compute the mean similarity
         mean_sim = np.mean(sims)
 
         self._particle_similarity = mean_sim
 
-        return mean_sim
+        return mean_sim, inspect_sims
 
     def particle_coordinates(self, id_=None, skip_id_=None):
         coords = []

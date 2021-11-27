@@ -35,7 +35,8 @@ class GdpytImageCollection(object):
                  if_img_stack_take='mean', take_subset_mean=None, inspect_contours_for_every_image=False,
                  template_padding=3, file_basestring=None, same_id_threshold=10, image_collection_type=None,
                  calibration_stack_z_step=None, overlapping_particles=True,
-                 baseline=None, hard_baseline=False, particle_id_image=None, static_templates=False):
+                 baseline=None, hard_baseline=False, particle_id_image=None, static_templates=False,
+                 xydisplacement=None):
         """
 
         Parameters
@@ -79,6 +80,7 @@ class GdpytImageCollection(object):
         self._folder_ground_truth = folder_ground_truth
 
         # image collection data
+        exclude = []
         self.in_focus_z = None
         self._in_focus_area = None
         self.in_focus_coords = None
@@ -162,7 +164,7 @@ class GdpytImageCollection(object):
 
         # uniformize particle ids across all images in the collection
         self._hard_baseline = hard_baseline
-        self.uniformize_particle_ids(baseline=baseline)
+        self.uniformize_particle_ids(baseline=baseline, uv=xydisplacement)
 
         self.identify_particles_ground_truth()
         self.refine_particles_ground_truth()
@@ -218,7 +220,7 @@ class GdpytImageCollection(object):
             # if subset is an integer, this indicates the total number of files to include.
             #   Note: the files are randomly selected from the collection.
             if len(subset) == 1:
-                random_files = [rf for rf in random.sample(set(save_files), subset)]
+                random_files = [rf for rf in random.sample(set(save_files), subset[0])]
                 for f in save_files:
                     if f not in random_files:
                         exclude.append(f)
@@ -475,6 +477,7 @@ class GdpytImageCollection(object):
             raise ValueError("Image collection must either be 'calibration' or 'test'.")
 
         for image in self.images.values():
+
             image.identify_particles_sk(self._thresholding_specs,
                                         min_size=self._min_particle_size, max_size=self._max_particle_size,
                                         shape_tol=self._shape_tol, overlap_threshold=self._overlap_threshold,
@@ -785,6 +788,8 @@ class GdpytImageCollection(object):
             next_id = None
         else:
             baseline_locations = pd.concat(baseline_locations).sort_index()
+            baseline_locations['x'] = baseline_locations['x'] + uv[0][0]
+            baseline_locations['y'] = baseline_locations['y'] + uv[0][1]
             # The next particle that can't be matched to a particle in the baseline gets this id
             next_id = len(baseline_locations)
 
@@ -809,7 +814,7 @@ class GdpytImageCollection(object):
             # (i.e. maintain it's ID but merge the contours).
 
             # NearestNeighbors(x+u,y+v): previous location (x,y) + displacement guess (u,v)
-            nneigh = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(baseline_locations.values + uv)
+            nneigh = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(baseline_locations.values)
             # NOTE: the displacement guess (u,v) could incorporate a "time" variable (image number or time data)
             # such that [u_i,v_i] = [u(t), v(t)] in order to better match time-dependent or periodic displacements.
 
@@ -1221,20 +1226,28 @@ class GdpytImageCollection(object):
 
         return calib_col_image_stats
 
-    def calculate_image_particle_similarity(self):
+    def calculate_image_particle_similarity(self, inspect_particle_ids=None):
         img_z = []
         img_sim = []
+        collection_particle_sims = []
         for img in self.images.values():
             logger.info("Calculating particle similarity in image {}".format(img.filename))
 
-            sim = img.infer_self_similarity()
+            # compute particle similarity in image
+            img_average_sim, img_particles_sims = img.infer_self_similarity()
 
-            img_sim.append(sim)
+            # append particle similarities to image ID
+            collection_particle_sims.extend(img_particles_sims)
+            img_sim.append(img_average_sim)
             img_z.append(img.z)
 
-        df = pd.DataFrame(data=img_sim, index=img_z, columns=['sim'])
+        df_img_average_sim = pd.DataFrame(data=img_sim, index=img_z, columns=['sim'])
 
-        return df
+        collection_particle_sims = np.array(collection_particle_sims)
+        df_collection_particle_sims = pd.DataFrame(data=collection_particle_sims,
+                                                   columns=['frame', 'z', 'image', 'template', 'cm'])
+
+        return df_img_average_sim, df_collection_particle_sims
 
     def calculate_image_stats(self):
 
@@ -1566,8 +1579,8 @@ class GdpytImageCollection(object):
         fig = plot_particle_snr_and(self, second_plot=second_plot, particle_id=particle_id)
         return fig
 
-    def plot_particle_peak_intensity(self):
-        fig = plot_particle_peak_intensity(self)
+    def plot_particle_peak_intensity(self, particle_id=None):
+        fig = plot_particle_peak_intensity(self, particle_id=particle_id)
         return fig
 
     def plot_particle_signal(self, optics, collection_image_stats, particle_id):
