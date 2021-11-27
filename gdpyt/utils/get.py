@@ -15,21 +15,24 @@ def particles_with_large_z_error(error, test_col, particle_id=None, image_id=Non
         for image in test_col.images.values():
             for particle in image.particles:
                 if particle.id == particle_id:
-                    if np.isnan(particle.z):
-                        particles.append(particle)
+                    if np.isnan(particle.z) or np.isnan(particle.z_true):
+                        # particles.append(particle)
+                        pass
                     elif np.abs(particle.z_true - particle.z) > error:
                         particles.append(particle)
     elif image_id is not None:
         for particle in test_col.images[image_id]:
-            if np.isnan(particle.z):
-                particles.append(particle)
+            if np.isnan(particle.z) or np.isnan(particle.z_true):
+                # particles.append(particle)
+                pass
             elif np.abs(particle.z_true - particle.z) > error:
                 particles.append(particle)
     else:
         for image in test_col.images.values():
             for particle in image.particles:
-                if np.isnan(particle.z):
-                    particles.append(particle)
+                if np.isnan(particle.z) or np.isnan(particle.z_true):
+                    # particles.append(particle)
+                    pass
                 elif np.abs(particle.z_true - particle.z) > error:
                     particles.append(particle)
 

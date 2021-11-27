@@ -235,15 +235,15 @@ class GdpytCalibrationStack(object):
 
         if particle.template.shape[0] > calib_template_x and particle.template.shape[1] > calib_template_y:
             particle.resize_bbox(*self.shape)
-            print('particle at true_z {} is too large for calibration template'.format(particle.z_true))
+            print('particle template x and y lengths at true_z {} are too large for calibration template'.format(particle.z_true))
         elif particle.template.shape[0] > calib_template_x:
             new_shape = (calib_template_x, particle.template.shape[1])
             particle.resize_bbox(*new_shape)
-            print('particle at true_z {} is too large for calibration template'.format(particle.z_true))
+            print('particle template x-length at true_z {} is too large for calibration template'.format(particle.z_true))
         elif particle.template.shape[1] > calib_template_y:
             new_shape = (particle.template.shape[0], calib_template_y)
             particle.resize_bbox(*new_shape)
-            print('particle at true_z {} is too large for calibration template'.format(particle.z_true))
+            print('particle template y-length at true_z {} is too large for calibration template'.format(particle.z_true))
 
         # if/elif function to pass the correct cross-correlation method and optimum function
         if function.lower() == 'ccorr':
@@ -368,8 +368,12 @@ class GdpytCalibrationStack(object):
         self._self_similarity = np.vstack((z_self, sim_self)).T
 
     def plot_adjacent_self_similarity(self, index=[]):
-        self.infer_self_similarity(function='sknccorr')
+
+        if self._self_similarity is None:
+            self.infer_self_similarity(function='sknccorr')
+
         fig = plot_adjacent_self_similarity(self, index=index)
+
         return fig
 
     def plot_calib_stack(self, z=None, draw_contours=True, fill_contours=False, imgs_per_row=5, fig=None, ax=None, format_string=False):

@@ -41,7 +41,7 @@ class inputs(object):
     def __init__(self, dataset, image_collection_type=None, image_path=None, image_file_type=None, image_base_string=None,
                  image_subset=None, calibration_z_step_size=1, baseline_image=None, static_templates=False,
                  if_image_stack='first', take_image_stack_subset_mean_of=[], single_particle_calibration=False,
-                 ground_truth_file_path=None, ground_truth_file_type=None, true_number_of_particles=None,
+                 ground_truth_file_path=None, ground_truth_file_type=None, known_z=None, true_number_of_particles=None,
                  hard_baseline=False, overlapping_particles=True):
         """
 
@@ -85,6 +85,7 @@ class inputs(object):
         self.if_image_stack = if_image_stack
         self.take_image_stack_subset_mean_of = take_image_stack_subset_mean_of
         self.true_number_of_particles = true_number_of_particles
+        self.known_z = known_z
 
 
 class outputs(object):
@@ -116,7 +117,7 @@ class processing(object):
                  threshold_method=None, threshold_modifier=None,
                  min_particle_area=5, max_particle_area=1000, template_padding=3, dilate=True,
                  shape_tolerance=0.75, same_id_threshold_distance=5, overlap_threshold=0.3,
-                 stacks_use_raw=False, zero_calib_stacks=False, zero_stacks_offset=0):
+                 stacks_use_raw=False, zero_calib_stacks=False, zero_stacks_offset=0, xy_displacement=[[0, 0]]):
         """
         Parameters
         ----------
@@ -145,7 +146,8 @@ class processing(object):
         self.same_id_threshold_distance = same_id_threshold_distance
         self.min_layers_per_stack = min_layers_per_stack
         self.zero_calib_stacks = zero_calib_stacks
-        self.zero_stacks_offset = zero_stacks_offset # TODO: the test image collection can take this from calibration collection
+        self.zero_stacks_offset = zero_stacks_offset
+        self.xy_displacement = xy_displacement
         self.stacks_use_raw = stacks_use_raw
         self.background_subtraction = background_subtraction
         self.cropping_params = cropping_params
@@ -160,7 +162,7 @@ class processing(object):
 
 
 class z_assessment(object):
-    def __init__(self, infer_method=None, min_cm=0.5, sub_image_interpolation=True):
+    def __init__(self, infer_method=None, min_cm=0.5, sub_image_interpolation=True, use_stack_id=None):
         """
 
         Parameters
@@ -168,10 +170,16 @@ class z_assessment(object):
         infer_method
         min_cm
         sub_image_interpolation
+        use_stack_id
         """
         self.infer_method = infer_method
         self.min_cm = min_cm
         self.sub_image_interpolation = sub_image_interpolation
+
+        if use_stack_id is None:
+            use_stack_id = 0
+
+        self.use_stack_id = use_stack_id
 
 class optics(object):
     def __init__(self, particle_diameter=None, demag=None, magnification=None, numerical_aperture=None, focal_length=None,
@@ -199,6 +207,16 @@ class optics(object):
         gain
         cyl_focal_length
         wavelength
+
+        Notes:
+            20X - LCPlanFL N 20X LCD        [LCPLFLN20xLCD]
+                magnification:          20
+                numerical_aperture:     0.45
+                field_number:           26.5
+                working distance:       7.4 - 8.3 mm
+                transmittance:          90% @ 425 - 670 nm
+                correction collar:      0 - 1.2 mm
+                microns per pixel:      1.55
         """
         self.particle_diameter = particle_diameter
         self.demag = demag

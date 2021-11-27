@@ -473,10 +473,12 @@ class GdpytImageInference(object):
 
     def _cross_correlation_inference(self, function, use_stack=None, min_cm=0, skip_particle_ids=[]):
         logger.warning('cc inference min_cm {}'.format(min_cm))
+
         if function.lower() not in ['ccorr', 'nccorr', 'znccorr', 'barnkob_ccorr', 'bccorr', 'sknccorr']:
             raise ValueError("{} is not implemented or a valid function".format(function))
 
         for image in self.collection.images.values():
+
             logger.info("Infering image {}".format(image.filename))
 
             max_stack_distance = 15

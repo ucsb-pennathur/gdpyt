@@ -18,7 +18,7 @@ class GdpytParticle(object):
     def __init__(self, image_raw, image_filt, id_, contour, bbox, particle_mask_on_image, particle_collection_type,
                  location=None, frame=None):
         super(GdpytParticle, self).__init__()
-        self._id = id_
+        self._id = int(id_)
         self.frame = frame
         assert isinstance(image_raw, np.ndarray)
         assert isinstance(image_filt, np.ndarray)
