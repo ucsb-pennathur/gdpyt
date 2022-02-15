@@ -169,13 +169,15 @@ def apply_threshold(img, parameter, overlapping_particles=True, min_particle_siz
                 if np.count_nonzero(temp == 1) - np.count_nonzero(thresh_img == 1) < 750:
                     thresh_img = temp
 
+
+                # Plot to check flood filling contours
                 """
-                Plot to check flood filling contours
-                
                 fig, ax = plt.subplots()
                 ax.imshow(thresh_img)
                 plt.show()
+                j = 1
                 """
+
 
         """
         Option #3:

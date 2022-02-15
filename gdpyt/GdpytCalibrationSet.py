@@ -316,10 +316,11 @@ class GdpytCalibrationSet(object):
                 df_stacks = pd.concat([df_stacks, new_stacks])
         return df_stacks
 
-    def plot_stacks_self_similarity(self, min_num_layers=0):
+    def plot_stacks_self_similarity(self, min_num_layers=0, save_string=None):
         for key, stack in self._calibration_stacks.items():
             stack.infer_self_similarity()
-        return plotting.plot_stacks_self_similarity(calib_set=self, min_num_layers=min_num_layers)
+        return plotting.plot_stacks_self_similarity(calib_set=self, min_num_layers=min_num_layers,
+                                                    save_string=save_string)
 
     def train_cnn(self,
                   epochs,
@@ -499,7 +500,10 @@ class GdpytImageInference(object):
                     index = 0
 
                 if use_stack is not None:
-                    stack = self.calib_set.calibration_stacks[use_stack]
+                    if use_stack == 'best':
+                        stack = self.calib_set.calibration_stacks[self.calib_set.best_stack_id]
+                    else:
+                        stack = self.calib_set.calibration_stacks[use_stack]
 
                 elif particle.id in self.calib_set.particle_ids:
                     stack = self.calib_set.calibration_stacks[particle.id]

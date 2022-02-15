@@ -257,7 +257,7 @@ class GdpytImageCollection(object):
                 for f in save_files:
                     search_string = base_string + '(.*)' + self._filetype
                     file_index = float(re.search(search_string, f).group(1))
-                    if file_index >= start or file_index <= stop:
+                    if file_index >= start and file_index <= stop:
                         subset_files.append(f)
                         subset_index.append(file_index)
 
@@ -344,10 +344,10 @@ class GdpytImageCollection(object):
                                    exclude=exclude)
 
         # find the in-focus coordinates of all particles and set the particle's in-focus z-coordinate and area
-        self.find_particle_in_focus_z(use_true_z=False)
+        # self.find_particle_in_focus_z(use_true_z=False, use_peak_int=True)
 
         # determine the z-coordinate where most particles are in focus and set this as the collection in_focus_z
-        self.find_collection_z_of_min_area()
+        # self.find_collection_z_of_min_area()
         # self.find_collection_in_focus_z() --> This function doesn't seem to work and is a duplicate of ^
 
         return calibration_set
@@ -485,7 +485,8 @@ class GdpytImageCollection(object):
                                         inspect_contours_for_every_image=self._inspect_contours_for_every_image,
                                         padding=self._template_padding, image_collection_type=self._image_collection_type,
                                         particle_id_image=particle_identification_image,
-                                        overlapping_particles=self._overlapping_particles)
+                                        overlapping_particles=self._overlapping_particles,
+                                        template_use_raw=self._stacks_use_raw)
             logger.info("Identified {} particles on image {}".format(len(image.particles), image.filename))
 
     def _set_measurement_depth(self, measurement_depth):
@@ -523,7 +524,10 @@ class GdpytImageCollection(object):
             for image in self.images.values():
                 filename = image.filename[:-4]
                 ground_truth = np.loadtxt(join(self._folder_ground_truth, filename + '.txt'))
-                ground_truth_xyz = ground_truth[:, 0:3]
+                if len(ground_truth.shape) < 2:
+                    ground_truth_xyz = ground_truth[np.newaxis, 0:3]
+                else:
+                    ground_truth_xyz = ground_truth[:, 0:3]
                 image.set_true_num_particles(data=ground_truth_xyz)
                 image._update_particle_density_stats()
 
@@ -531,6 +535,7 @@ class GdpytImageCollection(object):
                     neigh = NearestNeighbors(n_neighbors=1)
                     neigh.fit(ground_truth_xyz[:, 0:2])
                     result = neigh.kneighbors([p.location])
+
                     # TODO: add a logger.Warning if the nearest particle is > same_id_threshold (likely something wrong)
                     x_true = ground_truth_xyz[result[1][0][0]][0]
                     y_true = ground_truth_xyz[result[1][0][0]][1]
@@ -937,7 +942,7 @@ class GdpytImageCollection(object):
             self._max_particle_size = max
         self.identify_particles()
 
-    def find_particle_in_focus_z(self, use_true_z=False):
+    def find_particle_in_focus_z(self, use_true_z=False, use_peak_int=True):
         """
         Find the z-coordinate of minimum area for each particle in the collection and set the particle's in_focus_plane
         attribute.
@@ -962,17 +967,21 @@ class GdpytImageCollection(object):
         particle_ids = self.particle_ids.tolist()
 
         # loop through particle ID list
-        for pid in particle_ids: # for every particle ID
+        for pid in particle_ids:
 
             # initialize lists for particle z-coordinate and area
             zs = []
             areas = []
+            peak_ints = []
 
             for img in self.images.values(): # for every image
                 for particle in img.particles: # for every particle
 
                     # append the in-focus data to lists
                     if particle.id == pid:
+
+                        # get peak intensity
+                        peak_ints.append(particle.peak_intensity)
 
                         # get particle z-coordinate
                         if use_true_z:
@@ -987,7 +996,8 @@ class GdpytImageCollection(object):
             # get min/max z-coordinates
             zl, zh = (min(zs), max(zs))
 
-            # get index of minimum area
+            # get index of maximum intensity and minimum area
+            int_max_index = int(np.argmax(peak_ints))
             amin_index = int(np.argmin(areas))
 
             # create lower and upper bounds (+/- 5 images) - Note, 5 images were chosen to smooth out the contour noise
@@ -997,10 +1007,19 @@ class GdpytImageCollection(object):
             else:
                 fit_pad = 2
 
+            # get bounds for max intensity and minimum area
+            lower_intdex = int(np.round(int_max_index - fit_pad, 0))
+            upper_intdex = int(np.round(int_max_index + fit_pad, 0))
             lower_index = int(np.round(amin_index - fit_pad, 0))
             upper_index = int(np.round(amin_index + fit_pad, 0))
 
             # ensure lower and upper bounds don't exceed data space
+            if lower_intdex < 0:
+                lower_intdex = 0
+                upper_intdex = 1 + fit_pad
+            if upper_intdex > len(peak_ints) - 1:
+                upper_intdex = len(peak_ints) - 1
+                lower_intdex = len(peak_ints) - 2 - fit_pad
             if lower_index < 0:
                 lower_index = 0
                 upper_index = 1 + fit_pad
@@ -1009,14 +1028,21 @@ class GdpytImageCollection(object):
                 lower_index = len(areas) - 2 - fit_pad
 
             # if there are at least three points, perform parabolic interpolation
-            if len(zs) > 3 and len(areas) > 3:
+            if len(zs) > 3 and len(areas) > 3 and len(peak_ints) > 3:
 
                 # fit a parabola
+                popt_int, pcov_int = curve_fit(parabola, zs[lower_intdex:upper_intdex + 1], peak_ints[lower_intdex:upper_intdex + 1])
                 popt, pcov = curve_fit(parabola, zs[lower_index:upper_index + 1], areas[lower_index:upper_index + 1])
 
                 # create interpolation space and get resulting parabolic curve
+                z_local_int = np.linspace(zs[lower_intdex], zs[upper_intdex], 50)
+                peak_ints_interp = parabola(z_local_int, *popt_int)
                 z_local = np.linspace(zs[lower_index], zs[upper_index], 50)
                 areas_interp = parabola(z_local, *popt)
+
+                # find the z-coordinate where the interpolated area is minimized
+                z_zero_peak_int = z_local_int[np.argmax(peak_ints_interp)]
+                peak_ints_zero = np.max(peak_ints_interp)
 
                 # find the z-coordinate where the interpolated area is minimized
                 z_zero = z_local[np.argmin(areas_interp)]
@@ -1038,19 +1064,27 @@ class GdpytImageCollection(object):
 
             # if less than three points, get the minimum of the areas
             else:
+                z_zero_peak_int = zs[np.argmax(peak_ints)]
+                peak_ints_zero = np.max(peak_ints)
                 z_zero = zs[np.argmin(areas)]
                 areas_zero = np.min(areas)
 
             # round the z-coordinate and area to a reasonable value
+            z_zero_peak_int = np.round(z_zero_peak_int, 3)
+            peak_ints_zero = np.round(peak_ints_zero, 1)
             z_zero = np.round(z_zero, 3)
             areas_zero = np.round(areas_zero, 1)
 
             # Set in-focus plane z-coordinate for all particles:
-            for imgg in self.images.values(): # for every image
+            for imgg in self.images.values():  # for every image
                 for p_set in imgg.particles:
                     if p_set.id == pid:
-                        p_set.set_in_focus_z(z_zero)
+                        if use_peak_int:
+                            p_set.set_in_focus_z(z_zero_peak_int)
+                        else:
+                            p_set.set_in_focus_z(z_zero)
                         p_set.set_in_focus_area(areas_zero)
+                        p_set.set_in_focus_intensity(peak_ints_zero)
 
 
     def find_collection_in_focus_z(self):
@@ -1583,8 +1617,8 @@ class GdpytImageCollection(object):
         fig = plot_particle_peak_intensity(self, particle_id=particle_id)
         return fig
 
-    def plot_particle_signal(self, optics, collection_image_stats, particle_id):
-        fig = plot_particle_signal(self, optics, collection_image_stats, particle_id)
+    def plot_particle_signal(self, optics, collection_image_stats, particle_id, intensity_max_or_mean='max'):
+        fig = plot_particle_signal(self, optics, collection_image_stats, particle_id, intensity_max_or_mean=intensity_max_or_mean)
         return fig
 
     def plot_particle_diameter(self, optics, collection_image_stats, particle_id):
@@ -1629,6 +1663,67 @@ class GdpytImageCollection(object):
 
         # return the particle coordinates
         return df
+
+    def get_calibration_correction_data(self):
+        """
+        Export the particle coordinates: frame, id, x, y, z, x_true, y_true, z_true, cm, max_sim, inference_stack_id
+        """
+        # get the percent of identified particles that were successfully measured (assigned a z-coordinate)
+        coords = []
+
+        for img in self.images.values():
+            frame_id = float(img.filename.split(self.file_basestring)[-1].split(self.filetype)[0])
+            [coords.append([frame_id, p.id, p.z_true, p.z, p.location[0], p.location[1], p.in_focus_z, p.in_focus_area,
+                            p.snr, p.peak_intensity, p.mean_signal, p.mean_background, p.std_background]) for p in img.particles]
+
+        # read coords into dataframe
+        df = pd.DataFrame(data=coords, columns=['frame', 'id', 'z_true', 'z', 'x', 'y', 'z_f', 'area_f', 'snr',
+                                                'peak_int', 'mean_int', 'mean_bkg', 'std_bkg'])
+
+        # sort the dataframe by true_z
+        df = df.sort_values(by='id', inplace=False)
+
+        # return the particle coordinates
+        return df
+
+    def correct_calibration(self):
+        """
+        # perform calibration correction
+            #   1. get peak intensity for every particle and z-position
+            #   2. get z-coord of maximum intensity for every particle
+            #   3. perform 3-point interpolation to get sub-image resolution.
+            #   4. find mean in-focus z-coordinate for all particles
+        Returns
+        -------
+        """
+        # get peak intensity and it's z-coordinate for every particle
+        self.find_particle_in_focus_z(use_true_z=False, use_peak_int=True)
+
+        coords = []
+        for img in self.images.values():
+            frame_id = float(img.filename.split(self.file_basestring)[-1].split(self.filetype)[0])
+            [coords.append([frame_id, p.id, p.location[0], p.location[1], p.z, p.in_focus_z,
+                            p.in_focus_intensity, p.peak_intensity,
+                            p.in_focus_area, p.area,
+                            p.snr, p.mean_signal, p.mean_background, p.std_background]) for p in img.particles]
+
+        df = pd.DataFrame(data=coords, columns=['frame', 'id', 'x', 'y', 'z', 'z_f',
+                                                'peak_int_f', 'peak_int',
+                                                'area_f', 'area',
+                                                'snr', 'mean_int', 'mean_bkg', 'std_bkg'])
+
+        dfg = df.groupby(by='id').mean()
+        z_in_focus_mean = dfg.z_f.mean()
+
+        # get dataframe of each particle at its 'in-focus' frame
+        dff = df.loc[(df['z'] == df['z_f'].round(0).astype(int))].copy()
+        dff['z_f_avg'] = np.round(z_in_focus_mean, 3)
+
+        return df, dff
+
+
+
+
 
     @property
     def image_collection_type(self):

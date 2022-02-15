@@ -86,11 +86,15 @@ def test(calib_settings, test_settings=None, calib_col=None, calib_set=None, ret
                                                  dilate=calib_settings.processing.dilate)
 
         # calculate particle similarity per image
-        """df_img_average_sim, df_collection_particle_sims = calib_col.calculate_image_particle_similarity()
-        save_avg_sims = join('/Users/mackenzie/Desktop/', 'average_similarity_' + calib_settings.inputs.dataset + '.xlsx')
+        """
+        df_img_average_sim, df_collection_particle_sims = calib_col.calculate_image_particle_similarity()
+        save_avg_sims = join(calib_settings.outputs.results_path, 'average_similarity_{}.xlsx'.format(calib_settings.outputs.save_id_string))
+        # save_avg_sims = join('/Users/mackenzie/Desktop/', 'average_similarity_' + calib_settings.inputs.dataset + '.xlsx')
         df_img_average_sim.to_excel(save_avg_sims, index=True)
-        save_col_sims = join('/Users/mackenzie/Desktop/', 'collection_similarities_' + calib_settings.inputs.dataset + '.xlsx')
-        df_collection_particle_sims.to_excel(save_col_sims, index=True)"""
+        save_col_sims = join(calib_settings.outputs.results_path, 'collection_similarities_{}.xlsx'.format(calib_settings.outputs.save_id_string))
+        # save_col_sims = join('/Users/mackenzie/Desktop/', 'test30StepTowards_collection_similarities_' + calib_settings.inputs.dataset + '.xlsx')
+        df_collection_particle_sims.to_excel(save_col_sims, index=True)
+        """
 
         # plot the baseline image with particle ID's
         if calib_col.baseline is not None:
@@ -98,10 +102,21 @@ def test(calib_settings, test_settings=None, calib_col=None, calib_set=None, ret
             plt.show()
 
         # export the particle coordinates
+        """
+        I think this is deprecated because the calibration correction coordinates (below) are more comprehensive.
         calib_coords = export_particle_coords(calib_col, calib_settings, test_settings)
+        """
 
     else:
         plot_calibration_set = False
+
+    # get calibration correction data
+    if plot_calibration_set:
+        dfc, dfz = calib_col.correct_calibration()
+        savecoords = join(calib_settings.outputs.results_path, 'calib_correction_coords_{}.xlsx'.format(calib_settings.outputs.save_id_string))
+        dfc.to_excel(savecoords, index=False)
+        savefocus = join(calib_settings.outputs.results_path, 'calib_in-focus_coords_{}.xlsx'.format(calib_settings.outputs.save_id_string))
+        dfz.to_excel(savefocus, index=False)
 
     # get calibration collection image stats
     calib_col_image_stats = calib_col.calculate_calibration_image_stats()
@@ -113,7 +128,8 @@ def test(calib_settings, test_settings=None, calib_col=None, calib_set=None, ret
     calib_stack_data = calib_set.calculate_stacks_stats()
 
     # export calibration images data
-    export_calib_stats(calib_settings, calib_col_image_stats, calib_stack_data)
+    if plot_calibration_set:
+        export_calib_stats(calib_settings, calib_col_image_stats, calib_stack_data)
 
     if plot_calibration_set:
         # plot
@@ -140,13 +156,25 @@ def test(calib_settings, test_settings=None, calib_col=None, calib_set=None, ret
         test_collection_baseline = test_settings.inputs.baseline_image  # test_collection_baseline = None
         test_particle_id_image = None
         use_stack_for_inference = 0
-    elif calib_settings.inputs.single_particle_calibration is True:
-        """ random synthetic particle dataset with a single calibration image """
+    elif calib_settings.inputs.single_particle_calibration is True and test_settings.inputs.static_templates is True:
+        """ SPC matching with static - any analysis where the particle distribution matches calibration distribution"""
         test_collection_baseline = test_settings.inputs.baseline_image
         test_particle_id_image = None
         use_stack_for_inference = test_settings.z_assessment.use_stack_id
+    elif calib_settings.inputs.single_particle_calibration is True:
+        """ random synthetic particle dataset with a single calibration image """
+        test_collection_baseline = test_settings.inputs.baseline_image
+        test_particle_id_image = test_settings.inputs.baseline_image
+        use_stack_for_inference = test_settings.z_assessment.use_stack_id
     else:
         raise ValueError("Unknown test situation.")
+
+    # correct variables for meta-assessment
+    if test_settings.inputs.image_collection_type == 'meta-test':
+        meta_characterization = True
+        test_settings.inputs.image_collection_type = 'test'
+    else:
+        meta_characterization = False
 
     # test collection
     test_col = GdpytImageCollection(folder=test_settings.inputs.image_path,
@@ -181,7 +209,6 @@ def test(calib_settings, test_settings=None, calib_col=None, calib_set=None, ret
                                     )
 
     # if performing characterization on synthetic dataset, set calib_set offset according to z @ minimum particle area.
-    meta_characterization = False
     if test_settings.inputs.ground_truth_file_path is not None:
         pass
         # offset = calib_col.in_focus_z - test_col.in_focus_z
@@ -218,7 +245,7 @@ def test(calib_settings, test_settings=None, calib_col=None, calib_set=None, ret
     test_col_stats = test_col.calculate_image_stats()
 
     # get test collection inference local uncertainties
-    test_col_local_meas_quality = test_col.calculate_measurement_quality_local(num_bins=25, min_cm=0.5,
+    test_col_local_meas_quality = test_col.calculate_measurement_quality_local(num_bins=20, min_cm=0.5,
                                                                                true_xy=test_settings.inputs.ground_truth_file_path)
 
     # export local measurement quality
@@ -491,7 +518,7 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
                 plt.show()
 
         # plot every test image with identified particles: '_test_col{}.png'
-        plot_test_col_imgs = test_col.files
+        """plot_test_col_imgs = test_col.files
         for i, img in enumerate(plot_test_col_imgs):
             fig, ax = plt.subplots(figsize=(8, 8))
             ax.imshow(test_col.images[img].draw_particles(raw=False, thickness=1, draw_id=False, draw_bbox=False))
@@ -504,7 +531,7 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
                 plt.savefig(savepath)
                 plt.close()
             if settings.outputs.show_plots is True:
-                plt.show()
+                plt.show()"""
 
         # plot the mean peak intensity per particle:
         fig = test_col.plot_particle_peak_intensity()
@@ -518,7 +545,7 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
             plt.show()
 
         # plot interpolation curves for every particle on image_id N_CAL//2
-        for IMG_INSPECT in np.arange(start=0, stop=len(test_col.images), step=10):
+        for IMG_INSPECT in np.arange(start=0, stop=len(test_col.images), step=50):
             fig = test_col.plot_similarity_curve(sub_image=settings.z_assessment.sub_image_interpolation, method=settings.z_assessment.infer_method, min_cm=settings.z_assessment.min_cm,
                                                  particle_id=None, image_id=IMG_INSPECT)
             if fig is not None:
@@ -635,13 +662,14 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
         plt.suptitle(settings.outputs.save_id_string)
         plt.tight_layout()
         if settings.outputs.save_plots is True:
-            savepath = join(settings.outputs.results_path, settings.outputs.save_id_string + '_calib_col{}.png'.format(i))
+            savepath = join(settings.outputs.results_path, settings.outputs.save_id_string + '_multi_calib_col{}.png'.format(i))
             plt.savefig(savepath)
             plt.close()
         if settings.outputs.show_plots is True:
             plt.show()
 
         # plot every calibration image with identified particles: '_calib_col.png'
+        """
         plot_calib_col_imgs = calib_col.files
         for i, img in enumerate(plot_calib_col_imgs):
             fig, ax = plt.subplots(figsize=(8, 8))
@@ -656,6 +684,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.close()
             if settings.outputs.show_plots is True:
                 plt.show()
+        """
 
         # plot the mean peak intensity per particle:
         fig = calib_col.plot_particle_peak_intensity()
@@ -669,7 +698,8 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
             plt.show()
 
         # plot calibration set's stack's self similarity: '_calibset_stacks_self_similarity_{}.png'
-        fig = calib_set.plot_stacks_self_similarity(min_num_layers=settings.processing.min_layers_per_stack)
+        fig = calib_set.plot_stacks_self_similarity(min_num_layers=settings.processing.min_layers_per_stack,
+                                                    save_string=settings.outputs.save_id_string)
         plt.suptitle(settings.outputs.save_id_string + ', infer: sknccorr')
         plt.tight_layout()
         if settings.outputs.save_plots is True:
@@ -726,6 +756,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.show()
 
             # plot calibration stack and filled contour for a single particle: '_calib_stack_contours.png'
+            """
             calib_set.calibration_stacks[id].plot_calib_stack(imgs_per_row=9, fill_contours=True, fig=None, ax=None,
                                                   format_string=False)
             plt.suptitle(save_calib_pid)
@@ -736,6 +767,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.close()
             if settings.outputs.show_plots is True:
                 plt.show()
+            """
 
             # plot calibration stack self similarity: '_calib_stack_self_similarity_{}.png'
             fig = calib_set.calibration_stacks[id].plot_self_similarity()
@@ -750,6 +782,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.show()
 
             # plot particle SNR and area: '_snr_area.png'
+            """
             fig = calib_col.plot_particle_snr_and(second_plot='area', particle_id=id)
             plt.suptitle(save_calib_pid)
             plt.tight_layout()
@@ -759,10 +792,11 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.close()
             if settings.outputs.show_plots:
                 plt.show()
+            """
 
             # plot theoretical and measured particle signal: '_signal_theory_and_measure.png'
             fig = calib_col.plot_particle_signal(optics=settings.optics, collection_image_stats=calib_col_image_stats,
-                                                 particle_id=id)
+                                                 particle_id=id, intensity_max_or_mean='max')
             plt.suptitle(save_calib_pid)
             plt.tight_layout()
             if settings.outputs.save_plots is True:
@@ -785,6 +819,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.show()
 
             # plot 3D calibration stack for a single particle: '_calib_stack_3d.png'
+            """
             if len(calib_col.images) > 80:
                 len(calib_col.images) // 10
                 stepsize = 10
@@ -802,8 +837,10 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.close()
             if settings.outputs.show_plots is True:
                 plt.show()
+            """
 
             # plot adjacent similarities with template images: '_calib_stack_index_{}_adjacent_similarity_{}.png'
+            """
             indices = [ind for ind in random.sample(set(np.arange(2, len(calib_col.files)-3)), 4)]
             for indice in indices:
                 fig = calib_set.calibration_stacks[id].plot_adjacent_self_similarity(index=[indice])
@@ -815,6 +852,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                     plt.close()
                 if settings.outputs.show_plots is True:
                     plt.show()
+            """
 
             # plot Gaussian fitted ax and ay: '_Gaussian_fit_axy.png'
             """calib_col.plot_gaussian_ax_ay(plot_type='one', p_inspect=[id])
@@ -905,6 +943,10 @@ def export_results_and_settings(export='test', calib_settings=None, calib_col=No
         'calib_image_path': calib_settings.inputs.image_path,
         'calib_base_string': calib_settings.inputs.image_base_string,
         'calib_ground_truth_image_path': calib_settings.inputs.ground_truth_file_path,
+        'calib_baseline_image': calib_settings.inputs.baseline_image,
+        'calib_hard_baseline': calib_settings.inputs.hard_baseline,
+        'calib_static_templates': calib_settings.inputs.static_templates,
+        'calib_ovrlp_prtcl_segmentation': calib_settings.inputs.overlapping_particles,
         'calib_image_subset': calib_settings.inputs.image_subset,
         'calib_z_step_size': calib_settings.inputs.calibration_z_step_size,
         'calib_if_image_stack': calib_settings.inputs.if_image_stack,
@@ -989,6 +1031,10 @@ def export_results_and_settings(export='test', calib_settings=None, calib_col=No
         'test_image_path': test_settings.inputs.image_path,
         'test_base_string': test_settings.inputs.image_base_string,
         'test_ground_truth_image_path': test_settings.inputs.ground_truth_file_path,
+        'test_baseline_image': test_settings.inputs.baseline_image,
+        'test_hard_baseline': test_settings.inputs.hard_baseline,
+        'test_static_templates': test_settings.inputs.static_templates,
+        'test_ovrlp_prtcl_segmentation': test_settings.inputs.overlapping_particles,
         'test_image_subset': test_settings.inputs.image_subset,
         'test_if_image_stack': test_settings.inputs.if_image_stack,
         'test_take_image_stack_mean_of': test_settings.inputs.take_image_stack_subset_mean_of,

@@ -210,13 +210,15 @@ class optics(object):
 
         Notes:
             20X - LCPlanFL N 20X LCD        [LCPLFLN20xLCD]
-                magnification:          20
-                numerical_aperture:     0.45
-                field_number:           26.5
-                working distance:       7.4 - 8.3 mm
-                transmittance:          90% @ 425 - 670 nm
-                correction collar:      0 - 1.2 mm
-                microns per pixel:      1.55
+                magnification:              20
+                numerical_aperture:         0.45
+                field_number:               26.5
+                working distance:           7.4 - 8.3 mm
+                transmittance:              90% @ 425 - 670 nm
+                correction collar:          0 - 1.2 mm
+                objective lens diameter:    15 mm
+
+                microns per pixel:          1.55 (careful with using this value)
         """
         self.particle_diameter = particle_diameter
         self.demag = demag
@@ -273,7 +275,7 @@ class optics(object):
         self.c2 = (particle_diameter ** 2 + 1.49 * wavelength ** 2 * (ref_index_medium ** 2 / numerical_aperture ** 2 - 1)) ** 0.5
 
         # create a measurement depth
-        z_space = np.linspace(start=-z_range, stop=z_range, num=200)
+        z_space = np.linspace(start=-z_range, stop=z_range, num=250)
 
         # particle image diameter with distance from focal plane (stigmatic system)
         # (ref 1: Rossi & Kahler 2014, DOI 10.1007 / s00348-014-1809-2)

@@ -16,7 +16,7 @@ from gdpyt.subpixel_localization.centroid_based_iterative import plot_2D_image_a
 class GdpytParticle(object):
 
     def __init__(self, image_raw, image_filt, id_, contour, bbox, particle_mask_on_image, particle_collection_type,
-                 location=None, frame=None):
+                 location=None, frame=None, template_use_raw=False):
         super(GdpytParticle, self).__init__()
         self._id = int(id_)
         self.frame = frame
@@ -24,7 +24,7 @@ class GdpytParticle(object):
         assert isinstance(image_filt, np.ndarray)
         self._image_raw = image_raw
         self._image_filt = image_filt
-        self._use_raw = False
+        self._use_raw = template_use_raw
         self._contour = contour
         self._bbox = bbox
         self._particle_collection_type = particle_collection_type
@@ -47,7 +47,9 @@ class GdpytParticle(object):
         self._z_default = None
         self.in_focus_z = None
         self.in_focus_area = None
+        self.in_focus_intensity = None
         self._snr = None
+        self._peak_intensity = None
         self._mean_signal = None
         self._mean_background = None
         self._std_background = None
@@ -753,6 +755,9 @@ class GdpytParticle(object):
     def set_in_focus_area(self, area):
         assert isinstance(area, float)
         self.in_focus_area = area
+
+    def set_in_focus_intensity(self, intensity):
+        self.in_focus_intensity = intensity
 
     def set_inference_stack_id(self, stack):
         self.inference_stack_id = stack
