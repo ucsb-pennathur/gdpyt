@@ -33,7 +33,7 @@ class dataset_unpacker(object):
         self.sweep_method = sweep_method
         self.sweep_param = sweep_param
         self.known_z = known_z
-        self.use_stack_id = use_stack_id
+        self.use_stack_id = use_stack_id  # use_stack_id
 
         if sweep_method == 'use_stack_id':
             self.use_stack_id = self.sweep_param
@@ -277,7 +277,7 @@ class dataset_unpacker(object):
                 calib_baseline_image = baseline_image
                 calib_true_num_particles = 170
                 overlap_scaling = 5
-                test_base_string = 'B00'
+                test_base_string = 'B0'
                 true_num_particles = calib_true_num_particles
                 cropping_specs = calib_cropping_specs
             elif self.particle_distribution == 'grid-random-z' and SINGLE_PARTICLE_CALIBRATION is True:
@@ -288,7 +288,7 @@ class dataset_unpacker(object):
                 calib_baseline_image = None
                 calib_true_num_particles = 10
                 overlap_scaling = 5
-                test_base_string = 'B00'
+                test_base_string = 'B0'
                 cropping_specs = {'xmin': 0, 'xmax': 1024, 'ymin': 0, 'ymax': 1024, 'pad': 1}
                 true_num_particles = 170
             elif self.particle_distribution == 'grid-no-overlap-random-z' and SINGLE_PARTICLE_CALIBRATION is False:
@@ -507,7 +507,7 @@ class dataset_unpacker(object):
                 # display options
                 INSPECT_CALIB_CONTOURS = False
                 SHOW_CALIB_PLOTS = False
-                SAVE_CALIB_PLOTS = True
+                SAVE_CALIB_PLOTS = False
 
             if self.collection_type == 'test':
                 TEST_IMG_PATH = join(base_dir, 'test_images')
@@ -577,23 +577,29 @@ class dataset_unpacker(object):
                 # display options
                 INSPECT_TEST_CONTOURS = False
                 SHOW_PLOTS = False
-                SAVE_PLOTS = True
+                SAVE_PLOTS = False
 
         if self.dataset == 'synthetic_experiment':
 
+            XY_DISPLACEMENT = [[0, 0]]
+
             # organize noise-dependent variables
-            bkg_noise = 6.25
+            bkg_mean = 120
+            bkg_noise = 4
             calibration_z_step_size = 1.0
             if self.sweep_method == 'threshold':
                 threshold_modifier = self.sweep_param
             else:
-                threshold_modifier = 175
-            baseline_image = 'calib_-8.0.tif'
+                threshold_modifier = bkg_mean + bkg_noise * 7
+
+            baseline_image = 'calib_-15.0.tif'
 
             if self.particle_distribution == 'grid-uniform-z':
                 test_particle_id_image = 'calib_-8.12346.tif'
             elif self.particle_distribution == 'grid-random-z':
-                test_particle_id_image = 'B0001.tif'
+                test_particle_id_image = 'B0000.tif'  # corresponds to calib_-15.tif from calibration images
+            elif self.particle_distribution == 'grid-uniform-z-disp-x':
+                test_particle_id_image = 'B0201.tif'  # corresponds to calib_-15.tif from calibration images
 
 
             base_dir = '/Users/mackenzie/Desktop/gdpyt-characterization/datasets/synthetic_experiment/{}'.format(self.particle_distribution)
@@ -611,9 +617,19 @@ class dataset_unpacker(object):
             elif self.particle_distribution == 'grid-random-z':
                 calib_id = 'grid-random-z_calib_'
                 calib_base_dir = base_dir
-                calib_cropping_specs = None
+                calib_cropping_specs = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 1}
                 calib_baseline_image = baseline_image
-                calib_true_num_particles = 36
+                calib_true_num_particles = 100
+                overlap_scaling = None
+                test_base_string = 'B0'
+                true_num_particles = calib_true_num_particles
+                cropping_specs = calib_cropping_specs
+            elif self.particle_distribution == 'grid-uniform-z-disp-x':
+                calib_id = 'grid-uniform-z-disp-x_calib_'
+                calib_base_dir = base_dir
+                calib_cropping_specs = {'xmin': 0, 'xmax': 128, 'ymin': 0, 'ymax': 128, 'pad': 1}
+                calib_baseline_image = baseline_image
+                calib_true_num_particles = 1
                 overlap_scaling = None
                 test_base_string = 'B0'
                 true_num_particles = calib_true_num_particles
@@ -626,21 +642,21 @@ class dataset_unpacker(object):
             filetype_ground_truth = '.txt'
 
             # optics
-            PARTICLE_DIAMETER = 2e-6
+            PARTICLE_DIAMETER = 2.15e-6  # 2.15e-6
             MAGNIFICATION = 20
-            DEMAG = 1
-            NA = 0.45
-            FOCAL_LENGTH = 100
+            DEMAG = 0.5
+            NA = 0.2  # Note: NA = 0.45 was used to generate the synthetic particle images
+            FOCAL_LENGTH = 150
             REF_INDEX_MEDIUM = 1
             REF_INDEX_LENS = 1.5
             PIXEL_SIZE = 16e-6
-            PIXEL_DIM_X = 256
-            PIXEL_DIM_Y = 256
-            BKG_MEAN = 125
+            PIXEL_DIM_X = 128  # 512
+            PIXEL_DIM_Y = 128  # 512
+            BKG_MEAN = bkg_mean
             BKG_NOISES = bkg_noise
-            POINTS_PER_PIXEL = 10
-            N_RAYS = 300
-            GAIN = 3
+            POINTS_PER_PIXEL = 20
+            N_RAYS = 1500
+            GAIN = 2
             CYL_FOCAL_LENGTH = 0
             WAVELENGTH = 600e-9
             OVERLAP_SCALING = overlap_scaling
@@ -667,13 +683,13 @@ class dataset_unpacker(object):
             # image pre-processing
             DILATE = None  # None or True
             SHAPE_TOL = None  # None == take any shape; 1 == take perfectly circular shape only.
-            MIN_P_AREA = 40  # minimum particle size (area: units are in pixels) (recommended: 5)
-            MAX_P_AREA = 5000  # maximum particle size (area: units are in pixels) (recommended: 200)
+            MIN_P_AREA = 15  # minimum particle size (area: units are in pixels)
+            MAX_P_AREA = 2000  # maximum particle size (area: units are in pixels) (recommended: 200)
 
             if self.sweep_method == 'same_id_thresh':
                 SAME_ID_THRESH = self.sweep_param
             else:
-                SAME_ID_THRESH = 5  # maximum tolerance in x- and y-directions for particle to have the same ID between images
+                SAME_ID_THRESH = 8  # maximum tolerance in x- and y-directions for particle to have the same ID between images
 
             OVERLAP_THRESHOLD = 0.1
             BACKGROUND_SUBTRACTION = None
@@ -706,7 +722,10 @@ class dataset_unpacker(object):
                 BASELINE_IMAGE = calib_baseline_image
 
                 # calibration processing parameters
-                CALIB_TEMPLATE_PADDING = 12
+                if self.single_particle_calibration is True:
+                    CALIB_TEMPLATE_PADDING = 3
+                else:
+                    CALIB_TEMPLATE_PADDING = 13
                 CALIB_CROPPING_SPECS = calib_cropping_specs  # cropping_specs
                 CALIB_PROCESSING_METHOD = 'median'
                 CALIB_PROCESSING_FILTER_TYPE = 'square'
@@ -723,7 +742,7 @@ class dataset_unpacker(object):
                 elif self.sweep_method == 'filter':
                     CALIB_PROCESSING = {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None, 'wrap']}}
                 else:
-                    CALIB_PROCESSING = {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+                    CALIB_PROCESSING = {'none': None}
 
                 CALIB_THRESHOLD_METHOD = 'manual'
                 CALIB_THRESHOLD_MODIFIER = threshold_modifier
@@ -735,7 +754,7 @@ class dataset_unpacker(object):
                 elif self.sweep_method == 'filter':
                     STACKS_USE_RAW = False
                 else:
-                    STACKS_USE_RAW = False
+                    STACKS_USE_RAW = True
 
                 MIN_STACKS = 0.5  # percent of calibration stack
                 ZERO_CALIB_STACKS = False
@@ -747,12 +766,12 @@ class dataset_unpacker(object):
                 # display options
                 INSPECT_CALIB_CONTOURS = False
                 SHOW_CALIB_PLOTS = False
-                SAVE_CALIB_PLOTS = False
+                SAVE_CALIB_PLOTS = True
 
             if self.collection_type == 'test':
-                TEST_IMG_PATH = join(base_dir, 'test_images')
+                TEST_IMG_PATH = join(base_dir, 'xdisp{}'.format(self.sweep_param), 'test_images')
                 TEST_BASE_STRING = test_base_string  # 'B00' or 'calib_'
-                TEST_GROUND_TRUTH_PATH = join(base_dir, 'test_input')
+                TEST_GROUND_TRUTH_PATH = join(base_dir, 'xdisp{}'.format(self.sweep_param), 'test_input')
 
                 if self.sweep_param is not None:
                     if self.single_particle_calibration is True:
@@ -775,7 +794,10 @@ class dataset_unpacker(object):
                 TEST_PARTICLE_ID_IMAGE = test_particle_id_image
 
                 # test processing parameters
-                TEST_TEMPLATE_PADDING = 8
+                if self.single_particle_calibration is True:
+                    TEST_TEMPLATE_PADDING = 1
+                else:
+                    TEST_TEMPLATE_PADDING = 11
                 TEST_CROPPING_SPECS = cropping_specs
                 TEST_PROCESSING_METHOD = 'median'
                 TEST_PROCESSING_FILTER_TYPE = 'square'
@@ -792,7 +814,7 @@ class dataset_unpacker(object):
                 elif self.sweep_method == 'filter':
                     TEST_PROCESSING = {TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
                 else:
-                    TEST_PROCESSING = {TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+                    TEST_PROCESSING = {'none': None}
 
                 # TEST_PROCESSING_METHOD2: {'args': [], 'kwargs': dict(sigma=TEST_PROCESSING_FILTER_SIZE2, preserve_range=True)}}
                 TEST_THRESHOLD_METHOD = 'manual'
@@ -805,7 +827,7 @@ class dataset_unpacker(object):
                 elif self.sweep_method == 'filter':
                     STACKS_USE_RAW = False
                 else:
-                    STACKS_USE_RAW = False
+                    STACKS_USE_RAW = True
 
                 MIN_STACKS = 0.5  # percent of calibration stack
                 ZERO_CALIB_STACKS = False
@@ -825,6 +847,7 @@ class dataset_unpacker(object):
             base_dir = '/Users/mackenzie/Desktop/gdpyt-characterization/calibration/20X_1Xmag_5.61umPink_HighInt'
 
             # shared variables
+            XY_DISPLACEMENT = [[0, 0]]
 
             # file types
             filetype = '.tif'
@@ -872,7 +895,7 @@ class dataset_unpacker(object):
             SHAPE_TOL = 0.75  # None == take any shape; 1 == take perfectly circular shape only.
             MIN_P_AREA = np.pi * optics.pixels_per_particle_in_focus ** 2 * 0.4  # minimum particle size (area: units are in pixels) (recommended: 5)
             MAX_P_AREA = np.pi * np.max(optics.particle_diameter_z1 / 11) ** 2  # maximum particle size (area: units are in pixels) (recommended: 200)
-            SAME_ID_THRESH = int(optics.pixels_per_particle_in_focus)  # maximum tolerance in x- and y-directions for particle to have the same ID between images
+            SAME_ID_THRESH = 5  # maximum tolerance in x- and y-directions for particle to have the same ID between images
             BACKGROUND_SUBTRACTION = None
             OVERLAP_THRESHOLD = 8
 
@@ -882,30 +905,61 @@ class dataset_unpacker(object):
                     CALIB_BASE_STRING = 'calib_'
                     CALIB_GROUND_TRUTH_PATH = None
                     CALIB_ID = self.dataset + '_Calib'
-                    CALIB_RESULTS_PATH = join(base_dir, 'results/calibration')
+
+                    # ---
+                    if self.sweep_param is not None:
+                        if self.single_particle_calibration:
+                            CALIB_ID = CALIB_ID + '_SPC_{}-{}'.format(self.sweep_method, self.sweep_param)
+                            CALIB_RESULTS_PATH = join(base_dir,
+                                                      'results/SPC-calibration-{}-{}'.format(self.sweep_method,
+                                                                                             self.sweep_param))
+                        else:
+                            CALIB_ID = CALIB_ID + '_static_{}-{}'.format(self.sweep_method, self.sweep_param)
+                            CALIB_RESULTS_PATH = join(base_dir,
+                                                      'results/static-calibration-{}-{}'.format(self.sweep_method,
+                                                                                                self.sweep_param))
+                    else:
+                        CALIB_RESULTS_PATH = join(base_dir, 'results/calibration')
+                    if not os.path.exists(CALIB_RESULTS_PATH):
+                        os.makedirs(CALIB_RESULTS_PATH)
 
                     # calib dataset information
-                    CALIB_SUBSET = [5, 90]
+                    if len(self.sweep_param) == 2:
+                        CALIB_SUBSET = self.sweep_param[1]
+                    else:
+                        CALIB_SUBSET = None
+
                     CALIBRATION_Z_STEP_SIZE = 1.0
                     TRUE_NUM_PARTICLES_PER_CALIB_IMAGE = 13
-                    IF_CALIB_IMAGE_STACK = 'first'
-                    TAKE_CALIB_IMAGE_SUBSET_MEAN = []
-                    BASELINE_IMAGE = 'calib_40.tif'
+
+                    if self.sweep_method == 'subset_mean':
+                        if self.sweep_param[0] == 1:
+                            IF_CALIB_IMAGE_STACK = 'first'
+                            TAKE_CALIB_IMAGE_SUBSET_MEAN = []
+                        else:
+                            IF_CALIB_IMAGE_STACK = 'subset'
+                            TAKE_CALIB_IMAGE_SUBSET_MEAN = [0, self.sweep_param[0]]
+                    else:
+                        IF_CALIB_IMAGE_STACK = 'first'
+                        TAKE_CALIB_IMAGE_SUBSET_MEAN = []
+                    # ---
+
+                    BASELINE_IMAGE = 'calib_42.tif'
 
                     # calibration processing parameters
-                    CALIB_TEMPLATE_PADDING = 5
-                    CALIB_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 10}
+                    CALIB_TEMPLATE_PADDING = 19
+                    CALIB_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 200, 'pad': 2}
                     CALIB_PROCESSING_METHOD = 'median'
                     CALIB_PROCESSING_FILTER_TYPE = 'square'
                     CALIB_PROCESSING_FILTER_SIZE = int(np.round(optics.pixels_per_particle_in_focus / 3))
-                    CALIB_PROCESSING = {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None,
-                                                                           'wrap']}}
+                    CALIB_PROCESSING = {'none': None}
+                    # {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None, 'wrap']}}
                     CALIB_THRESHOLD_METHOD = 'manual'
-                    CALIB_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 5
+                    CALIB_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 4
                     CALIB_THRESHOLD_PARAMS = {CALIB_THRESHOLD_METHOD: [CALIB_THRESHOLD_MODIFIER]}
 
                     # similarity
-                    STACKS_USE_RAW = False
+                    STACKS_USE_RAW = True
                     MIN_STACKS = 0.5  # percent of calibration stack
                     ZERO_CALIB_STACKS = False
                     ZERO_STACKS_OFFSET = 0.0  # TODO: should be derived or defined by a plane of interest
@@ -916,35 +970,63 @@ class dataset_unpacker(object):
                     # display options
                     INSPECT_CALIB_CONTOURS = False
                     SHOW_CALIB_PLOTS = False
-                    SAVE_CALIB_PLOTS = False
+                    SAVE_CALIB_PLOTS = True
 
             elif self.collection_type == 'test':
                 TEST_IMG_PATH = join(base_dir, 'images/calibration')
                 TEST_BASE_STRING = 'calib_'
                 TEST_GROUND_TRUTH_PATH = None
                 TEST_ID = self.dataset + '_Meta-Test'
-                TEST_RESULTS_PATH = join(base_dir, 'results/test')
+
+                # ---
+                if self.sweep_param is not None:
+                    if self.single_particle_calibration:
+                        TEST_ID = TEST_ID + '_SPC_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        TEST_RESULTS_PATH = join(base_dir, 'results/SPC_test-{}-{}'.format(self.sweep_method, self.sweep_param))
+                    else:
+                        TEST_ID = TEST_ID + '_static_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        TEST_RESULTS_PATH = join(base_dir, 'results/static_test-{}-{}'.format(self.sweep_method, self.sweep_param))
+                else:
+                    TEST_RESULTS_PATH = join(base_dir, 'results/test')
+                if not os.path.exists(TEST_RESULTS_PATH):
+                    os.makedirs(TEST_RESULTS_PATH)
 
                 # test dataset information
-                TEST_SUBSET = None
+                if len(self.sweep_param) == 2:
+                    TEST_SUBSET = self.sweep_param[1]
+                else:
+                    TEST_SUBSET = None
+
                 TRUE_NUM_PARTICLES_PER_IMAGE = 13
-                IF_TEST_IMAGE_STACK = 'subset'
-                TAKE_TEST_IMAGE_SUBSET_MEAN = [1, 2]
-                TEST_PARTICLE_ID_IMAGE = 'calib_40.tif'
+
+                if self.sweep_method == 'subset_mean':
+                    if self.sweep_param == 1:
+                        IF_TEST_IMAGE_STACK = 'subset'
+                        TAKE_TEST_IMAGE_SUBSET_MEAN = [8, 9]
+                    else:
+                        IF_TEST_IMAGE_STACK = 'last'
+                        TAKE_TEST_IMAGE_SUBSET_MEAN = [20, 21]
+                else:
+                    IF_TEST_IMAGE_STACK = 'first'
+                    TAKE_TEST_IMAGE_SUBSET_MEAN = []
+                # ---
+
+                TEST_PARTICLE_ID_IMAGE = 'calib_42.tif'
 
                 # test processing parameters
-                TEST_TEMPLATE_PADDING = 2
-                TEST_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 10}
+                TEST_TEMPLATE_PADDING = 16
+                TEST_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 200, 'pad': 2}
                 TEST_PROCESSING_METHOD = 'median'
                 TEST_PROCESSING_FILTER_TYPE = 'square'
                 TEST_PROCESSING_FILTER_SIZE = int(np.round(optics.pixels_per_particle_in_focus / 3))
-                TEST_PROCESSING = {TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+                TEST_PROCESSING = {'none': None}
+                # {TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
                 TEST_THRESHOLD_METHOD = 'manual'
-                TEST_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 5
+                TEST_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 4
                 TEST_THRESHOLD_PARAMS = {TEST_THRESHOLD_METHOD: [TEST_THRESHOLD_MODIFIER]}
 
                 # similarity
-                STACKS_USE_RAW = False
+                STACKS_USE_RAW = True
                 MIN_STACKS = 0.5  # percent of calibration stack
                 ZERO_CALIB_STACKS = False
                 ZERO_STACKS_OFFSET = 0.0  # TODO: should be derived or defined by a plane of interest
@@ -963,6 +1045,7 @@ class dataset_unpacker(object):
             base_dir = join('/Users/mackenzie/Desktop/gdpyt-characterization/calibration', self.dataset)
 
             # shared variables
+            XY_DISPLACEMENT = [[0, 0]]
 
             # file types
             filetype = '.tif'
@@ -973,7 +1056,7 @@ class dataset_unpacker(object):
             DEMAG = 0.5
             MAGNIFICATION = 10
             NA = 0.3
-            FOCAL_LENGTH = 1000
+            FOCAL_LENGTH = 2000
             REF_INDEX_MEDIUM = 1
             REF_INDEX_LENS = 1.5
             PIXEL_SIZE = 16e-6
@@ -986,7 +1069,7 @@ class dataset_unpacker(object):
             GAIN = 1
             CYL_FOCAL_LENGTH = 0
             WAVELENGTH = 600e-9
-            Z_RANGE = 40
+            Z_RANGE = 100
 
             optics = GdpytSetup.optics(particle_diameter=PARTICLE_DIAMETER,
                                        magnification=MAGNIFICATION,
@@ -1014,7 +1097,7 @@ class dataset_unpacker(object):
             MAX_P_AREA = 2000     # maximum particle size (area: units are in pixels) (recommended: 200)
             SAME_ID_THRESH = 5  # maximum tolerance in x- and y-directions for particle to have the same ID between images
             BACKGROUND_SUBTRACTION = None
-            OVERLAP_THRESHOLD = 5  # 8
+            OVERLAP_THRESHOLD = 10  # 8
 
             if self.collection_type == 'calibration':
                 CALIB_IMG_PATH = join(base_dir, 'images/calibration')
@@ -1023,15 +1106,19 @@ class dataset_unpacker(object):
                 CALIB_ID = self.dataset + '_calib'
 
                 if self.sweep_param is not None:
-                    CALIB_ID = CALIB_ID + '_{}-{}'.format(self.sweep_method, self.sweep_param)
-                    CALIB_RESULTS_PATH = join(base_dir, 'results/calibration-{}-{}'.format(self.sweep_method, self.sweep_param))
+                    if self.single_particle_calibration:
+                        CALIB_ID = CALIB_ID + '_SPC_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        CALIB_RESULTS_PATH = join(base_dir, 'results/SPC-calibration-{}-{}'.format(self.sweep_method, self.sweep_param))
+                    else:
+                        CALIB_ID = CALIB_ID + '_static_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        CALIB_RESULTS_PATH = join(base_dir, 'results/static-calibration-{}-{}'.format(self.sweep_method, self.sweep_param))
                 else:
                     CALIB_RESULTS_PATH = join(base_dir, 'results/calibration')
                 if not os.path.exists(CALIB_RESULTS_PATH):
                     os.makedirs(CALIB_RESULTS_PATH)
 
                 # calib dataset information
-                CALIB_SUBSET = [20, 140]
+                CALIB_SUBSET = [74, 180]
                 CALIBRATION_Z_STEP_SIZE = 1.0
                 TRUE_NUM_PARTICLES_PER_CALIB_IMAGE = 200
 
@@ -1041,22 +1128,26 @@ class dataset_unpacker(object):
                         TAKE_CALIB_IMAGE_SUBSET_MEAN = []
                     else:
                         IF_CALIB_IMAGE_STACK = 'subset'
-                        TAKE_CALIB_IMAGE_SUBSET_MEAN = [1, self.sweep_param]
+                        TAKE_CALIB_IMAGE_SUBSET_MEAN = [0, self.sweep_param]
                 else:
                     IF_CALIB_IMAGE_STACK = 'first'
                     TAKE_CALIB_IMAGE_SUBSET_MEAN = []
+
                 BASELINE_IMAGE = 'calib_75.tif'  # 'calib_90.tif'
 
                 # calibration processing parameters
                 CALIB_TEMPLATE_PADDING = 10
-                CALIB_CROPPING_SPECS = None # {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 10}
+                if self.single_particle_calibration:
+                    CALIB_CROPPING_SPECS = {'xmin': 235, 'xmax': 310, 'ymin': 310, 'ymax': 430, 'pad': 15}
+                else:
+                    CALIB_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 15}
                 CALIB_PROCESSING_METHOD = 'median'
                 CALIB_PROCESSING_FILTER_TYPE = 'square'
                 CALIB_PROCESSING_FILTER_SIZE = 1
                 CALIB_PROCESSING = {'none': None}
                 # {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None, 'wrap']}}
                 CALIB_THRESHOLD_METHOD = 'manual'
-                CALIB_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 2
+                CALIB_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 3
                 CALIB_THRESHOLD_PARAMS = {CALIB_THRESHOLD_METHOD: [CALIB_THRESHOLD_MODIFIER]}
 
                 # similarity
@@ -1080,40 +1171,43 @@ class dataset_unpacker(object):
                 TEST_ID = self.dataset + '_Meta-Test'
 
                 if self.sweep_param is not None:
-                    TEST_ID = TEST_ID + '_{}-{}'.format(self.sweep_method, self.sweep_param)
-                    TEST_RESULTS_PATH = join(base_dir, 'results/test-{}-{}'.format(self.sweep_method, self.sweep_param))
+                    if self.single_particle_calibration:
+                        TEST_ID = TEST_ID + '_SPC_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        TEST_RESULTS_PATH = join(base_dir, 'results/SPC_test-{}-{}'.format(self.sweep_method, self.sweep_param))
+                    else:
+                        TEST_ID = TEST_ID + '_static_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        TEST_RESULTS_PATH = join(base_dir, 'results/static_test-{}-{}'.format(self.sweep_method, self.sweep_param))
                 else:
                     TEST_RESULTS_PATH = join(base_dir, 'results/test')
                 if not os.path.exists(TEST_RESULTS_PATH):
                     os.makedirs(TEST_RESULTS_PATH)
 
                 # test dataset information
-                TEST_SUBSET = [25, 135]
+                TEST_SUBSET = [74, 180]
                 TRUE_NUM_PARTICLES_PER_IMAGE = 200
 
                 if self.sweep_method == 'subset_mean':
                     if self.sweep_param == 1:
                         IF_TEST_IMAGE_STACK = 'subset'
-                        TAKE_TEST_IMAGE_SUBSET_MEAN = [2, 3]
+                        TAKE_TEST_IMAGE_SUBSET_MEAN = [8, 9]
                     else:
-                        IF_TEST_IMAGE_STACK = 'subset'
-                        TAKE_TEST_IMAGE_SUBSET_MEAN = [self.sweep_param, 2*self.sweep_param]
+                        IF_TEST_IMAGE_STACK = 'last'
+                        TAKE_TEST_IMAGE_SUBSET_MEAN = [20, 21]
                 else:
                     IF_TEST_IMAGE_STACK = 'first'
                     TAKE_TEST_IMAGE_SUBSET_MEAN = []
 
-
                 TEST_PARTICLE_ID_IMAGE = 'calib_75.tif'  # 'calib_90.tif'
 
                 # test processing parameters
-                TEST_TEMPLATE_PADDING = 6
-                TEST_CROPPING_SPECS = None  # {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 10}
+                TEST_TEMPLATE_PADDING = 7
+                TEST_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 15}
                 TEST_PROCESSING_METHOD = 'median'
                 TEST_PROCESSING_FILTER_TYPE = 'square'
                 TEST_PROCESSING_FILTER_SIZE = 2
                 TEST_PROCESSING = {'none': None}  # {TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
                 TEST_THRESHOLD_METHOD = 'manual'
-                TEST_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 2
+                TEST_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 4
                 TEST_THRESHOLD_PARAMS = {TEST_THRESHOLD_METHOD: [TEST_THRESHOLD_MODIFIER]}
 
                 # similarity
@@ -1136,6 +1230,7 @@ class dataset_unpacker(object):
             base_dir = '/Users/mackenzie/Desktop/gdpyt-characterization/calibration/10X_1Xmag_2.15umNR_HighInt_0.12XHg'
 
             # shared variables
+            XY_DISPLACEMENT = [[0, 0]]
 
             # file types
             filetype = '.tif'
@@ -1187,7 +1282,7 @@ class dataset_unpacker(object):
             MAX_P_AREA = np.pi * np.max(optics.particle_diameter_z1 / 5) ** 2 * 0.6  # ~ 1600
             SAME_ID_THRESH = int(optics.pixels_per_particle_in_focus) * 6  # ~ 6
             BACKGROUND_SUBTRACTION = None
-            OVERLAP_THRESHOLD = 8
+            OVERLAP_THRESHOLD = 10
 
 
             if self.collection_type == 'calibration':
@@ -1195,32 +1290,59 @@ class dataset_unpacker(object):
                 CALIB_IMG_PATH = join(base_dir, 'images/calibration')
                 CALIB_BASE_STRING = 'calib_'
                 CALIB_GROUND_TRUTH_PATH = None
-                CALIB_ID = self.dataset + '_Calib'
-                CALIB_RESULTS_PATH = join(base_dir, 'results/calibration')
+                CALIB_ID = self.dataset + '_calib'
+
+                if self.sweep_param is not None:
+                    if self.single_particle_calibration:
+                        CALIB_ID = CALIB_ID + '_SPC_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        CALIB_RESULTS_PATH = join(base_dir, 'results/SPC-calibration-{}-{}'.format(self.sweep_method,
+                                                                                                   self.sweep_param))
+                    else:
+                        CALIB_ID = CALIB_ID + '_static_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        CALIB_RESULTS_PATH = join(base_dir, 'results/static-calibration-{}-{}'.format(self.sweep_method,
+                                                                                                      self.sweep_param))
+                else:
+                    CALIB_RESULTS_PATH = join(base_dir, 'results/calibration')
+                if not os.path.exists(CALIB_RESULTS_PATH):
+                    os.makedirs(CALIB_RESULTS_PATH)
 
                 # calib dataset information
-                CALIB_SUBSET = [1, 78]
+                if len(self.sweep_param) == 2:
+                    CALIB_SUBSET = self.sweep_param[1]
+                else:
+                    CALIB_SUBSET = None
+
                 CALIBRATION_Z_STEP_SIZE = 1.0
                 TRUE_NUM_PARTICLES_PER_CALIB_IMAGE = 70
-                IF_CALIB_IMAGE_STACK = 'subset'
-                TAKE_CALIB_IMAGE_SUBSET_MEAN = [0, 1]
+
+                if self.sweep_method == 'subset_mean':
+                    if self.sweep_param[0] == 1:
+                        IF_CALIB_IMAGE_STACK = 'first'
+                        TAKE_CALIB_IMAGE_SUBSET_MEAN = []
+                    else:
+                        IF_CALIB_IMAGE_STACK = 'subset'
+                        TAKE_CALIB_IMAGE_SUBSET_MEAN = [0, self.sweep_param[0]]
+                else:
+                    IF_CALIB_IMAGE_STACK = 'first'
+                    TAKE_CALIB_IMAGE_SUBSET_MEAN = []
+
                 BASELINE_IMAGE = 'calib_75.tif'
 
                 # calibration processing parameters
-                CALIB_TEMPLATE_PADDING = 3
-                CALIB_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 10}
+                CALIB_TEMPLATE_PADDING = 14
+                CALIB_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 20}
                 CALIB_PROCESSING_METHOD = 'median'
                 CALIB_PROCESSING_FILTER_TYPE = 'square'
                 CALIB_PROCESSING_FILTER_SIZE = int(np.ceil(optics.pixels_per_particle_in_focus))
-                CALIB_PROCESSING = {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None,
-                                                                       'wrap']}}
+                CALIB_PROCESSING = {'none': None}
+                # {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None, 'wrap']}}
                 CALIB_THRESHOLD_METHOD = 'manual'
-                CALIB_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 2.5
+                CALIB_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 3
                 CALIB_THRESHOLD_PARAMS = {CALIB_THRESHOLD_METHOD: [CALIB_THRESHOLD_MODIFIER]}
 
                 # similarity
                 STACKS_USE_RAW = True
-                MIN_STACKS = 0.1  # percent of calibration stack
+                MIN_STACKS = 0.5  # percent of calibration stack
                 ZERO_CALIB_STACKS = False
                 ZERO_STACKS_OFFSET = 0.0  # TODO: should be derived or defined by a plane of interest
                 INFER_METHODS = 'sknccorr'
@@ -1236,31 +1358,58 @@ class dataset_unpacker(object):
                 TEST_IMG_PATH = join(base_dir, 'images/calibration')
                 TEST_BASE_STRING = 'calib_'
                 TEST_GROUND_TRUTH_PATH = None
-                TEST_ID = self.dataset + '_Meta-Test'
-                TEST_RESULTS_PATH = join(base_dir, 'results/test')
+                TEST_ID = self.dataset + '_test'
+
+                if self.sweep_param is not None:
+                    if self.single_particle_calibration:
+                        TEST_ID = TEST_ID + '_SPC_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        TEST_RESULTS_PATH = join(base_dir,
+                                                 'results/SPC_test-{}-{}'.format(self.sweep_method, self.sweep_param))
+                    else:
+                        TEST_ID = TEST_ID + '_static_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        TEST_RESULTS_PATH = join(base_dir, 'results/static_test-{}-{}'.format(self.sweep_method,
+                                                                                              self.sweep_param))
+                else:
+                    TEST_RESULTS_PATH = join(base_dir, 'results/test')
+                if not os.path.exists(TEST_RESULTS_PATH):
+                    os.makedirs(TEST_RESULTS_PATH)
 
                 # test dataset information
-                TEST_SUBSET = [5, 75]
+                if len(self.sweep_param) == 2:
+                    TEST_SUBSET = self.sweep_param[1]
+                else:
+                    TEST_SUBSET = None
+
                 TRUE_NUM_PARTICLES_PER_IMAGE = 70
-                IF_TEST_IMAGE_STACK = 'subset'
-                TAKE_TEST_IMAGE_SUBSET_MEAN = [1, 2]
+
+                if self.sweep_method == 'subset_mean':
+                    if self.sweep_param[0] == 1:
+                        IF_TEST_IMAGE_STACK = 'first'
+                        TAKE_TEST_IMAGE_SUBSET_MEAN = []
+                    else:
+                        IF_TEST_IMAGE_STACK = 'last'
+                        TAKE_TEST_IMAGE_SUBSET_MEAN = [20, 21]
+                else:
+                    IF_TEST_IMAGE_STACK = 'first'
+                    TAKE_TEST_IMAGE_SUBSET_MEAN = []
+
                 TEST_PARTICLE_ID_IMAGE = 'calib_80.tif'
 
                 # test processing parameters
-                TEST_TEMPLATE_PADDING = 2
-                TEST_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 10}
+                TEST_TEMPLATE_PADDING = 12
+                TEST_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 20}
                 TEST_PROCESSING_METHOD = 'median'
                 TEST_PROCESSING_FILTER_TYPE = 'square'
                 TEST_PROCESSING_FILTER_SIZE = int(np.ceil(optics.pixels_per_particle_in_focus))
-                TEST_PROCESSING = {
-                    TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+                TEST_PROCESSING = {'none': None}
+                # {TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
                 TEST_THRESHOLD_METHOD = 'manual'
-                TEST_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 2.5
+                TEST_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 3
                 TEST_THRESHOLD_PARAMS = {TEST_THRESHOLD_METHOD: [TEST_THRESHOLD_MODIFIER]}
 
                 # similarity
                 STACKS_USE_RAW = True
-                MIN_STACKS = 0.1  # percent of calibration stack
+                MIN_STACKS = 0.5  # percent of calibration stack
                 ZERO_CALIB_STACKS = False
                 ZERO_STACKS_OFFSET = 0.0  # TODO: should be derived or defined by a plane of interest
                 INFER_METHODS = 'sknccorr'
@@ -1278,6 +1427,7 @@ class dataset_unpacker(object):
             base_dir = '/Users/mackenzie/Desktop/gdpyt-characterization/calibration/10X_1Xmag_5.1umNR_HighInt_0.06XHg'
 
             # shared variables
+            XY_DISPLACEMENT = [[0, 0]]
 
             # file types
             filetype = '.tif'
@@ -1337,30 +1487,57 @@ class dataset_unpacker(object):
                 CALIB_BASE_STRING = 'calib_'
                 CALIB_GROUND_TRUTH_PATH = None
                 CALIB_ID = self.dataset + '_Calib'
-                CALIB_RESULTS_PATH = join(base_dir, 'results/calibration')
+
+                if self.sweep_param is not None:
+                    if self.single_particle_calibration:
+                        CALIB_ID = CALIB_ID + '_SPC_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        CALIB_RESULTS_PATH = join(base_dir, 'results/SPC-calibration-{}-{}'.format(self.sweep_method,
+                                                                                                   self.sweep_param))
+                    else:
+                        CALIB_ID = CALIB_ID + '_static_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        CALIB_RESULTS_PATH = join(base_dir, 'results/static-calibration-{}-{}'.format(self.sweep_method,
+                                                                                                      self.sweep_param))
+                else:
+                    CALIB_RESULTS_PATH = join(base_dir, 'results/calibration')
+                if not os.path.exists(CALIB_RESULTS_PATH):
+                    os.makedirs(CALIB_RESULTS_PATH)
 
                 # calib dataset information
-                CALIB_SUBSET = [30, 90]
+                if len(self.sweep_param) == 2:
+                    CALIB_SUBSET = self.sweep_param[1]
+                else:
+                    CALIB_SUBSET = None
+
                 CALIBRATION_Z_STEP_SIZE = 1.0
                 TRUE_NUM_PARTICLES_PER_CALIB_IMAGE = 45
-                IF_CALIB_IMAGE_STACK = 'subset'
-                TAKE_CALIB_IMAGE_SUBSET_MEAN = [0, 3]
-                BASELINE_IMAGE = 'calib_75.tif' # 80
+
+                if self.sweep_method == 'subset_mean':
+                    if self.sweep_param[0] == 1:
+                        IF_CALIB_IMAGE_STACK = 'first'
+                        TAKE_CALIB_IMAGE_SUBSET_MEAN = []
+                    else:
+                        IF_CALIB_IMAGE_STACK = 'subset'
+                        TAKE_CALIB_IMAGE_SUBSET_MEAN = [0, self.sweep_param[0]]
+                else:
+                    IF_CALIB_IMAGE_STACK = 'first'
+                    TAKE_CALIB_IMAGE_SUBSET_MEAN = []
+
+                BASELINE_IMAGE = 'calib_92.tif'
 
                 # calibration processing parameters
-                CALIB_TEMPLATE_PADDING = 6
-                CALIB_CROPPING_SPECS = None  # {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 10}
+                CALIB_TEMPLATE_PADDING = 10
+                CALIB_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 20}
                 CALIB_PROCESSING_METHOD = 'median'
                 CALIB_PROCESSING_FILTER_TYPE = 'square'
                 CALIB_PROCESSING_FILTER_SIZE = 3  # int(np.ceil(optics.pixels_per_particle_in_focus))
-                CALIB_PROCESSING = {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None,
-                                                                       'wrap']}}
+                CALIB_PROCESSING = {'none': None}
+                # {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None, 'wrap']}}
                 CALIB_THRESHOLD_METHOD = 'manual'
-                CALIB_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 2.25
+                CALIB_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 3
                 CALIB_THRESHOLD_PARAMS = {CALIB_THRESHOLD_METHOD: [CALIB_THRESHOLD_MODIFIER]}
 
                 # similarity
-                STACKS_USE_RAW = False
+                STACKS_USE_RAW = True
                 MIN_STACKS = 0.5  # percent of calibration stack
                 ZERO_CALIB_STACKS = False
                 ZERO_STACKS_OFFSET = 0.0  # TODO: should be derived or defined by a plane of interest
@@ -1378,29 +1555,56 @@ class dataset_unpacker(object):
                 TEST_BASE_STRING = 'calib_'
                 TEST_GROUND_TRUTH_PATH = None
                 TEST_ID = self.dataset + '_Meta-Test'
-                TEST_RESULTS_PATH = join(base_dir, 'results/test')
+
+                if self.sweep_param is not None:
+                    if self.single_particle_calibration:
+                        TEST_ID = TEST_ID + '_SPC_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        TEST_RESULTS_PATH = join(base_dir,
+                                                 'results/SPC_test-{}-{}'.format(self.sweep_method, self.sweep_param))
+                    else:
+                        TEST_ID = TEST_ID + '_static_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        TEST_RESULTS_PATH = join(base_dir, 'results/static_test-{}-{}'.format(self.sweep_method,
+                                                                                              self.sweep_param))
+                else:
+                    TEST_RESULTS_PATH = join(base_dir, 'results/test')
+                if not os.path.exists(TEST_RESULTS_PATH):
+                    os.makedirs(TEST_RESULTS_PATH)
 
                 # test dataset information
-                TEST_SUBSET = [31, 89]
+                if len(self.sweep_param) == 2:
+                    TEST_SUBSET = self.sweep_param[1]
+                else:
+                    TEST_SUBSET = None
+
                 TRUE_NUM_PARTICLES_PER_IMAGE = 40
-                IF_TEST_IMAGE_STACK = 'first'  # 'subset'
-                TAKE_TEST_IMAGE_SUBSET_MEAN = None  # [5, 8]
-                TEST_PARTICLE_ID_IMAGE = 'calib_75.tif' # 80
+
+                if self.sweep_method == 'subset_mean':
+                    if self.sweep_param[0] == 1:
+                        IF_TEST_IMAGE_STACK = 'first'
+                        TAKE_TEST_IMAGE_SUBSET_MEAN = []
+                    else:
+                        IF_TEST_IMAGE_STACK = 'last'
+                        TAKE_TEST_IMAGE_SUBSET_MEAN = [20, 21]
+                else:
+                    IF_TEST_IMAGE_STACK = 'first'
+                    TAKE_TEST_IMAGE_SUBSET_MEAN = []
+
+                TEST_PARTICLE_ID_IMAGE = 'calib_92.tif'
 
                 # test processing parameters
-                TEST_TEMPLATE_PADDING = 2
-                TEST_CROPPING_SPECS = None  # {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 10}
+                TEST_TEMPLATE_PADDING = 7
+                TEST_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 20}
                 TEST_PROCESSING_METHOD = 'median'
                 TEST_PROCESSING_FILTER_TYPE = 'square'
                 TEST_PROCESSING_FILTER_SIZE = 3  # int(np.ceil(optics.pixels_per_particle_in_focus))
-                TEST_PROCESSING = {
-                    TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+                TEST_PROCESSING = {'none': None}
+                # {TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
                 TEST_THRESHOLD_METHOD = 'manual'
-                TEST_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 2.25
+                TEST_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 3
                 TEST_THRESHOLD_PARAMS = {TEST_THRESHOLD_METHOD: [TEST_THRESHOLD_MODIFIER]}
 
                 # similarity
-                STACKS_USE_RAW = False
+                STACKS_USE_RAW = True
                 MIN_STACKS = 0.5  # percent of calibration stack
                 ZERO_CALIB_STACKS = False
                 ZERO_STACKS_OFFSET = 0.0  # TODO: should be derived or defined by a plane of interest
@@ -1414,11 +1618,12 @@ class dataset_unpacker(object):
                 SHOW_PLOTS = False
                 SAVE_PLOTS = True
 
-        if self.dataset == '20X_0.5Xmag_2.15umRed_HighInt_0.03Hg':
+        if self.dataset == '20X_0.5Xmag_2.15umNR_HighInt_0.03XHg':
 
-            base_dir = '/Users/mackenzie/Desktop/gdpyt-characterization/calibration/20X_0.5Xmag_2.15umRed_HighInt_0.03Hg'
+            base_dir = '/Users/mackenzie/Desktop/gdpyt-characterization/calibration/20X_0.5Xmag_2.15umNR_HighInt_0.03XHg'
 
             # shared variables
+            XY_DISPLACEMENT = [[0, 0]]
 
             # file types
             filetype = '.tif'
@@ -1466,41 +1671,70 @@ class dataset_unpacker(object):
             # image pre-processing
             DILATE = None  # None or True
             SHAPE_TOL = 0.5  # None == take any shape; 1 == take perfectly circular shape only.
-            MIN_P_AREA = np.pi * optics.pixels_per_particle_in_focus ** 2 * 0.4 # ~ 12
-            MAX_P_AREA = np.pi * np.max(optics.particle_diameter_z1 / 5) ** 2 * 0.5 # = 1750
-            SAME_ID_THRESH = int(optics.pixels_per_particle_in_focus) * 2  # = 10
+            MIN_P_AREA = np.pi * optics.pixels_per_particle_in_focus ** 2 * 0.4  # ~ 12
+            MAX_P_AREA = np.pi * np.max(optics.particle_diameter_z1 / 5) ** 2 * 0.5  # = 1750
+            SAME_ID_THRESH = int(optics.pixels_per_particle_in_focus) * 5  # = 10
             BACKGROUND_SUBTRACTION = None
+            OVERLAP_THRESHOLD = 5
 
             if self.collection_type == 'calibration':
 
                 CALIB_IMG_PATH = join(base_dir, 'images/calibration')
                 CALIB_BASE_STRING = 'calib_'
                 CALIB_GROUND_TRUTH_PATH = None
-                CALIB_ID = self.dataset + '_Calib'
-                CALIB_RESULTS_PATH = join(base_dir, 'results/calibration')
+                CALIB_ID = self.dataset + '_calib'
+
+                if self.sweep_param is not None:
+                    if self.single_particle_calibration:
+                        CALIB_ID = CALIB_ID + '_SPC_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        CALIB_RESULTS_PATH = join(base_dir, 'results/SPC-calibration-{}-{}'.format(self.sweep_method,
+                                                                                                   self.sweep_param))
+                    else:
+                        CALIB_ID = CALIB_ID + '_static_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        CALIB_RESULTS_PATH = join(base_dir, 'results/static-calibration-{}-{}'.format(self.sweep_method,
+                                                                                                      self.sweep_param))
+                else:
+                    CALIB_RESULTS_PATH = join(base_dir, 'results/calibration')
+                if not os.path.exists(CALIB_RESULTS_PATH):
+                    os.makedirs(CALIB_RESULTS_PATH)
 
                 # calib dataset information
-                CALIB_SUBSET = [0, 65]
+                if len(self.sweep_param) == 2:
+                    CALIB_SUBSET = self.sweep_param[1]
+                else:
+                    CALIB_SUBSET = None
+
                 CALIBRATION_Z_STEP_SIZE = 1.0
                 TRUE_NUM_PARTICLES_PER_CALIB_IMAGE = 40
-                IF_CALIB_IMAGE_STACK = 'subset'
-                TAKE_CALIB_IMAGE_SUBSET_MEAN = [0, 1]
+
+                if self.sweep_method == 'subset_mean':
+                    if self.sweep_param[0] == 1:
+                        IF_CALIB_IMAGE_STACK = 'first'
+                        TAKE_CALIB_IMAGE_SUBSET_MEAN = []
+                    else:
+                        IF_CALIB_IMAGE_STACK = 'subset'
+                        TAKE_CALIB_IMAGE_SUBSET_MEAN = [0, self.sweep_param[0]]
+                else:
+                    IF_CALIB_IMAGE_STACK = 'first'
+                    TAKE_CALIB_IMAGE_SUBSET_MEAN = []
+
                 BASELINE_IMAGE = 'calib_60.tif'
 
                 # calibration processing parameters
-                CALIB_TEMPLATE_PADDING = 3
+                CALIB_TEMPLATE_PADDING = 16
+                CALIB_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 20}
                 CALIB_PROCESSING_METHOD = 'median'
                 CALIB_PROCESSING_FILTER_TYPE = 'square'
                 CALIB_PROCESSING_FILTER_SIZE = int(np.ceil(optics.pixels_per_particle_in_focus))
-                CALIB_PROCESSING = {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None,
-                                                                       'wrap']}}
+                CALIB_PROCESSING = {'none': None}
+                # {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None, 'wrap']}}
                 CALIB_THRESHOLD_METHOD = 'manual'
-                CALIB_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 2.5
+                CALIB_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 3
                 CALIB_THRESHOLD_PARAMS = {CALIB_THRESHOLD_METHOD: [CALIB_THRESHOLD_MODIFIER]}
 
                 # similarity
-                STACKS_USE_RAW = False
-                MIN_STACKS = 0.25  # percent of calibration stack
+                STACKS_USE_RAW = True
+                MIN_STACKS = 0.5  # percent of calibration stack
                 ZERO_CALIB_STACKS = False
                 ZERO_STACKS_OFFSET = 0.0  # TODO: should be derived or defined by a plane of interest
                 INFER_METHODS = 'sknccorr'
@@ -1517,28 +1751,57 @@ class dataset_unpacker(object):
                 TEST_BASE_STRING = 'calib_'
                 TEST_GROUND_TRUTH_PATH = None
                 TEST_ID = self.dataset + '_Meta-Test'
-                TEST_RESULTS_PATH = join(base_dir, 'results/test')
+
+                if self.sweep_param is not None:
+                    if self.single_particle_calibration:
+                        TEST_ID = TEST_ID + '_SPC_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        TEST_RESULTS_PATH = join(base_dir,
+                                                 'results/SPC_test-{}-{}'.format(self.sweep_method, self.sweep_param))
+                    else:
+                        TEST_ID = TEST_ID + '_static_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        TEST_RESULTS_PATH = join(base_dir, 'results/static_test-{}-{}'.format(self.sweep_method,
+                                                                                              self.sweep_param))
+                else:
+                    TEST_RESULTS_PATH = join(base_dir, 'results/test')
+                if not os.path.exists(TEST_RESULTS_PATH):
+                    os.makedirs(TEST_RESULTS_PATH)
 
                 # test dataset information
-                TEST_SUBSET = [30, 50]
+                if len(self.sweep_param) == 2:
+                    TEST_SUBSET = self.sweep_param[1]
+                else:
+                    TEST_SUBSET = None
+
                 TRUE_NUM_PARTICLES_PER_IMAGE = 60
-                IF_TEST_IMAGE_STACK = 'subset'
-                TAKE_TEST_IMAGE_SUBSET_MEAN = [1, 2]
+
+                if self.sweep_method == 'subset_mean':
+                    if self.sweep_param[0] == 1:
+                        IF_TEST_IMAGE_STACK = 'first'
+                        TAKE_TEST_IMAGE_SUBSET_MEAN = []
+                    else:
+                        IF_TEST_IMAGE_STACK = 'last'
+                        TAKE_TEST_IMAGE_SUBSET_MEAN = [20, 21]
+                else:
+                    IF_TEST_IMAGE_STACK = 'first'
+                    TAKE_TEST_IMAGE_SUBSET_MEAN = []
+
+                TEST_PARTICLE_ID_IMAGE = 'calib_60.tif'
 
                 # test processing parameters
-                TEST_TEMPLATE_PADDING = 2
+                TEST_TEMPLATE_PADDING = 14
+                TEST_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 20}
                 TEST_PROCESSING_METHOD = 'median'
                 TEST_PROCESSING_FILTER_TYPE = 'square'
                 TEST_PROCESSING_FILTER_SIZE = int(np.ceil(optics.pixels_per_particle_in_focus))
-                TEST_PROCESSING = {
-                    TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+                TEST_PROCESSING = {'none': None}
+                # {TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
                 TEST_THRESHOLD_METHOD = 'manual'
-                TEST_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 2.25
+                TEST_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 3
                 TEST_THRESHOLD_PARAMS = {TEST_THRESHOLD_METHOD: [TEST_THRESHOLD_MODIFIER]}
 
                 # similarity
-                STACKS_USE_RAW = False
-                MIN_STACKS = 0.25  # percent of calibration stack
+                STACKS_USE_RAW = True
+                MIN_STACKS = 0.5  # percent of calibration stack
                 ZERO_CALIB_STACKS = False
                 ZERO_STACKS_OFFSET = 0.0  # TODO: should be derived or defined by a plane of interest
                 INFER_METHODS = 'sknccorr'
@@ -1556,6 +1819,7 @@ class dataset_unpacker(object):
             base_dir = '/Users/mackenzie/Desktop/gdpyt-characterization/calibration/20X_1Xmag_0.87umNR'
 
             # shared variables
+            XY_DISPLACEMENT = [[0, 0]]
 
             # file types
             filetype = '.tif'
@@ -1614,31 +1878,59 @@ class dataset_unpacker(object):
                 CALIB_IMG_PATH = join(base_dir, 'images/calibration')
                 CALIB_BASE_STRING = 'nilered870nm_'
                 CALIB_GROUND_TRUTH_PATH = None
-                CALIB_ID = self.dataset + '_Calib'
-                CALIB_RESULTS_PATH = join(base_dir, 'results/calibration')
+                CALIB_ID = self.dataset + '_calib'
+
+                if self.sweep_param is not None:
+                    if self.single_particle_calibration:
+                        CALIB_ID = CALIB_ID + '_SPC_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        CALIB_RESULTS_PATH = join(base_dir, 'results/SPC-calibration-{}-{}'.format(self.sweep_method,
+                                                                                                   self.sweep_param))
+                    else:
+                        CALIB_ID = CALIB_ID + '_static_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        CALIB_RESULTS_PATH = join(base_dir, 'results/static-calibration-{}-{}'.format(self.sweep_method,
+                                                                                                      self.sweep_param))
+                else:
+                    CALIB_RESULTS_PATH = join(base_dir, 'results/calibration')
+                if not os.path.exists(CALIB_RESULTS_PATH):
+                    os.makedirs(CALIB_RESULTS_PATH)
 
                 # calib dataset information
-                CALIB_SUBSET = None
+                if len(self.sweep_param) == 2:
+                    CALIB_SUBSET = self.sweep_param[1]
+                else:
+                    CALIB_SUBSET = None
+
                 CALIBRATION_Z_STEP_SIZE = 1.0
                 TRUE_NUM_PARTICLES_PER_CALIB_IMAGE = 40
-                IF_CALIB_IMAGE_STACK = 'first'
-                TAKE_CALIB_IMAGE_SUBSET_MEAN = None
+
+                if self.sweep_method == 'subset_mean':
+                    if self.sweep_param[0] == 1:
+                        IF_CALIB_IMAGE_STACK = 'first'
+                        TAKE_CALIB_IMAGE_SUBSET_MEAN = []
+                    else:
+                        IF_CALIB_IMAGE_STACK = 'subset'
+                        TAKE_CALIB_IMAGE_SUBSET_MEAN = [0, self.sweep_param[0]]
+                else:
+                    IF_CALIB_IMAGE_STACK = 'first'
+                    TAKE_CALIB_IMAGE_SUBSET_MEAN = []
+
                 BASELINE_IMAGE = 'nilered870nm_17.tif'
 
                 # calibration processing parameters
-                CALIB_TEMPLATE_PADDING = 3
-                CALIB_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 10}
+                CALIB_TEMPLATE_PADDING = 6
+                CALIB_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 20}
                 CALIB_PROCESSING_METHOD = 'median'
                 CALIB_PROCESSING_FILTER_TYPE = 'square'
                 CALIB_PROCESSING_FILTER_SIZE = int(np.ceil(optics.pixels_per_particle_in_focus))
-                CALIB_PROCESSING = {'none': None} #  {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+                CALIB_PROCESSING = {'none': None}
+                #  {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None, 'wrap']}}
                 CALIB_THRESHOLD_METHOD = 'manual'
-                CALIB_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 7
+                CALIB_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 5
                 CALIB_THRESHOLD_PARAMS = {CALIB_THRESHOLD_METHOD: [CALIB_THRESHOLD_MODIFIER]}
 
                 # similarity
                 STACKS_USE_RAW = True
-                MIN_STACKS = 0.9  # percent of calibration stack
+                MIN_STACKS = 0.5  # percent of calibration stack
                 ZERO_CALIB_STACKS = False
                 ZERO_STACKS_OFFSET = 0.0  # TODO: should be derived or defined by a plane of interest
                 INFER_METHODS = 'sknccorr'
@@ -1655,24 +1947,52 @@ class dataset_unpacker(object):
                 TEST_BASE_STRING = 'nilered870nm_'
                 TEST_GROUND_TRUTH_PATH = None
                 TEST_ID = self.dataset + '_Meta-Test'
-                TEST_RESULTS_PATH = join(base_dir, 'results/test')
+
+                if self.sweep_param is not None:
+                    if self.single_particle_calibration:
+                        TEST_ID = TEST_ID + '_SPC_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        TEST_RESULTS_PATH = join(base_dir,
+                                                 'results/SPC_test-{}-{}'.format(self.sweep_method, self.sweep_param))
+                    else:
+                        TEST_ID = TEST_ID + '_static_{}-{}'.format(self.sweep_method, self.sweep_param)
+                        TEST_RESULTS_PATH = join(base_dir, 'results/static_test-{}-{}'.format(self.sweep_method,
+                                                                                              self.sweep_param))
+                else:
+                    TEST_RESULTS_PATH = join(base_dir, 'results/test')
+                if not os.path.exists(TEST_RESULTS_PATH):
+                    os.makedirs(TEST_RESULTS_PATH)
 
                 # test dataset information
-                TEST_SUBSET = None
+                if len(self.sweep_param) == 2:
+                    TEST_SUBSET = self.sweep_param[1]
+                else:
+                    TEST_SUBSET = None
+
                 TRUE_NUM_PARTICLES_PER_IMAGE = 40
-                IF_TEST_IMAGE_STACK = 'first'
-                TAKE_TEST_IMAGE_SUBSET_MEAN = None
+
+                if self.sweep_method == 'subset_mean':
+                    if self.sweep_param[0] == 1:
+                        IF_TEST_IMAGE_STACK = 'first'
+                        TAKE_TEST_IMAGE_SUBSET_MEAN = []
+                    else:
+                        IF_TEST_IMAGE_STACK = 'last'
+                        TAKE_TEST_IMAGE_SUBSET_MEAN = [20, 21]
+                else:
+                    IF_TEST_IMAGE_STACK = 'first'
+                    TAKE_TEST_IMAGE_SUBSET_MEAN = []
+
                 TEST_PARTICLE_ID_IMAGE = 'nilered870nm_17.tif'
 
                 # test processing parameters
-                TEST_TEMPLATE_PADDING = 2
-                TEST_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 10}
+                TEST_TEMPLATE_PADDING = 4
+                TEST_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 20}
                 TEST_PROCESSING_METHOD = 'median'
                 TEST_PROCESSING_FILTER_TYPE = 'square'
                 TEST_PROCESSING_FILTER_SIZE = int(np.ceil(optics.pixels_per_particle_in_focus))
-                TEST_PROCESSING = {'none': None} #  {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+                TEST_PROCESSING = {'none': None}
+                #  {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
                 TEST_THRESHOLD_METHOD = 'manual'
-                TEST_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 7
+                TEST_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 5
                 TEST_THRESHOLD_PARAMS = {TEST_THRESHOLD_METHOD: [TEST_THRESHOLD_MODIFIER]}
 
                 # similarity
@@ -2264,9 +2584,17 @@ class dataset_unpacker(object):
                 bkg_noise = 4
                 calib_img_path = join(base_dir, 'images/calibration/calib_1umSteps_microscope')
                 calib_id = self.dataset + '_cSILPURAN'
+                subset_i, subset_f = 0, 2
+
+                if self.collection_type == 'meta-test':
+                    test_img_path = calib_img_path
+                    meta_test_id = self.dataset + '_calibration-meta-assessment_'
+                    test_id = meta_test_id
+                    metaset_i, metaset_f = subset_f, subset_f + 1
+                    XY_DISPLACEMENT = [[0, 0]]
 
                 if self.sweep_method == 'testset':
-                    test_img_path = join(base_dir, 'images/calibration/{}'.format(self.sweep_param[0]))
+                    test_img_path = join(base_dir, 'images/tests/{}'.format(self.sweep_param[0]))
                     test_id = self.dataset + '_tcSILPURAN_'
                     XY_DISPLACEMENT = self.sweep_param[1]
 
@@ -2275,8 +2603,11 @@ class dataset_unpacker(object):
                 bkg_noise = 4
                 calib_img_path = join(base_dir, 'images/calibration_microscope_1umSteps')
                 calib_id = self.dataset + '_calibGlass'
+                subset_i, subset_f = 0, 2
                 test_img_path = join(base_dir, 'images/calibration_micrometer_5umSteps')
                 test_id = self.dataset + '_testGlass'
+                meta_test_id = self.dataset + '_calibration-meta-assessment_'
+                metaset_i, metaset_f = 2, 3
             else:
                 raise ValueError("Unknown particle distribution.")
 
@@ -2288,10 +2619,10 @@ class dataset_unpacker(object):
 
             # optics
             PARTICLE_DIAMETER = 2.15e-6
-            DEMAG = 1
+            DEMAG = 0.5
             MAGNIFICATION = 20
-            NA = 0.45
-            FOCAL_LENGTH = 100
+            NA = 0.3
+            FOCAL_LENGTH = 500
             REF_INDEX_MEDIUM = 1
             REF_INDEX_LENS = 1.5
             PIXEL_SIZE = 16e-6
@@ -2301,7 +2632,7 @@ class dataset_unpacker(object):
             BKG_NOISES = bkg_noise
             POINTS_PER_PIXEL = None
             N_RAYS = None
-            GAIN = 1
+            GAIN = 7
             CYL_FOCAL_LENGTH = 0
             WAVELENGTH = 600e-9
             Z_RANGE = 100
@@ -2329,8 +2660,8 @@ class dataset_unpacker(object):
             DILATE = None  # None or True
             SHAPE_TOL = 0.25  # None == take any shape; 1 == take perfectly circular shape only.
             MIN_P_AREA = 8  # minimum particle size (area: units are in pixels) (recommended: 5)
-            MAX_P_AREA = 750     # maximum particle size (area: units are in pixels) (recommended: 200)
-            SAME_ID_THRESH = 7  # maximum tolerance in x- and y-directions for particle to have the same ID between images
+            MAX_P_AREA = 750     # (750) maximum particle size (area: units are in pixels) (recommended: 200)
+            SAME_ID_THRESH = 5  # maximum tolerance in x- and y-directions for particle to have the same ID between images
             TEST_SAME_ID_THRESH = 12
             BACKGROUND_SUBTRACTION = None
             OVERLAP_THRESHOLD = 5  # 8
@@ -2342,7 +2673,7 @@ class dataset_unpacker(object):
                 CALIB_ID = calib_id
 
                 if self.sweep_param is not None:
-                    CALIB_ID = CALIB_ID + '_{}-{}'.format(self.sweep_method, self.sweep_param)
+                    CALIB_ID = CALIB_ID + '_{}'.format(self.sweep_param[0])  # '_{}-{}'.format(self.sweep_method, self.sweep_param)
                     CALIB_RESULTS_PATH = join(base_dir, 'results/calibration-{}-{}'.format(self.sweep_method, self.sweep_param))
                 else:
                     CALIB_RESULTS_PATH = join(base_dir, 'results/calibration')
@@ -2352,9 +2683,13 @@ class dataset_unpacker(object):
                 # calib dataset information
                 CALIB_SUBSET = None
                 CALIBRATION_Z_STEP_SIZE = 1.0
-                TRUE_NUM_PARTICLES_PER_CALIB_IMAGE = 90
+                TRUE_NUM_PARTICLES_PER_CALIB_IMAGE = 1
+                BASELINE_IMAGE = 'calib_30.tif'  # 'calib_30.tif'
 
-                if self.sweep_method == 'subset_mean':
+                # image stack averaging
+                IF_CALIB_IMAGE_STACK = 'subset'
+                TAKE_CALIB_IMAGE_SUBSET_MEAN = [subset_i, subset_f]  # averages the first two images (i.e. up to 2 but not including)
+                """if self.sweep_method == 'subset_mean':
                     if self.sweep_param == 1:
                         IF_CALIB_IMAGE_STACK = 'first'
                         TAKE_CALIB_IMAGE_SUBSET_MEAN = []
@@ -2363,43 +2698,59 @@ class dataset_unpacker(object):
                         TAKE_CALIB_IMAGE_SUBSET_MEAN = [0, self.sweep_param]
                 else:
                     IF_CALIB_IMAGE_STACK = 'first'
-                    TAKE_CALIB_IMAGE_SUBSET_MEAN = [0, 1]
-                BASELINE_IMAGE = 'calib_50.tif'  # 'calib_90.tif'
+                    TAKE_CALIB_IMAGE_SUBSET_MEAN = [0, 1]"""
 
                 # calibration processing parameters
-                CALIB_TEMPLATE_PADDING = 19
-                CALIB_CROPPING_SPECS = None # {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 10}
+                if self.static_templates:
+                    CALIB_TEMPLATE_PADDING = 12  # if calib_30.tif, then 12; if calib_50.tif, then 15
+                else:
+                    CALIB_TEMPLATE_PADDING = 3
+
+                if self.single_particle_calibration:
+                    CALIB_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 5}
+                    # {'xmin': 210, 'xmax': 275, 'ymin': 205, 'ymax': 260, 'pad': 0}
+                else:
+                    CALIB_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 5}
+
                 CALIB_PROCESSING_METHOD = 'median'
                 CALIB_PROCESSING_FILTER_TYPE = 'square'
-                CALIB_PROCESSING_FILTER_SIZE = 1
+                CALIB_PROCESSING_FILTER_SIZE = 3
+                CALIB_PROCESSING_METHOD2 = 'gaussian'
+                CALIB_PROCESSING_FILTER_TYPE2 = None
+                CALIB_PROCESSING_FILTER_SIZE2 = 1
                 CALIB_PROCESSING = {'none': None}
-                # {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+                # {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None, 'wrap']}
+                # CALIB_PROCESSING_METHOD2: {'args': [], 'kwargs': dict(sigma=CALIB_PROCESSING_FILTER_SIZE2, preserve_range=True)}
+                # {'none': None}
                 CALIB_THRESHOLD_METHOD = 'manual'
-                CALIB_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 4
+                if 'none' in list(CALIB_PROCESSING.keys()):
+                    CALIB_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 3  # 3
+                else:
+                    CALIB_THRESHOLD_MODIFIER = optics.bkg_mean - optics.bkg_noise * 3
                 CALIB_THRESHOLD_PARAMS = {CALIB_THRESHOLD_METHOD: [CALIB_THRESHOLD_MODIFIER]}
 
                 # similarity
                 STACKS_USE_RAW = True
-                MIN_STACKS = 0.5  # percent of calibration stack
+                MIN_STACKS = 0.9  # percent of calibration stack
                 ZERO_CALIB_STACKS = False
                 ZERO_STACKS_OFFSET = 0.0
                 INFER_METHODS = 'sknccorr'
-                MIN_CM = 0.5
+                MIN_CM = 0.0
                 SUB_IMAGE_INTERPOLATION = True
 
                 # display options
                 INSPECT_CALIB_CONTOURS = False
                 SHOW_CALIB_PLOTS = False
-                SAVE_CALIB_PLOTS = False
+                SAVE_CALIB_PLOTS = True
 
-            if self.collection_type == 'test':
+            if self.collection_type == 'test' or self.collection_type == 'meta-test':
                 TEST_IMG_PATH = test_img_path
-                TEST_BASE_STRING = 'calib_'
+                TEST_BASE_STRING = 'test_X'
                 TEST_GROUND_TRUTH_PATH = None
                 TEST_ID = test_id
 
                 if self.sweep_param is not None:
-                    TEST_ID = TEST_ID + '{}-{}'.format(self.sweep_method, self.sweep_param)
+                    TEST_ID = TEST_ID + '{}'.format(self.sweep_param)  # '{}-{}'.format(self.sweep_method, self.sweep_param)
                     TEST_RESULTS_PATH = join(base_dir, 'results/test-{}-{}'.format(self.sweep_method, self.sweep_param))
                 else:
                     TEST_RESULTS_PATH = join(base_dir, 'results/test')
@@ -2418,29 +2769,43 @@ class dataset_unpacker(object):
                         IF_TEST_IMAGE_STACK = 'subset'
                         TAKE_TEST_IMAGE_SUBSET_MEAN = [0, self.sweep_param]
                 else:
-                    IF_TEST_IMAGE_STACK = 'subset'
+                    IF_TEST_IMAGE_STACK = 'first'
                     TAKE_TEST_IMAGE_SUBSET_MEAN = [1, 2]
 
-                TEST_PARTICLE_ID_IMAGE = 'calib_50.tif'  # 'calib_90.tif'
+                TEST_PARTICLE_ID_IMAGE = 'test_X001.tif'  # This is only used for 'testsets'; not meta-tests (below).
 
                 # test processing parameters
-                TEST_TEMPLATE_PADDING = 16
-                TEST_CROPPING_SPECS = None  # {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 10}
+                if self.static_templates:
+                    TEST_TEMPLATE_PADDING = 10
+                else:
+                    TEST_TEMPLATE_PADDING = 1
+
+                TEST_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 5}
+
                 TEST_PROCESSING_METHOD = 'median'
                 TEST_PROCESSING_FILTER_TYPE = 'square'
-                TEST_PROCESSING_FILTER_SIZE = 2
-                TEST_PROCESSING = {'none': None}  # {TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+                TEST_PROCESSING_FILTER_SIZE = 3
+                TEST_PROCESSING_METHOD2 = 'gaussian'
+                TEST_PROCESSING_FILTER_TYPE2 = None
+                TEST_PROCESSING_FILTER_SIZE2 = 1
+                TEST_PROCESSING = {'none': None}
+                # {TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}} # ,
+                # TEST_PROCESSING_METHOD2: {'args': [], 'kwargs': dict(sigma=TEST_PROCESSING_FILTER_SIZE2, preserve_range=True)}}
+
                 TEST_THRESHOLD_METHOD = 'manual'
-                TEST_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 4
+                if 'none' in list(TEST_PROCESSING.keys()):
+                    TEST_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 3
+                else:
+                    TEST_THRESHOLD_MODIFIER = optics.bkg_mean - optics.bkg_noise * 3
                 TEST_THRESHOLD_PARAMS = {TEST_THRESHOLD_METHOD: [TEST_THRESHOLD_MODIFIER]}
 
                 # similarity
                 STACKS_USE_RAW = True
-                MIN_STACKS = 0.5  # percent of calibration stack
+                MIN_STACKS = 0.9  # percent of calibration stack
                 ZERO_CALIB_STACKS = False
                 ZERO_STACKS_OFFSET = 0.0
                 INFER_METHODS = 'sknccorr'
-                MIN_CM = 0.5
+                MIN_CM = 0.0
                 SUB_IMAGE_INTERPOLATION = True
                 ASSESS_SIMILARITY_FOR_ALL_STACKS = False
 
@@ -2448,6 +2813,16 @@ class dataset_unpacker(object):
                 INSPECT_TEST_CONTOURS = False
                 SHOW_PLOTS = False
                 SAVE_PLOTS = True
+
+            if self.collection_type == 'meta-test':
+                TEST_BASE_STRING = 'calib_'
+                TEST_GROUND_TRUTH_PATH = None
+                TEST_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 5}
+
+                TEST_SUBSET = None
+                IF_TEST_IMAGE_STACK = 'subset'
+                TAKE_TEST_IMAGE_SUBSET_MEAN = [metaset_i, metaset_f]
+                TEST_PARTICLE_ID_IMAGE = 'calib_30.tif'  # was calib_30.tif
 
         # ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- --------
 
@@ -2811,6 +3186,629 @@ class dataset_unpacker(object):
                 SHOW_PLOTS = False
                 SAVE_PLOTS = True
 
+
+        # ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- --------
+
+        if self.dataset == '08.02.21 - bpe.g2 deflection':
+
+            base_dir = join('/Users/mackenzie/Desktop/gdpyt-characterization/experiments', self.dataset)
+
+            if self.particle_distribution == 'SILPURAN':
+                bkg_mean = 120
+                bkg_noise = 17
+                calib_bkg_mean = 135
+                calib_bkg_noise = 7
+                calib_img_path = join(base_dir, 'images/calibration/08.03.21-20X-5.61umPink')
+                calib_id = self.dataset + '_c08.03.21-20X-5.61umPink'
+                subset_i, subset_f = 0, 20
+
+                if self.collection_type == 'meta-test':
+                    test_img_path = calib_img_path
+                    meta_test_id = self.dataset + '_calibration-meta-assessment_'
+                    test_id = meta_test_id
+                    metaset_i, metaset_f = subset_f, subset_f + 1
+                    XY_DISPLACEMENT = [[0, 0]]
+
+                if self.sweep_method == 'testset':
+                    test_img_path = join(base_dir, 'images/tests/ON_10s_OFF_15s/{}'.format(self.sweep_param))
+                    test_id = self.dataset + '_tcSILPURAN_'
+                    XY_DISPLACEMENT = [[0, 0]]
+
+            else:
+                raise ValueError("Unknown particle distribution.")
+
+            # shared variables
+
+            # file types
+            filetype = '.tif'
+            filetype_ground_truth = '.txt'
+
+            # optics
+            PARTICLE_DIAMETER = 5.6e-6
+            DEMAG = 1
+            MAGNIFICATION = 20
+            NA = 0.4
+            FOCAL_LENGTH = 500
+            REF_INDEX_MEDIUM = 1
+            REF_INDEX_LENS = 1.5
+            PIXEL_SIZE = 16e-6
+            PIXEL_DIM_X = 512
+            PIXEL_DIM_Y = 512
+            BKG_MEAN = bkg_mean
+            BKG_NOISES = bkg_noise
+            POINTS_PER_PIXEL = None
+            N_RAYS = None
+            GAIN = 7
+            CYL_FOCAL_LENGTH = 0
+            WAVELENGTH = 600e-9
+            Z_RANGE = 100
+
+            optics = GdpytSetup.optics(particle_diameter=PARTICLE_DIAMETER,
+                                       magnification=MAGNIFICATION,
+                                       demag=DEMAG,
+                                       numerical_aperture=NA,
+                                       focal_length=FOCAL_LENGTH,
+                                       ref_index_medium=REF_INDEX_MEDIUM,
+                                       ref_index_lens=REF_INDEX_LENS,
+                                       pixel_size=PIXEL_SIZE,
+                                       pixel_dim_x=PIXEL_DIM_X,
+                                       pixel_dim_y=PIXEL_DIM_Y,
+                                       bkg_mean=BKG_MEAN,
+                                       bkg_noise=BKG_NOISES,
+                                       points_per_pixel=POINTS_PER_PIXEL,
+                                       n_rays=N_RAYS,
+                                       gain=GAIN,
+                                       cyl_focal_length=CYL_FOCAL_LENGTH,
+                                       wavelength=WAVELENGTH,
+                                       z_range=Z_RANGE)
+
+            # image pre-processing
+            DILATE = None  # None or True
+            SHAPE_TOL = 0.25  # None == take any shape; 1 == take perfectly circular shape only.
+            MIN_P_AREA = 8  # minimum particle size (area: units are in pixels) (recommended: 5)
+            MAX_P_AREA = 1500     # (750) maximum particle size (area: units are in pixels) (recommended: 200)
+            SAME_ID_THRESH = 10  # maximum tolerance in x- and y-directions for particle to have the same ID between images
+            TEST_SAME_ID_THRESH = 12
+            BACKGROUND_SUBTRACTION = None
+            OVERLAP_THRESHOLD = 5  # 8
+
+            if self.collection_type == 'calibration':
+                CALIB_IMG_PATH = calib_img_path
+                CALIB_BASE_STRING = 'calib_'
+                CALIB_GROUND_TRUTH_PATH = None
+                CALIB_ID = calib_id
+
+                if self.sweep_param is not None:
+                    CALIB_ID = CALIB_ID + '_{}'.format(self.sweep_param[0])  # '_{}-{}'.format(self.sweep_method, self.sweep_param)
+                    CALIB_RESULTS_PATH = join(base_dir, 'results/calibration-{}-{}'.format(self.sweep_method, self.sweep_param))
+                else:
+                    CALIB_RESULTS_PATH = join(base_dir, 'results/calibration')
+                if not os.path.exists(CALIB_RESULTS_PATH):
+                    os.makedirs(CALIB_RESULTS_PATH)
+
+                # calib dataset information
+                CALIB_SUBSET = [7, 75]
+                CALIBRATION_Z_STEP_SIZE = 1.0
+                TRUE_NUM_PARTICLES_PER_CALIB_IMAGE = 1
+                BASELINE_IMAGE = 'calib_42.tif'  # 'calib_30.tif'
+
+                # image stack averaging
+                IF_CALIB_IMAGE_STACK = 'subset'
+                TAKE_CALIB_IMAGE_SUBSET_MEAN = [subset_i, subset_f]  # averages the first two images (i.e. up to 2 but not including)
+                """if self.sweep_method == 'subset_mean':
+                    if self.sweep_param == 1:
+                        IF_CALIB_IMAGE_STACK = 'first'
+                        TAKE_CALIB_IMAGE_SUBSET_MEAN = []
+                    else:
+                        IF_CALIB_IMAGE_STACK = 'subset'
+                        TAKE_CALIB_IMAGE_SUBSET_MEAN = [0, self.sweep_param]
+                else:
+                    IF_CALIB_IMAGE_STACK = 'first'
+                    TAKE_CALIB_IMAGE_SUBSET_MEAN = [0, 1]"""
+
+                # calibration processing parameters
+                if self.static_templates:
+                    CALIB_TEMPLATE_PADDING = 14  # if calib_30.tif, then 12; if calib_50.tif, then 15
+                else:
+                    CALIB_TEMPLATE_PADDING = 3
+
+                if self.single_particle_calibration:
+                    CALIB_CROPPING_SPECS = {'xmin': 75, 'xmax': 450, 'ymin': 30, 'ymax': 480, 'pad': 1}
+                    # {'xmin': 210, 'xmax': 275, 'ymin': 205, 'ymax': 260, 'pad': 0}
+                else:
+                    CALIB_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 5}
+
+                CALIB_PROCESSING_METHOD = 'median'
+                CALIB_PROCESSING_FILTER_TYPE = 'square'
+                CALIB_PROCESSING_FILTER_SIZE = 3
+                CALIB_PROCESSING_METHOD2 = 'gaussian'
+                CALIB_PROCESSING_FILTER_TYPE2 = None
+                CALIB_PROCESSING_FILTER_SIZE2 = 1
+                CALIB_PROCESSING = {'none': None}
+                # {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None, 'wrap']}
+                # CALIB_PROCESSING_METHOD2: {'args': [], 'kwargs': dict(sigma=CALIB_PROCESSING_FILTER_SIZE2, preserve_range=True)}
+                # {'none': None}
+                CALIB_THRESHOLD_METHOD = 'manual'
+                if 'none' in list(CALIB_PROCESSING.keys()):
+                    CALIB_THRESHOLD_MODIFIER = calib_bkg_mean + calib_bkg_noise * 3  # 3
+                else:
+                    CALIB_THRESHOLD_MODIFIER = optics.bkg_mean - optics.bkg_noise * 3
+                CALIB_THRESHOLD_PARAMS = {CALIB_THRESHOLD_METHOD: [CALIB_THRESHOLD_MODIFIER]}
+
+                # similarity
+                STACKS_USE_RAW = True
+                MIN_STACKS = 0.9  # percent of calibration stack
+                ZERO_CALIB_STACKS = False
+                ZERO_STACKS_OFFSET = 0.0
+                INFER_METHODS = 'sknccorr'
+                MIN_CM = 0.0
+                SUB_IMAGE_INTERPOLATION = True
+
+                # display options
+                INSPECT_CALIB_CONTOURS = False
+                SHOW_CALIB_PLOTS = False
+                SAVE_CALIB_PLOTS = False
+
+            if self.collection_type == 'test' or self.collection_type == 'meta-test':
+                TEST_IMG_PATH = test_img_path
+                TEST_BASE_STRING = 'test_'
+                TEST_GROUND_TRUTH_PATH = None
+                TEST_ID = test_id
+
+                if self.sweep_param is not None:
+                    TEST_ID = TEST_ID + '{}'.format(self.sweep_param)  # '{}-{}'.format(self.sweep_method, self.sweep_param)
+                    TEST_RESULTS_PATH = join(base_dir, 'results/test-{}-{}'.format(self.sweep_method, self.sweep_param))
+                else:
+                    TEST_RESULTS_PATH = join(base_dir, 'results/test')
+                if not os.path.exists(TEST_RESULTS_PATH):
+                    os.makedirs(TEST_RESULTS_PATH)
+
+                # test dataset information
+                TEST_SUBSET = None
+                TRUE_NUM_PARTICLES_PER_IMAGE = 15
+
+                if self.sweep_method == 'subset_mean':
+                    if self.sweep_param == 1:
+                        IF_TEST_IMAGE_STACK = 'first'
+                        TAKE_TEST_IMAGE_SUBSET_MEAN = None
+                    else:
+                        IF_TEST_IMAGE_STACK = 'subset'
+                        TAKE_TEST_IMAGE_SUBSET_MEAN = [0, self.sweep_param]
+                else:
+                    IF_TEST_IMAGE_STACK = 'first'
+                    TAKE_TEST_IMAGE_SUBSET_MEAN = [1, 2]
+
+                TEST_PARTICLE_ID_IMAGE = 'test_000.tif'  # This is only used for 'testsets'; not meta-tests (below).
+
+                # test processing parameters
+                if self.static_templates:
+                    TEST_TEMPLATE_PADDING = 10
+                else:
+                    TEST_TEMPLATE_PADDING = 1
+
+                TEST_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 70, 'ymax': 512, 'pad': 5}
+
+                TEST_PROCESSING_METHOD = 'median'
+                TEST_PROCESSING_FILTER_TYPE = 'square'
+                TEST_PROCESSING_FILTER_SIZE = 3
+                TEST_PROCESSING_METHOD2 = 'gaussian'
+                TEST_PROCESSING_FILTER_TYPE2 = None
+                TEST_PROCESSING_FILTER_SIZE2 = 1
+                TEST_PROCESSING = {'none': None}
+                # {TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}} # ,
+                # TEST_PROCESSING_METHOD2: {'args': [], 'kwargs': dict(sigma=TEST_PROCESSING_FILTER_SIZE2, preserve_range=True)}}
+
+                TEST_THRESHOLD_METHOD = 'manual'
+                if 'none' in list(TEST_PROCESSING.keys()):
+                    TEST_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 3
+                else:
+                    TEST_THRESHOLD_MODIFIER = optics.bkg_mean - optics.bkg_noise * 3
+                TEST_THRESHOLD_PARAMS = {TEST_THRESHOLD_METHOD: [TEST_THRESHOLD_MODIFIER]}
+
+                # similarity
+                STACKS_USE_RAW = True
+                MIN_STACKS = 0.9  # percent of calibration stack
+                ZERO_CALIB_STACKS = False
+                ZERO_STACKS_OFFSET = 0.0
+                INFER_METHODS = 'sknccorr'
+                MIN_CM = 0.5
+                SUB_IMAGE_INTERPOLATION = True
+                ASSESS_SIMILARITY_FOR_ALL_STACKS = False
+
+                # display options
+                INSPECT_TEST_CONTOURS = False
+                SHOW_PLOTS = False
+                SAVE_PLOTS = False
+
+            if self.collection_type == 'meta-test':
+                TEST_BASE_STRING = 'calib_'
+                TEST_GROUND_TRUTH_PATH = None
+                TEST_CROPPING_SPECS = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 5}
+
+                TEST_SUBSET = None
+                IF_TEST_IMAGE_STACK = 'subset'
+                TAKE_TEST_IMAGE_SUBSET_MEAN = [metaset_i, metaset_f]
+                TEST_PARTICLE_ID_IMAGE = 'calib_30.tif'  # was calib_30.tif
+
+        # ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- --------
+
+        if self.dataset == '02.07.22_membrane_characterization':
+
+            base_dir = join('/Users/mackenzie/Desktop/gdpyt-characterization/experiments', self.dataset)
+
+            bkg_mean = 108
+            bkg_noise = 3
+            calib_img_path = join(base_dir, 'images/calibration')
+            calib_id = self.dataset + '_calib'
+            subset_i, subset_f = 0, 10  # averages all 10 calibration images per z-step
+
+            if self.collection_type == 'meta-test':
+                test_img_path = calib_img_path
+                meta_test_id = self.dataset + '_calibration-meta-assessment_'
+                test_id = meta_test_id
+                subset_i, subset_f = 0, 9  # averages the first 9 calibration images per z-step
+                metaset_i, metaset_f = subset_f, subset_f + 1
+                XY_DISPLACEMENT = [[0, 0]]
+            else:
+                if self.sweep_method == 'testset':
+                    if self.particle_distribution == 'pos':
+                        test_img_path = join(base_dir, 'images/tests/pos/test_{}mm_pos'.format(self.sweep_param))
+                    elif self.particle_distribution == 'dynamic':
+                        test_img_path = join(base_dir, 'images/tests/dynamic/{}'.format(self.sweep_param[0]))
+                    test_id = self.dataset + '_test_'
+                    XY_DISPLACEMENT = [[0, 0]]
+
+            # shared variables
+
+            # file types
+            filetype = '.tif'
+            filetype_ground_truth = '.txt'
+
+            # image pre-processing
+            cropping_specs = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 30}
+            DILATE = None  # None or True
+            SHAPE_TOL = 0.25  # None == take any shape; 1 == take perfectly circular shape only.
+            MIN_P_AREA = 25  # minimum particle size (area: units are in pixels) (recommended: 20)
+            MAX_P_AREA = 750     # (750) maximum particle size (area: units are in pixels) (recommended: 200)
+            SAME_ID_THRESH = 7  # maximum tolerance in x- and y-directions for particle to have the same ID between images
+            BACKGROUND_SUBTRACTION = None
+            OVERLAP_THRESHOLD = 5
+
+            # optics
+            PARTICLE_DIAMETER = 2.15e-6
+            DEMAG = 0.5
+            MAGNIFICATION = 20
+            NA = 0.3
+            FOCAL_LENGTH = 500
+            REF_INDEX_MEDIUM = 1
+            REF_INDEX_LENS = 1.5
+            PIXEL_SIZE = 16e-6
+            PIXEL_DIM_X = 512
+            PIXEL_DIM_Y = 512
+            BKG_MEAN = bkg_mean
+            BKG_NOISES = bkg_noise
+            POINTS_PER_PIXEL = None
+            N_RAYS = None
+            GAIN = 7
+            CYL_FOCAL_LENGTH = 0
+            WAVELENGTH = 600e-9
+            Z_RANGE = 150
+
+            optics = GdpytSetup.optics(particle_diameter=PARTICLE_DIAMETER,
+                                       magnification=MAGNIFICATION,
+                                       demag=DEMAG,
+                                       numerical_aperture=NA,
+                                       focal_length=FOCAL_LENGTH,
+                                       ref_index_medium=REF_INDEX_MEDIUM,
+                                       ref_index_lens=REF_INDEX_LENS,
+                                       pixel_size=PIXEL_SIZE,
+                                       pixel_dim_x=PIXEL_DIM_X,
+                                       pixel_dim_y=PIXEL_DIM_Y,
+                                       bkg_mean=BKG_MEAN,
+                                       bkg_noise=BKG_NOISES,
+                                       points_per_pixel=POINTS_PER_PIXEL,
+                                       n_rays=N_RAYS,
+                                       gain=GAIN,
+                                       cyl_focal_length=CYL_FOCAL_LENGTH,
+                                       wavelength=WAVELENGTH,
+                                       z_range=Z_RANGE)
+
+            if self.collection_type == 'calibration':
+                CALIB_IMG_PATH = calib_img_path
+                CALIB_BASE_STRING = 'calib_'
+                CALIB_GROUND_TRUTH_PATH = None
+                CALIB_ID = calib_id
+
+                if self.sweep_param is not None:
+                    CALIB_ID = CALIB_ID + '_{}'.format(self.sweep_param)
+                    CALIB_RESULTS_PATH = join(base_dir, 'results/calibration-{}-{}'.format(self.sweep_method, self.sweep_param))
+                else:
+                    CALIB_RESULTS_PATH = join(base_dir, 'results/calibration')
+                if not os.path.exists(CALIB_RESULTS_PATH):
+                    os.makedirs(CALIB_RESULTS_PATH)
+
+                # calib dataset information
+                CALIB_SUBSET = [0, 150, 3]  # used [30, 59] for membrane curvature measurements
+                CALIBRATION_Z_STEP_SIZE = 1.0
+                TRUE_NUM_PARTICLES_PER_CALIB_IMAGE = 1
+                BASELINE_IMAGE = 'calib_58.tif'  # NOTES: ~'calib_57-60.tif' is the peak intensity image.
+
+                # image stack averaging
+                IF_CALIB_IMAGE_STACK = 'subset'
+                TAKE_CALIB_IMAGE_SUBSET_MEAN = [subset_i, subset_f]  # averages up to subset_f but not including
+
+                # calibration processing parameters
+                CALIB_TEMPLATE_PADDING = 18  # used 9 for membrane curvature measurements
+                CALIB_CROPPING_SPECS = cropping_specs
+                CALIB_PROCESSING_METHOD = 'median'
+                CALIB_PROCESSING_FILTER_TYPE = 'square'
+                CALIB_PROCESSING_FILTER_SIZE = 3
+                CALIB_PROCESSING = {'none': None}
+                CALIB_THRESHOLD_METHOD = 'manual'
+                CALIB_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 10
+                CALIB_THRESHOLD_PARAMS = {CALIB_THRESHOLD_METHOD: [CALIB_THRESHOLD_MODIFIER]}
+
+                # similarity
+                STACKS_USE_RAW = True
+                MIN_STACKS = 0.9  # percent of calibration stack
+                ZERO_CALIB_STACKS = False
+                ZERO_STACKS_OFFSET = 0.0
+                INFER_METHODS = 'sknccorr'
+                MIN_CM = 0.0
+                SUB_IMAGE_INTERPOLATION = True
+
+                # display options
+                INSPECT_CALIB_CONTOURS = False
+                SHOW_CALIB_PLOTS = False
+                SAVE_CALIB_PLOTS = False
+
+            if self.collection_type == 'test' or self.collection_type == 'meta-test':
+                TEST_IMG_PATH = test_img_path
+                TEST_BASE_STRING = 'test_X'
+                TEST_GROUND_TRUTH_PATH = None
+                TEST_ID = test_id
+
+                if self.sweep_param is not None:
+                    TEST_ID = TEST_ID + '{}'.format(self.sweep_param)  # '{}-{}'.format(self.sweep_method, self.sweep_param)
+                    TEST_RESULTS_PATH = join(base_dir, 'results/test-{}-{}'.format(self.sweep_method, self.sweep_param))
+                else:
+                    TEST_RESULTS_PATH = join(base_dir, 'results/test')
+                if not os.path.exists(TEST_RESULTS_PATH):
+                    os.makedirs(TEST_RESULTS_PATH)
+
+                # test dataset information
+                TEST_SUBSET = [0, 500, 10]
+                TRUE_NUM_PARTICLES_PER_IMAGE = 250
+
+                # test processing parameters
+                IF_TEST_IMAGE_STACK = 'first'
+                TAKE_TEST_IMAGE_SUBSET_MEAN = [1, 2]
+                TEST_PARTICLE_ID_IMAGE = 'test_X{}.tif'.format(self.sweep_param[1])
+                TEST_TEMPLATE_PADDING = self.sweep_param[2]  # used 6 for membrane curvature measurements
+                TEST_CROPPING_SPECS = cropping_specs
+                TEST_PROCESSING_METHOD = 'median'
+                TEST_PROCESSING_FILTER_TYPE = 'square'
+                TEST_PROCESSING_FILTER_SIZE = 3
+                TEST_PROCESSING = {'none': None}
+                TEST_THRESHOLD_METHOD = 'manual'
+                TEST_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 10
+                TEST_THRESHOLD_PARAMS = {TEST_THRESHOLD_METHOD: [TEST_THRESHOLD_MODIFIER]}
+
+                # similarity
+                STACKS_USE_RAW = True
+                MIN_STACKS = 0.9  # percent of calibration stack
+                ZERO_CALIB_STACKS = False
+                ZERO_STACKS_OFFSET = 0.0
+                INFER_METHODS = 'sknccorr'
+                MIN_CM = 0.0
+                SUB_IMAGE_INTERPOLATION = True
+                ASSESS_SIMILARITY_FOR_ALL_STACKS = False
+
+                # display options
+                INSPECT_TEST_CONTOURS = False
+                SHOW_PLOTS = False
+                SAVE_PLOTS = True
+
+                if self.collection_type == 'meta-test':
+                    TEST_BASE_STRING = 'calib_'
+                    TEST_GROUND_TRUTH_PATH = None
+                    TEST_CROPPING_SPECS = cropping_specs
+
+                    TEST_SUBSET = None
+                    IF_TEST_IMAGE_STACK = 'subset'
+                    TAKE_TEST_IMAGE_SUBSET_MEAN = [metaset_i, metaset_f]
+                    TEST_PARTICLE_ID_IMAGE = 'calib_58.tif'
+
+        # ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- --------
+
+        # ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- --------
+
+        if self.dataset == 'zipper':
+
+            base_dir = join('/Users/mackenzie/Desktop/gdpyt-characterization/experiments', self.dataset)
+
+            bkg_mean = 350  # 262
+            bkg_noise = 25  # 23
+            calib_img_path = join(base_dir, 'images/calibration')
+            calib_id = self.dataset + '_calib'
+            subset_i, subset_f = 0, 10  # averages all 10 calibration images per z-step
+
+            if self.collection_type == 'meta-test':
+                test_img_path = calib_img_path
+                meta_test_id = self.dataset + '_calibration-meta-assessment_'
+                test_id = meta_test_id
+                subset_i, subset_f = 0, 9  # averages the first 9 calibration images per z-step
+                metaset_i, metaset_f = subset_f, subset_f + 1
+                XY_DISPLACEMENT = [[0, 0]]
+            else:
+                if self.sweep_method == 'testset':
+                    test_img_path = join(base_dir, 'images/tests/test_{}V'.format(self.sweep_param))
+                    test_id = self.dataset + '_test_'
+                    XY_DISPLACEMENT = [[0, 0]]
+
+            # shared variables
+
+            # file types
+            filetype = '.tif'
+            filetype_ground_truth = '.txt'
+
+            # image pre-processing
+            cropping_specs = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 10}
+            DILATE = None  # None or True
+            SHAPE_TOL = 0.25  # None == take any shape; 1 == take perfectly circular shape only.
+            MIN_P_AREA = 50  # minimum particle size (area: units are in pixels) (recommended: 20)
+            MAX_P_AREA = 5000     # (750) maximum particle size (area: units are in pixels) (recommended: 200)
+            SAME_ID_THRESH = 7  # maximum tolerance in x- and y-directions for particle to have the same ID between images
+            BACKGROUND_SUBTRACTION = None
+            OVERLAP_THRESHOLD = 5
+
+            # optics
+            PARTICLE_DIAMETER = 5.61e-6
+            DEMAG = 1
+            MAGNIFICATION = 10
+            NA = 0.3
+            FOCAL_LENGTH = 500
+            REF_INDEX_MEDIUM = 1
+            REF_INDEX_LENS = 1.5
+            PIXEL_SIZE = 16e-6
+            PIXEL_DIM_X = 512
+            PIXEL_DIM_Y = 512
+            BKG_MEAN = bkg_mean
+            BKG_NOISES = bkg_noise
+            POINTS_PER_PIXEL = None
+            N_RAYS = None
+            GAIN = 7
+            CYL_FOCAL_LENGTH = 0
+            WAVELENGTH = 600e-9
+            Z_RANGE = 150
+
+            optics = GdpytSetup.optics(particle_diameter=PARTICLE_DIAMETER,
+                                       magnification=MAGNIFICATION,
+                                       demag=DEMAG,
+                                       numerical_aperture=NA,
+                                       focal_length=FOCAL_LENGTH,
+                                       ref_index_medium=REF_INDEX_MEDIUM,
+                                       ref_index_lens=REF_INDEX_LENS,
+                                       pixel_size=PIXEL_SIZE,
+                                       pixel_dim_x=PIXEL_DIM_X,
+                                       pixel_dim_y=PIXEL_DIM_Y,
+                                       bkg_mean=BKG_MEAN,
+                                       bkg_noise=BKG_NOISES,
+                                       points_per_pixel=POINTS_PER_PIXEL,
+                                       n_rays=N_RAYS,
+                                       gain=GAIN,
+                                       cyl_focal_length=CYL_FOCAL_LENGTH,
+                                       wavelength=WAVELENGTH,
+                                       z_range=Z_RANGE)
+
+            if self.collection_type == 'calibration':
+                CALIB_IMG_PATH = calib_img_path
+                CALIB_BASE_STRING = 'calib_'
+                CALIB_GROUND_TRUTH_PATH = None
+                CALIB_ID = calib_id
+
+                if self.sweep_param is not None:
+                    CALIB_ID = CALIB_ID + '_{}'.format(self.sweep_param)
+                    CALIB_RESULTS_PATH = join(base_dir, 'results/calibration-{}-{}'.format(self.sweep_method, self.sweep_param))
+                else:
+                    CALIB_RESULTS_PATH = join(base_dir, 'results/calibration')
+                if not os.path.exists(CALIB_RESULTS_PATH):
+                    os.makedirs(CALIB_RESULTS_PATH)
+
+                # calib dataset information
+                CALIB_SUBSET = None  # used [30, 59] for membrane curvature measurements
+                CALIBRATION_Z_STEP_SIZE = 1.0
+                TRUE_NUM_PARTICLES_PER_CALIB_IMAGE = 1
+                BASELINE_IMAGE = 'calib_30.tif'  # NOTES: ~'calib_57-60.tif' is the peak intensity image.
+
+                # image stack averaging
+                IF_CALIB_IMAGE_STACK = 'subset'
+                TAKE_CALIB_IMAGE_SUBSET_MEAN = [subset_i, subset_f]  # averages up to subset_f but not including
+
+                # calibration processing parameters
+                CALIB_TEMPLATE_PADDING = 8  # used 9 for membrane curvature measurements
+                CALIB_CROPPING_SPECS = cropping_specs
+                CALIB_PROCESSING_METHOD = 'median'
+                CALIB_PROCESSING_FILTER_TYPE = 'square'
+                CALIB_PROCESSING_FILTER_SIZE = 3
+                CALIB_PROCESSING = {'none': None}
+                CALIB_THRESHOLD_METHOD = 'manual'
+                CALIB_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 10
+                CALIB_THRESHOLD_PARAMS = {CALIB_THRESHOLD_METHOD: [CALIB_THRESHOLD_MODIFIER]}
+
+                # similarity
+                STACKS_USE_RAW = True
+                MIN_STACKS = 0.9  # percent of calibration stack
+                ZERO_CALIB_STACKS = False
+                ZERO_STACKS_OFFSET = 0.0
+                INFER_METHODS = 'sknccorr'
+                MIN_CM = 0.0
+                SUB_IMAGE_INTERPOLATION = True
+
+                # display options
+                INSPECT_CALIB_CONTOURS = False
+                SHOW_CALIB_PLOTS = False
+                SAVE_CALIB_PLOTS = False
+
+            if self.collection_type == 'test' or self.collection_type == 'meta-test':
+                TEST_IMG_PATH = test_img_path
+                TEST_BASE_STRING = 'test_X'
+                TEST_GROUND_TRUTH_PATH = None
+                TEST_ID = test_id
+
+                if self.sweep_param is not None:
+                    TEST_ID = TEST_ID + '{}'.format(self.sweep_param)  # '{}-{}'.format(self.sweep_method, self.sweep_param)
+                    TEST_RESULTS_PATH = join(base_dir, 'results/test-{}-{}'.format(self.sweep_method, self.sweep_param))
+                else:
+                    TEST_RESULTS_PATH = join(base_dir, 'results/test')
+                if not os.path.exists(TEST_RESULTS_PATH):
+                    os.makedirs(TEST_RESULTS_PATH)
+
+                # test dataset information
+                TEST_SUBSET = None
+                TRUE_NUM_PARTICLES_PER_IMAGE = 250
+
+                # test processing parameters
+                IF_TEST_IMAGE_STACK = 'first'
+                TAKE_TEST_IMAGE_SUBSET_MEAN = [1, 2]
+                TEST_PARTICLE_ID_IMAGE = 'test_X1.tif'
+                TEST_TEMPLATE_PADDING = 6  # used 6 for membrane curvature measurements
+                TEST_CROPPING_SPECS = cropping_specs
+                TEST_PROCESSING_METHOD = 'median'
+                TEST_PROCESSING_FILTER_TYPE = 'square'
+                TEST_PROCESSING_FILTER_SIZE = 3
+                TEST_PROCESSING = {'none': None}
+                TEST_THRESHOLD_METHOD = 'manual'
+                TEST_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 10
+                TEST_THRESHOLD_PARAMS = {TEST_THRESHOLD_METHOD: [TEST_THRESHOLD_MODIFIER]}
+
+                # similarity
+                STACKS_USE_RAW = True
+                MIN_STACKS = 0.9  # percent of calibration stack
+                ZERO_CALIB_STACKS = False
+                ZERO_STACKS_OFFSET = 0.0
+                INFER_METHODS = 'sknccorr'
+                MIN_CM = 0.0
+                SUB_IMAGE_INTERPOLATION = True
+                ASSESS_SIMILARITY_FOR_ALL_STACKS = False
+
+                # display options
+                INSPECT_TEST_CONTOURS = False
+                SHOW_PLOTS = False
+                SAVE_PLOTS = True
+
+                if self.collection_type == 'meta-test':
+                    TEST_BASE_STRING = 'calib_'
+                    TEST_GROUND_TRUTH_PATH = None
+                    TEST_CROPPING_SPECS = cropping_specs
+
+                    TEST_SUBSET = None
+                    IF_TEST_IMAGE_STACK = 'subset'
+                    TAKE_TEST_IMAGE_SUBSET_MEAN = [metaset_i, metaset_f]
+                    TEST_PARTICLE_ID_IMAGE = 'calib_58.tif'
+
+        # ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- --------
+
         # ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- --------
 
         if self.collection_type == 'calibration':
@@ -2863,10 +3861,15 @@ class dataset_unpacker(object):
             return GdpytSetup.GdpytSetup(calib_inputs, calib_outputs, calib_processing, z_assessment=None,
                                                    optics=optics)
 
-        elif self.collection_type == 'test':
+        elif self.collection_type == 'test' or self.collection_type == 'meta-test':
+
+            if self.collection_type == 'meta-test':
+                test_type = 'meta-test'
+            else:
+                test_type = 'test'
 
             test_inputs = GdpytSetup.inputs(dataset=self.dataset,
-                                            image_collection_type='test',
+                                            image_collection_type=test_type,
                                             image_path=TEST_IMG_PATH,
                                             image_file_type=filetype,
                                             image_base_string=TEST_BASE_STRING,

@@ -30,13 +30,20 @@ logger = logging.getLogger(__name__)
 def plot_baseline_image_and_particle_ids(collection, filename=None):
 
     if filename is None:
-        baseline_image_filename = collection.baseline
+        if collection.image_collection_type == 'calibration':
+            baseline_image_filename = collection.baseline
+        else:
+            baseline_image_filename = collection.particle_id_image
     else:
         baseline_image_filename = filename
 
     fig, ax = plt.subplots(figsize=(12, 12))
     ax.imshow(collection.images[baseline_image_filename].draw_particles(raw=False, thickness=1, draw_id=True, draw_bbox=True))
-    ax.set_title('z = {}'.format(np.round(collection.images[baseline_image_filename].z, 2)))
+
+    if collection.images[baseline_image_filename].z is None:
+        ax.set_title('{}'.format(collection.images[baseline_image_filename].filename))
+    else:
+        ax.set_title('z = {}'.format(np.round(collection.images[baseline_image_filename].z, 2)))
 
     return fig
 
@@ -1358,12 +1365,7 @@ def plot_particle_peak_intensity(collection, particle_id=None):
         if particle_id is not None:
             for img in collection.images.values():
                 for p in img.particles:
-                    part_id = int(p.id)
-                    if part_id == particle_id:
-                        j = 1
                     if int(p.id) == particle_id:
-                        j = np.isnan(p.z)
-                        h = 1
                         if not np.isnan(p.z):
                             values.append([p.id, p.z, p.peak_intensity])
         else:
@@ -1403,18 +1405,18 @@ def plot_particle_peak_intensity(collection, particle_id=None):
     return fig
 
 
-def plot_particle_signal(collection, optics, collection_image_stats, particle_id):
+def plot_particle_signal(collection, optics, collection_image_stats, particle_id, intensity_max_or_mean='max'):
 
     # get particle data
     values = []
     for img in collection.images.values():
         for p in img.particles:
             if p.id == particle_id:
-                    values.append([p.id, p.z_true, p.area, p.diameter, p.snr, p.mean_signal, p.mean_background,
-                                   p.std_background])
+                    values.append([p.id, p.z_true, p.area, p.diameter, p.snr, p.peak_intensity, p.mean_signal,
+                                   p.mean_background, p.std_background])
 
-    dfp = pd.DataFrame(data=values, columns=['id', 'true_z', 'area', 'diameter', 'snr', 'mean_signal', 'mean_background',
-                                            'std_background'])
+    dfp = pd.DataFrame(data=values, columns=['id', 'true_z', 'area', 'diameter', 'snr', 'peak_signal', 'mean_signal',
+                                             'mean_background', 'std_background'])
     dfp = dfp.sort_values(by='true_z')
 
     # calculate background + noise
@@ -1424,8 +1426,12 @@ def plot_particle_signal(collection, optics, collection_image_stats, particle_id
     background_mean = dfp.mean_background.mean()
 
     # get value of maximum particle intensity (signal) and it's z-coordinate
-    max_intensity_in_focus = dfp.mean_signal.max()
-    z_max_intensity = dfp.true_z.iloc[dfp[['mean_signal']].idxmax().to_numpy()[0]]
+    if intensity_max_or_mean == 'max':
+        max_intensity_in_focus = dfp.peak_signal.max()
+        z_max_intensity = dfp.true_z.iloc[dfp[['peak_signal']].idxmax().to_numpy()[0]]
+    else:
+        max_intensity_in_focus = dfp.mean_signal.max()
+        z_max_intensity = dfp.true_z.iloc[dfp[['mean_signal']].idxmax().to_numpy()[0]]
 
     # get stigmatic intensity profile
     z_profile, stigmatic_intensity_profile = optics.stigmatic_maximum_intensity_z(z_space=dfp.true_z,
@@ -1439,8 +1445,12 @@ def plot_particle_signal(collection, optics, collection_image_stats, particle_id
     ax.plot(z_profile, stigmatic_intensity_profile, color='cornflowerblue', alpha=0.5, label=r'theory')
 
     # measured intensity (signal)
-    ax.scatter(dfp.true_z, dfp.mean_signal, marker='s', color='mediumblue', label=r'signal', zorder=2.4)
-    ax.plot(dfp.true_z, dfp.mean_signal, color='tab:blue', alpha=0.75)
+    if intensity_max_or_mean == 'max':
+        ax.scatter(dfp.true_z, dfp.peak_signal, marker='s', color='mediumblue', label=r'signal', zorder=2.4)
+        ax.plot(dfp.true_z, dfp.peak_signal, color='tab:blue', alpha=0.75)
+    else:
+        ax.scatter(dfp.true_z, dfp.mean_signal, marker='s', color='mediumblue', label=r'signal', zorder=2.4)
+        ax.plot(dfp.true_z, dfp.mean_signal, color='tab:blue', alpha=0.75)
 
     # background + noise
     ax.plot(dfp.true_z, dfp.mean_background, color='dimgray', alpha=0.5, linestyle='--', label='background')
@@ -1448,6 +1458,8 @@ def plot_particle_signal(collection, optics, collection_image_stats, particle_id
 
     ax.set_xlabel(r'$z_{true}$')
     ax.set_ylabel(r'$Intensity$')
+    ax.set_title(r'M{}, {}NA, f{}, pd{}'.format(optics.effective_magnification, optics.numerical_aperture,
+                                                optics.focal_length, optics.particle_diameter))
     ax.legend()
     ax.grid(alpha=0.25)
 
@@ -1461,15 +1473,15 @@ def plot_particle_diameter(collection, optics, collection_image_stats, particle_
     for img in collection.images.values():
         for p in img.particles:
             if p.id == particle_id:
-                    values.append([p.id, p.z_true, p.area, p.diameter, p.snr, p.mean_signal, p.mean_background,
+                    values.append([p.id, p.z_true, p.area, p.diameter, p.snr, p.peak_intensity, p.mean_signal, p.mean_background,
                                    p.std_background])
 
-    dfp = pd.DataFrame(data=values, columns=['id', 'true_z', 'area', 'diameter', 'snr', 'mean_signal',
+    dfp = pd.DataFrame(data=values, columns=['id', 'true_z', 'area', 'diameter', 'snr', 'peak_signal', 'mean_signal',
                                              'mean_background', 'std_background'])
     dfp = dfp.sort_values(by='true_z')
 
     # get value of maximum particle intensity (signal) and it's z-coordinate
-    z_max_intensity = dfp.true_z.iloc[dfp[['mean_signal']].idxmax().to_numpy()[0]]
+    z_max_intensity = dfp.true_z.iloc[dfp[['peak_signal']].idxmax().to_numpy()[0]]
 
     # get stigmatic diameter profile
     z_profile, stigmatic_diameter_profile = optics.stigmatic_diameter_z(z_space=dfp.true_z,
@@ -1478,7 +1490,7 @@ def plot_particle_diameter(collection, optics, collection_image_stats, particle_
     fig, ax = plt.subplots()
 
     # theoretical diameter profile
-    ax.plot(z_profile, stigmatic_diameter_profile, color='cornflowerblue', alpha=0.5, label=r'theory')
+    ax.plot(z_profile, stigmatic_diameter_profile / 6, color='cornflowerblue', alpha=0.5, label=r'theory')
 
     # measured particle diameter
     ax.scatter(dfp.true_z, dfp.diameter * optics.microns_per_pixel * 1e6, marker='s', color='mediumblue', label=r'measured', zorder=2.4)
@@ -1698,12 +1710,15 @@ def plot_image(img, cmap='gray'):
 
     return fig
 
-def plot_stacks_self_similarity(calib_set, min_num_layers=0):
+def plot_stacks_self_similarity(calib_set, min_num_layers=0, save_string=None):
 
     color = iter(cm.gist_rainbow(np.linspace(0, 1, len(calib_set.calibration_stacks.values()))))
-    min_cm = 0.9
+    min_cm = 0.5
 
     fig, ax = plt.subplots()
+
+    mdf = pd.DataFrame()
+    fdf = pd.DataFrame()
 
     num_plots = 0
     for stack in calib_set.calibration_stacks.values():
@@ -1716,7 +1731,20 @@ def plot_stacks_self_similarity(calib_set, min_num_layers=0):
             ax.plot(stack.self_similarity[:, 0], stack.self_similarity[:, 1], color=c, alpha=0.5)
             ax.scatter(stack.self_similarity[:, 0], stack.self_similarity[:, 1], s=3, color=c, label=stack.id)
 
+            mdata = np.vstack((stack._self_similarity[:, 0], stack._self_similarity[:, 1])).T
+            dfm = pd.DataFrame(mdata, columns=['z', 'cm'])
+            dfm['id'] = stack.id
+            mdf = mdf.append(dfm, ignore_index=True)
+
+            fdata = np.vstack((stack._self_similarity_forward[:, 0], stack._self_similarity_forward[:, 1])).T
+            dff = pd.DataFrame(fdata, columns=['z', 'cm'])
+            dff['id'] = stack.id
+            fdf = fdf.append(dff, ignore_index=True)
+
             num_plots += 1
+
+    mdf.to_excel('/Users/mackenzie/Desktop/spc_{}_stack_middle_self_similarity.xlsx'.format(save_string))
+    fdf.to_excel('/Users/mackenzie/Desktop/spc_{}_stack_forward_self_similarity.xlsx'.format(save_string))
 
     ax.set_xlabel(r'$z$ / h')
     ax.set_ylabel(r'$S_i$ $\left(|z_{i-1}, z_{i+1}|\right)$')

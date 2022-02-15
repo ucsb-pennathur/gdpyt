@@ -272,6 +272,37 @@ def _generate_grid_coordinates(grid, imshape, z=None):
     return coords
 
 
+def _generate_grid_coordinates_xy_translation(grid, imshape, x_disp, y_disp, image_number, z=None, z_baseline=None):
+    assert len(imshape) == 2
+
+    # Particle grid
+    xtot, ytot = imshape
+    n_x, n_y = grid
+    n_particles = n_x * n_y
+    edge_x = xtot / (n_x + 1)
+    edge_y = ytot / (n_y + 1)
+
+    # Make particle coordinates
+    xy_coords = np.mgrid[edge_x:xtot - edge_x:np.complex(0, n_x),
+                edge_y:ytot - edge_y:np.complex(0, n_y)].reshape(2, -1).T
+
+    if z_baseline is None and image_number > 1:
+        xy_coords = xy_coords + [x_disp, y_disp]
+
+    if z is None:
+        return xy_coords
+
+    if isinstance(z, int) or isinstance(z, float):
+        if z != z_baseline:
+            xy_coords = xy_coords + [x_disp, y_disp]
+        z_coords = z * np.ones((n_particles, 1))
+    else:
+        z_coords = np.random.uniform(z[0], z[1], size=(n_particles, 1))
+    coords = np.hstack([xy_coords, z_coords])
+
+    return coords
+
+
 def _generate_scaled_overlap_grid_coordinates(grid, imshape, z=None, overlap_scale=5):
     assert len(imshape) == 2
 
@@ -568,9 +599,9 @@ def generate_uniform_z_grid(settings_file, grid, z_levels, particle_diameter=2, 
     settings_path = Path(settings_file)
 
     if dataset == 'calibration':
-        calib_path = join(settings_path.parent, 'grid-uniform-z-calibration_input')
+        calib_path = join(settings_path.parent, 'calibration_input')
     else:
-        calib_path = join(settings_path.parent, 'grid-uniform-z-input')
+        calib_path = join(settings_path.parent, 'test-input')
 
     if isdir(calib_path):
         raise ValueError('Folder {} already exists. Specify a new one'.format(calib_path))
@@ -605,13 +636,65 @@ def generate_uniform_z_grid(settings_file, grid, z_levels, particle_diameter=2, 
 # ------------------------- ------------------------- ------------------------- ------------------------- -------------
 
 
+def generate_uniform_z_grid_xy_translate(settings_file, grid, z_levels, x_disp, y_disp, z_baseline, particle_diameter=2,
+                                         create_multiple=None, dataset='calibration'):
+    """
+    1. Grid: uniform z-coordinate
+        * Generate images according to z-levels where all particles are at the same z-coordinate for a specified image
+        (by z-height) and all other images' particles are translated by x_disp and y_disp.
+    """
+
+    settings_path = Path(settings_file)
+
+    if dataset == 'calibration':
+        calib_path = join(settings_path.parent, 'calibration_input')
+    else:
+        calib_path = join(settings_path.parent, 'test_input')
+
+    if isdir(calib_path):
+        raise ValueError('Folder {} already exists. Specify a new one'.format(calib_path))
+    else:
+        mkdir(calib_path)
+
+    settings_dict = {}
+    with open(settings_file) as file:
+        for line in file:
+            thisline = line.split('=')
+            settings_dict.update({thisline[0].strip(): eval(thisline[1].strip())})
+
+    img_shape = (settings_dict['pixel_dim_x'], settings_dict['pixel_dim_y'])
+
+    for i, z in enumerate(z_levels):
+
+        coordinates = _generate_grid_coordinates_xy_translation(grid, img_shape, x_disp, y_disp, image_number=i, z=z,
+                                                                z_baseline=z_baseline)
+
+        output = _append_particle_diam(coordinates, particle_diameter)
+
+        if create_multiple is None:
+            if dataset == 'calibartion':
+                fname = 'calib_{}'.format(z)
+            elif dataset == 'test':
+                fname = 'B{0:04d}'.format(i+1)
+            savepath = join(calib_path, fname + '.txt')
+            np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+        else:
+            assert isinstance(create_multiple, int)
+            for i in range(create_multiple):
+                fname = 'calib{}_{}'.format(i, z)
+                savepath = join(calib_path, fname + '.txt')
+                np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+# ------------------------- ------------------------- ------------------------- ------------------------- -------------
+
+
 def generate_random_z_grid(settings_file, n_images, grid, range_z=(-40, 40), particle_diameter=2):
     """
     2. Grid: random z-coordinate
         * Generate images according to z-levels where all particles are at a random z-coordinate.
     """
     settings_path = Path(settings_file)
-    txtfolder = join(settings_path.parent, 'grid-random-z-input')
+    txtfolder = join(settings_path.parent, 'test_input')
 
     if isdir(txtfolder):
         raise ValueError('Folder {} already exists. Specify a new one'.format(txtfolder))
@@ -634,6 +717,43 @@ def generate_random_z_grid(settings_file, n_images, grid, range_z=(-40, 40), par
         output = _append_particle_diam(coordinates, particle_diameter)
         savepath = join(txtfolder, fname + '.txt')
         np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+
+# ------------------------- ------------------------- ------------------------- ------------------------- -------------
+
+
+def generate_random_z_grid_xy_translate(settings_file, n_images, grid, x_disp, y_disp, range_z=(-40, 40), particle_diameter=2):
+    """
+    2. Grid: random z-coordinate
+        * Generate images according to z-levels where all particles are at a random z-coordinate.
+    """
+    settings_path = Path(settings_file)
+    txtfolder = join(settings_path.parent, 'test_input')
+
+    if isdir(txtfolder):
+        raise ValueError('Folder {} already exists. Specify a new one'.format(txtfolder))
+    else:
+        mkdir(txtfolder)
+
+    settings_dict = {}
+    with open(settings_file) as file:
+        for line in file:
+            thisline = line.split('=')
+            settings_dict.update({thisline[0].strip(): eval(thisline[1].strip())})
+
+    img_shape = (settings_dict['pixel_dim_x'], settings_dict['pixel_dim_y'])
+
+    for i in range(1, n_images + 1):
+        fname = 'B{0:04d}'.format(i)
+
+        coordinates = _generate_grid_coordinates_xy_translation(grid, img_shape, x_disp, y_disp, image_number=i,
+                                                                z=range_z)
+
+        output = _append_particle_diam(coordinates, particle_diameter)
+        savepath = join(txtfolder, fname + '.txt')
+        np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+
 
 # ------------------------- ------------------------- ------------------------- ------------------------- -------------
 

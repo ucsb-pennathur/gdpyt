@@ -29,6 +29,8 @@ class GdpytCalibrationStack(object):
         self._stats = None
         self._zero = None
         self.self_similarity_method = self_similarity_method
+        self._self_similarity_forward = None
+        self._self_similarity = None
         self.print_status = print_status
 
 
@@ -385,7 +387,8 @@ class GdpytCalibrationStack(object):
         return fig
 
     def plot_self_similarity(self):
-        self.infer_self_similarity()
+        if self.self_similarity is None:
+            self.infer_self_similarity()
         fig = plot_calib_stack_self_similarity(self)
         return fig
 

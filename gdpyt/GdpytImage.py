@@ -91,11 +91,12 @@ class GdpytImage(object):
             out_str += '{}: {} \n'.format(key, str(val))
         return out_str
 
-    def _add_particle(self, id_, contour, bbox, particle_mask, particle_collection_type=None, location=None):
+    def _add_particle(self, id_, contour, bbox, particle_mask, particle_collection_type=None, location=None,
+                      template_use_raw=False):
         self._particles.append(GdpytParticle(self.raw, self.filtered, id_, contour, bbox,
                                              particle_mask_on_image=particle_mask,
                                              particle_collection_type=particle_collection_type,
-                                             location=location, frame=self.frame))
+                                             location=location, frame=self.frame, template_use_raw=template_use_raw))
 
     def _update_processing_stats(self, names, values):
         if not isinstance(names, list):
@@ -229,7 +230,7 @@ class GdpytImage(object):
     def identify_particles_sk(self, thresh_specs, min_size=None, max_size=None, shape_tol=0.1,
                               overlap_threshold=0.3, same_id_threshold=10,
                               padding=2, inspect_contours_for_every_image=False, image_collection_type=None,
-                              particle_id_image=None, overlapping_particles=True):
+                              particle_id_image=None, overlapping_particles=True, template_use_raw=False):
         """
         Method:
             1. apply threshold
@@ -300,9 +301,9 @@ class GdpytImage(object):
             # filter on aspect ratio
             aspect_ratio = region.major_axis_length / region.minor_axis_length
             if overlapping_particles is True:
-                aspect_ratio_threshold = 2.5
+                aspect_ratio_threshold = 3
             else:
-                aspect_ratio_threshold = 2.5
+                aspect_ratio_threshold = 2  # 2.5
             if aspect_ratio > aspect_ratio_threshold:
                 logger.warning("Region skipped b/c aspect ratio = {} > {}.".format(aspect_ratio, aspect_ratio_threshold))
                 skipped_contours.append(region.label)
@@ -336,13 +337,15 @@ class GdpytImage(object):
             bbox, bbox_center = self.pad_and_center_region(cX, cY, bbox, padding=padding)
 
             # discard contours that are too close to the image borders to include the desired padding
-            if bbox[0] - padding * 0.5 < 1 or bbox[1] - padding * 0.5 < 1:
+            if bbox[0] - padding * 0.1 < 1 or bbox[1] - padding * 0.1 < 1:
+                # NOTE: the constant 0.1 used to be 0.5
                 skipped_contours.append(region.label)
-                print("Skipped because template + padding near the image borders")
+                print("FIRST FILTER: Skipped because template + padding near the image borders")
                 continue
-            elif bbox[0] + bbox[2] + padding * 0.5 >= self.shape[1] or bbox[1] + bbox[3] + padding * 0.5 >= self.shape[0]:
+            elif bbox[0] + bbox[2] + padding * 0.1 >= self.shape[1] or bbox[1] + bbox[3] + padding * 0.1 >= self.shape[0]:
+                # NOTE: the constant 0.1 used to be 0.5
                 skipped_contours.append(region.label)
-                print("Skipped because template + padding near the image borders")
+                print("SECOND FILTER: Skipped because template + padding near the image borders")
                 continue
 
             # Add data for contour inspection
@@ -374,7 +377,7 @@ class GdpytImage(object):
 
             # Add particle
             self._add_particle(id_, contour_coords, bbox, particle_mask, particle_collection_type=image_collection_type,
-                               location=(cX, cY))
+                               location=(cX, cY), template_use_raw=template_use_raw)
             id_ = id_ + 1
 
         # Calculate contour statistics
@@ -661,7 +664,21 @@ class GdpytImage(object):
                     img = img[0, :, :]
                 elif stack_axis == 2:
                     img = img[:, :, 0]
+            elif if_img_stack_take == 'last':
+                if stack_axis == 0:
+                    img = img[-1, :, :]
+                elif stack_axis == 2:
+                    img = img[:, :, -1]
             elif if_img_stack_take == 'subset':
+                """
+                Notes on how the mean is taken (wrt take_subset_mean values):
+                [0, 1]: will average only the first image
+                [0, 2]: will average the first two images
+                [0, 3]: will average the first three images
+                [1, 2]: will average only the second image
+                [2, 3]: will average the third image
+                [3, 4]: (if only 3 images are present) will return a zeros array.
+                """
                 if stack_axis == 0:
                     img = np.rint(
                         np.mean(img[take_subset_mean[0]:take_subset_mean[1], :, :], axis=0, dtype=float)).astype(np.int16)
