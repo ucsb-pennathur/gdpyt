@@ -17,6 +17,7 @@ from skimage.measure import label, regionprops, regionprops_table, find_contours
 from skimage.draw import rectangle_perimeter, polygon
 
 import numpy as np
+from numpy import flipud
 import numpy.ma as ma
 import pandas as pd
 from .particle_identification import apply_threshold, identify_contours, identify_contours_sk, merge_particles
@@ -169,6 +170,19 @@ class GdpytImage(object):
             self._subbg = img - background_img
             self._raw = self._subbg
 
+    def transform_image(self, transforms):
+        """
+
+        Parameters
+        ----------
+        transforms
+
+        Returns
+        -------
+
+        """
+        pass
+
     def filter_image(self, filterspecs, force_rawdtype=True):
         """
         Steps:
@@ -185,7 +199,8 @@ class GdpytImage(object):
         img_copy = self._raw.copy()
         raw_dtype = img_copy.dtype
 
-        valid_filters = ['none', 'median', 'mean_bilateral', 'gaussian', 'white_tophat', 'equalize_adapthist']
+        valid_filters = ['none', 'median', 'mean_bilateral', 'gaussian', 'white_tophat', 'equalize_adapthist',
+                         'flipud']
         #TODO: - there are several 'denoising' filters that would be useful to investigate.
         #   > particularly the skimage.restoration.denoise_bilateral function which perserves edges.
         #   > see more here: https://scikit-image.org/docs/dev/auto_examples/filters/plot_denoise.html#sphx-glr-auto-examples-filters-plot-denoise-py
@@ -208,6 +223,7 @@ class GdpytImage(object):
                     kwargs = {}
 
                 img = apply_filter(img_copy, func, *args, **kwargs)
+
                 if process_func == "equalize_adapthist":
                     img = img*img_copy.max()
                 if force_rawdtype and img.dtype != raw_dtype:

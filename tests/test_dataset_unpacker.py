@@ -14,8 +14,8 @@ from skimage.morphology import disk, square
 # ----- ----- ----- ----- TEST DATASET UNPACKER ----- ----- ----- ----- ----- ----- -----
 
 test_dataset = '02.07.22_membrane_characterization'  #
-particle_distribution = 'dynamic'
-num_test_images = 500
+particle_distribution = 'meta'
+num_test_images = 50
 nl = None
 
 sweep_method = 'testset'  # 'subset_mean'
@@ -24,17 +24,17 @@ sweep_method = 'testset'  # 'subset_mean'
 known_z = None
 
 # generate calibration collection and calibration set
-calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration', noise_level=None,
+"""calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration', noise_level=None,
                                   number_of_images=num_test_images,
                                   particle_distribution=particle_distribution, particle_density=None,
                                   single_particle_calibration=False, static_templates=True,
                                   hard_baseline=True, particles_overlapping=True, sweep_method=sweep_method,
                                   sweep_param='gen_cal', use_stack_id=None).unpack()
-calib_col, calib_set = GdpytCharacterize.test(calib_settings, test_settings=None, return_variables='calibration')
+calib_col, calib_set = GdpytCharacterize.test(calib_settings, test_settings=None, return_variables='calibration')"""
 
 
 # GDPyT test collection
-sweep_params = [['positive_to_negative', '160', 16], ['negative_to_positive', '500', 14]]  # ['0', '0.25', 'second_0.25', '2.25', '4.25', '6.25', '8.25', '10.25', '11.25', 'neg_11.25_to_about_9.25', 'neg_8.25_to_6.25']
+sweep_params = [[1, 1], [1, 2], [1, 3], [3, 1], [3, 2], [3, 3], [5, 1], [5, 2], [5, 3], [7, 1], [7, 2], [7, 3], [9, 1]]  # ['0', '0.25', 'second_0.25', '2.25', '4.25', '6.25', '8.25', '10.25', '11.25', 'neg_11.25_to_about_9.25', 'neg_8.25_to_6.25']
 for sweep_param in sweep_params:
 
     if test_dataset == 'synthetic_experiment':
@@ -83,7 +83,13 @@ for sweep_param in sweep_params:
                                          sweep_method=sweep_method, sweep_param=sweep_param,
                                          use_stack_id=10).unpack()
     elif test_dataset == '02.07.22_membrane_characterization':
-        test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test',
+        calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration', noise_level=None,
+                                          number_of_images=num_test_images,
+                                          particle_distribution=particle_distribution, particle_density=None,
+                                          single_particle_calibration=False, static_templates=True,
+                                          hard_baseline=True, particles_overlapping=True, sweep_method=sweep_method,
+                                          sweep_param=sweep_param, use_stack_id=None).unpack()
+        test_settings = dataset_unpacker(dataset=test_dataset, collection_type='meta-test',
                                          static_templates=True, single_particle_calibration=False, hard_baseline=True,
                                          particles_overlapping=True, particle_distribution=particle_distribution,
                                          sweep_method=sweep_method, sweep_param=sweep_param, use_stack_id=None).unpack()
@@ -168,7 +174,7 @@ for sweep_param in sweep_params:
         raise ValueError("No dataset found.")
 
     # ----- ----- ----- ----- TEST ----- ----- ----- ----- ----- ----- -----
-    GdpytCharacterize.test(calib_settings, test_settings, calib_col=calib_col, calib_set=calib_set, return_variables=None)
+    GdpytCharacterize.test(calib_settings, test_settings, calib_col=None, calib_set=None, return_variables=None)
 
 # ----- ----- ----- ----- Synthetic Experiment Validation - Static --- -- ----- ----- ----- ----- ----- -----
 """sweep_params = ['_']
