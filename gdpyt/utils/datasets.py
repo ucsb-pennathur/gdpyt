@@ -3440,14 +3440,15 @@ class dataset_unpacker(object):
             bkg_noise = 3
             calib_img_path = join(base_dir, 'images/calibration')
             calib_id = self.dataset + '_calib'
-            subset_i, subset_f = 0, 10  # averages all 10 calibration images per z-step
+            # subset_i, subset_f = 0, 10  # averages all 10 calibration images per z-step
+            subset_i, subset_f = 0, self.sweep_param[0]
 
             if self.collection_type == 'meta-test':
                 test_img_path = calib_img_path
                 meta_test_id = self.dataset + '_calibration-meta-assessment_'
                 test_id = meta_test_id
-                subset_i, subset_f = 0, 9  # averages the first 9 calibration images per z-step
-                metaset_i, metaset_f = subset_f, subset_f + 1
+                subset_i, subset_f = 0, self.sweep_param[0]  # 9; averages the first 9 calibration images per z-step
+                metaset_i, metaset_f = subset_f + self.sweep_param[1], subset_f + self.sweep_param[1] + 1
                 XY_DISPLACEMENT = [[0, 0]]
             else:
                 if self.sweep_method == 'testset':
@@ -3528,7 +3529,7 @@ class dataset_unpacker(object):
                     os.makedirs(CALIB_RESULTS_PATH)
 
                 # calib dataset information
-                CALIB_SUBSET = [0, 150, 3]  # used [30, 59] for membrane curvature measurements
+                CALIB_SUBSET = [50, 60, 10]  # used [30, 59] for membrane curvature measurements
                 CALIBRATION_Z_STEP_SIZE = 1.0
                 TRUE_NUM_PARTICLES_PER_CALIB_IMAGE = 1
                 BASELINE_IMAGE = 'calib_58.tif'  # NOTES: ~'calib_57-60.tif' is the peak intensity image.
@@ -3540,10 +3541,10 @@ class dataset_unpacker(object):
                 # calibration processing parameters
                 CALIB_TEMPLATE_PADDING = 18  # used 9 for membrane curvature measurements
                 CALIB_CROPPING_SPECS = cropping_specs
-                CALIB_PROCESSING_METHOD = 'median'
+                CALIB_PROCESSING_METHOD = 'flipud'  # 'median'
                 CALIB_PROCESSING_FILTER_TYPE = 'square'
                 CALIB_PROCESSING_FILTER_SIZE = 3
-                CALIB_PROCESSING = {'none': None}
+                CALIB_PROCESSING = {'none': None}  # {CALIB_PROCESSING_METHOD: {'args': []}}
                 CALIB_THRESHOLD_METHOD = 'manual'
                 CALIB_THRESHOLD_MODIFIER = optics.bkg_mean + optics.bkg_noise * 10
                 CALIB_THRESHOLD_PARAMS = {CALIB_THRESHOLD_METHOD: [CALIB_THRESHOLD_MODIFIER]}
@@ -3560,7 +3561,7 @@ class dataset_unpacker(object):
                 # display options
                 INSPECT_CALIB_CONTOURS = False
                 SHOW_CALIB_PLOTS = False
-                SAVE_CALIB_PLOTS = False
+                SAVE_CALIB_PLOTS = True
 
             if self.collection_type == 'test' or self.collection_type == 'meta-test':
                 TEST_IMG_PATH = test_img_path
@@ -3583,8 +3584,8 @@ class dataset_unpacker(object):
                 # test processing parameters
                 IF_TEST_IMAGE_STACK = 'first'
                 TAKE_TEST_IMAGE_SUBSET_MEAN = [1, 2]
-                TEST_PARTICLE_ID_IMAGE = 'test_X{}.tif'.format(self.sweep_param[1])
-                TEST_TEMPLATE_PADDING = self.sweep_param[2]  # used 6 for membrane curvature measurements
+                TEST_PARTICLE_ID_IMAGE = 'test_X1.tif'
+                TEST_TEMPLATE_PADDING = 16  # used 6 for membrane curvature measurements
                 TEST_CROPPING_SPECS = cropping_specs
                 TEST_PROCESSING_METHOD = 'median'
                 TEST_PROCESSING_FILTER_TYPE = 'square'
