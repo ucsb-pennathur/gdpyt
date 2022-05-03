@@ -42,7 +42,7 @@ class inputs(object):
                  image_subset=None, calibration_z_step_size=1, baseline_image=None, static_templates=False,
                  if_image_stack='first', take_image_stack_subset_mean_of=[], single_particle_calibration=False,
                  ground_truth_file_path=None, ground_truth_file_type=None, known_z=None, true_number_of_particles=None,
-                 hard_baseline=False, overlapping_particles=True):
+                 hard_baseline=False, overlapping_particles=True, use_stack_id=None):
         """
 
         Parameters
@@ -60,6 +60,7 @@ class inputs(object):
         ground_truth_file_path
         ground_truth_file_type
         true_number_of_particles
+        use_stack_id
         """
         # image collection ID and type
         self.dataset = dataset
@@ -86,6 +87,7 @@ class inputs(object):
         self.take_image_stack_subset_mean_of = take_image_stack_subset_mean_of
         self.true_number_of_particles = true_number_of_particles
         self.known_z = known_z
+        self.use_stack_id = use_stack_id
 
 
 class outputs(object):

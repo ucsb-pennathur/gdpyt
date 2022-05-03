@@ -28,6 +28,7 @@ class GdpytCalibrationSet(object):
         self._self_similarity_method = self_similarity_method
         self._min_num_layers = min_num_layers
         self._best_stack_id = None
+        self.best_stack_ids = None
 
         # Attribute that holds a Pytorch model
         self._cnn = None
@@ -79,7 +80,7 @@ class GdpytCalibrationSet(object):
         self._all_stacks_stats = self.calculate_stacks_stats()
 
         # Clean the stacks to remove bad stacks
-        self._clean_stacks(min_percent_layers=0.1)
+        self._clean_stacks(min_percent_layers=0.5)
 
         # determine the beset stack
         self.determine_best_stack()
@@ -183,7 +184,7 @@ class GdpytCalibrationSet(object):
         # define the GdpytCalibrationSet's stacks.
         self._calibration_stacks = stacks
 
-    def _clean_stacks(self, min_percent_layers=0.1):
+    def _clean_stacks(self, min_percent_layers=0.5):
         """
         Remove calibration stacks with too few images or particle stats that differ significantly from others.
 
@@ -197,7 +198,7 @@ class GdpytCalibrationSet(object):
         """
 
         # get set statistics
-        df = self.all_stacks_stats
+        df = self.all_stacks_stats.copy()
 
         # get unique particle ID's in set
         all_stacks_uniques = df.particle_id.unique()
@@ -218,7 +219,7 @@ class GdpytCalibrationSet(object):
         for id in exclude_particle_ids:
 
             # delete stack
-            del self.calibration_stacks[id]
+            del self._calibration_stacks[id]
 
             # update the particle id's
             self.update_particle_ids()
@@ -279,17 +280,17 @@ class GdpytCalibrationSet(object):
         """
         df = self.calculate_stacks_stats().copy()
 
+        num_particle_stacks = len(df)
+
         # filter by number of layers
-        df = df[df['layers'] > df['layers'].max() * 0.98]
+        df = df.sort_values('layers', ascending=False)
+        df = df.iloc[0:10]
 
-        # filter by snr
-        df = df[df['avg_snr'] > df['avg_snr'].max() * 0.99]
+        # filter by min max area
+        df = df.sort_values('min_particle_area')
 
-        # choose the first particle ID if more than one
-        particle_ids = df.particle_id.to_numpy(dtype=int, copy=True)
-        particle_ids = particle_ids[0]
-
-        self._best_stack_id = particle_ids
+        self.best_stack_ids = df.particle_id.to_numpy()
+        self._best_stack_id = self.best_stack_ids[0]
 
     def calculate_stacks_stats(self):
         """
@@ -314,7 +315,36 @@ class GdpytCalibrationSet(object):
             else:
                 new_stacks = pd.DataFrame(data=calib_stack_data, index=[stack])
                 df_stacks = pd.concat([df_stacks, new_stacks])
+
+        df_stacks.sort_values('layers', ascending=False)
+
         return df_stacks
+
+    def calculate_all_stacks_self_similarity(self):
+        mdf = pd.DataFrame()
+        fdf = pd.DataFrame()
+
+        for stack in self.calibration_stacks.values():
+
+            if stack._self_similarity is None:
+                stack.infer_self_similarity(function='sknccorr')
+
+            if len(stack.layers) < self._min_num_layers:
+                continue
+
+            mdata = np.vstack((stack._self_similarity[:, 0], stack._self_similarity[:, 1])).T
+            dfm = pd.DataFrame(mdata, columns=['z', 'cm'])
+            dfm['id'] = stack.id
+            dfm['layers'] = len(dfm)
+            mdf = mdf.append(dfm, ignore_index=True)
+
+            fdata = np.vstack((stack._self_similarity_forward[:, 0], stack._self_similarity_forward[:, 1])).T
+            dff = pd.DataFrame(fdata, columns=['z', 'cm'])
+            dff['id'] = stack.id
+            dff['layers'] = len(dff)
+            fdf = fdf.append(dff, ignore_index=True)
+
+        return mdf, fdf
 
     def plot_stacks_self_similarity(self, min_num_layers=0, save_string=None):
         for key, stack in self._calibration_stacks.items():
@@ -432,6 +462,10 @@ class GdpytCalibrationSet(object):
         return self._particle_ids
 
     @property
+    def stack_locations(self):
+        return self._all_stacks_stats[['id', 'x', 'y']].to_numpy()
+
+    @property
     def best_stack_id(self):
         return self._best_stack_id
 
@@ -482,34 +516,18 @@ class GdpytImageInference(object):
 
             logger.info("Infering image {}".format(image.filename))
 
-            max_stack_distance = 15
-
-            particles_s = [particle_s for particle_s in image.particles]
-
             for particle in image.particles:
-
-                particle_locations_in_image = [list(p.location) for p in particles_s if p.id != particle.id]
-
-                if len(particle_locations_in_image) > 2:
-                    nneigh = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(particle_locations_in_image)
-                    distance, index = nneigh.kneighbors(np.array(particle.location).reshape(1, -1))
-                    distance = distance[0][0].astype(int)
-                    index = index[0][0].astype(int)
-                else:
-                    distance = 100
-                    index = 0
 
                 if use_stack is not None:
                     if use_stack == 'best':
+                        stack = self.calib_set.calibration_stacks[self.calib_set.best_stack_id]
+                    elif use_stack not in self.calib_set.particle_ids:
                         stack = self.calib_set.calibration_stacks[self.calib_set.best_stack_id]
                     else:
                         stack = self.calib_set.calibration_stacks[use_stack]
 
                 elif particle.id in self.calib_set.particle_ids:
                     stack = self.calib_set.calibration_stacks[particle.id]
-
-                elif distance < max_stack_distance and particles_s[index].id in self.calib_set.particle_ids:
-                    stack = self.calib_set.calibration_stacks[particles_s[index].id]
 
                 else:
                     # if nothing else, choose the best stack id
@@ -520,6 +538,40 @@ class GdpytImageInference(object):
 
                 # infer z
                 stack.infer_z(particle, function=function, min_cm=min_cm, infer_sub_image=self._infer_sub_image)
+
+    def _cross_correlation_inference_tracking(self, method, min_cm=0, skip_particle_ids=[]):
+
+        if method not in ['id', 'location']:
+            raise ValueError('method should be: id or location')
+
+        for image in self.collection.images.values():
+
+            logger.info("Infering image {}".format(image.filename))
+
+            for particle in image.particles:
+
+                if method == 'id':
+                    if particle.id in self.calib_set.particle_ids:
+                        stack = self.calib_set.calibration_stacks[particle.id]
+                    else:
+                        continue
+
+                if method == 'location':
+                    id_and_loc = self.calib_set.stack_locations
+
+                    sids = id_and_loc[:, 0]
+                    locations = id_and_loc[:, 1:]
+
+                    nneigh = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(locations)
+                    distances, indices = nneigh.kneighbors(np.array(locations))
+
+                    matching_calib_stack_id = sids[indices[0].squeeze()]
+
+                # set the stack ID used for z-inference
+                particle.set_inference_stack_id(stack.id)
+
+                # infer z
+                stack.infer_z(particle, function='sknccorr', min_cm=min_cm, infer_sub_image=self._infer_sub_image)
 
     def ccorr(self, use_stack=None, min_cm=0):
         self._cross_correlation_inference('ccorr', use_stack=use_stack, min_cm=min_cm)

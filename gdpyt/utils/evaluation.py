@@ -1,5 +1,6 @@
 from gdpyt import GdpytImageCollection
 from scipy.spatial import KDTree
+from sklearn.neighbors import NearestNeighbors
 import pandas as pd
 import numpy as np
 from os.path import join
@@ -115,3 +116,40 @@ def error_z(image_collection, imgdata_folder=None):
     perf_df = pd.concat(perf_df, keys=[fname.split('.txt')[0] + img_ftype for fname in listdir(imgdata_folder)])
 
     return perf_df
+
+
+def calculate_particle_to_particle_spacing(collection, max_dx=250, max_n_neighbors=5):
+    """
+
+    Returns
+    -------
+
+    """
+    for img in collection.images.values():
+
+        # GdpytParticles + locations
+        particles = [particle for particle in img.particles]
+        locations = np.array([list(p.location) for p in particles])
+
+        nneigh = NearestNeighbors(n_neighbors=max_n_neighbors, algorithm='ball_tree').fit(locations)
+        distances, indices = nneigh.kneighbors(locations)
+
+        distance_to_others = distances[:, 1:]
+
+        for distance, p in zip(distance_to_others, particles):
+
+            frame = img.frame
+            pid = p.id
+
+            mean_diameter = np.mean([p.gauss_dia_x, p.gauss_dia_y])
+            mean_radius = np.round(mean_diameter / 2, 2)
+
+            mean_dx_all = np.mean(distance)
+            min_dx_all = np.min(distance)
+            num_dx_all = max_n_neighbors
+
+            overlapping_dists = distance[distance < max_dx]
+            mean_dxo = np.mean(overlapping_dists)
+            num_dxo = len(overlapping_dists)
+
+            pid_dx = [frame, pid, mean_radius, mean_dx_all, min_dx_all, num_dx_all, mean_dxo, num_dxo]

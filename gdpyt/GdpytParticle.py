@@ -1,13 +1,19 @@
+import math
+
 import cv2
 import numpy as np
 import numpy.ma as ma
 import pandas as pd
+import skimage.draw
+from skimage.exposure import rescale_intensity
 from skimage.morphology import binary_dilation, disk
+from scipy.signal import convolve2d
 
 from matplotlib import pyplot as plt
 from matplotlib.patches import Ellipse
 
 from gdpyt.particle_identification import binary_mask
+from gdpyt.subpixel_localization import gaussian
 from gdpyt.subpixel_localization.gaussian import fit as fit_gaussian_subpixel
 from gdpyt.subpixel_localization.gaussian import fit_results, plot_2D_image_contours, plot_3D_fit, plot_3D_image
 from gdpyt.subpixel_localization.centroid_based_iterative import refine_coords_via_centroid, bandpass, grey_dilation
@@ -16,7 +22,7 @@ from gdpyt.subpixel_localization.centroid_based_iterative import plot_2D_image_a
 class GdpytParticle(object):
 
     def __init__(self, image_raw, image_filt, id_, contour, bbox, particle_mask_on_image, particle_collection_type,
-                 location=None, frame=None, template_use_raw=False):
+                 location=None, frame=None, template_use_raw=False, fit_gauss=False):
         super(GdpytParticle, self).__init__()
         self._id = int(id_)
         self.frame = frame
@@ -31,11 +37,12 @@ class GdpytParticle(object):
         self._mask_on_image = particle_mask_on_image
         self._template = None
         self._location = None
+        self.match_location = None
         self._location_on_template = None
         self._mask_on_template = None
         self._template_contour = None
         self._fitted_gaussian_on_template = None
-        self._in_images = []
+        self._in_images = None
         self.inference_stack_id = None
         self._cm = None
         self._similarity_curve = None
@@ -50,10 +57,21 @@ class GdpytParticle(object):
         self.in_focus_intensity = None
         self._snr = None
         self._peak_intensity = None
+        self.int_var = None
+        self.int_var_sq = None
+        self.int_var_sq_norm = None
+        self.int_var_sq_norm_signal = None
         self._mean_signal = None
         self._mean_background = None
         self._std_background = None
         self._max_sim = None
+
+        self.mean_dx = None
+        self.min_dx = None
+        self.num_dx = None
+        self.mean_dxo = None
+        self.num_dxo = None
+        self.percent_dx_diameter = None
 
         # if location is passed, then set; otherwise, compute the center
         if location is not None:
@@ -68,8 +86,18 @@ class GdpytParticle(object):
         self._create_template(bbox=bbox)
 
         # fit a Gaussian profile to find subpixel center and recenter the bbox
-        if self.diameter > 20:
-            pass
+        fit_gauss = True
+        if fit_gauss:
+            self.gauss_dia_x = None
+            self.gauss_dia_y = None
+            self.gauss_A = None
+            self.gauss_yc = None
+            self.gauss_xc = None
+            self.gauss_sigma_y = None
+            self.gauss_sigma_x = None
+
+            self._fit_2D_gaussian(normalize=True)
+
             # self._compute_center_subpixel(method='gaussian', save_plots=False)
         else:
             pass
@@ -93,7 +121,7 @@ class GdpytParticle(object):
         return out_str
 
     def add_particle_in_image(self, img_id):
-        self._in_images.append([img_id])
+        self._in_images = img_id
 
     def _compute_convex_hull(self):
         """
@@ -263,7 +291,7 @@ class GdpytParticle(object):
 
             # the below are my additions
             # set the template
-            self._template = template # image[yl:yr, xl:xr]
+            self._template = template  # image[yl:yr, xl:xr]
 
             # set mask on template
             self._mask_on_template = np.pad(self.mask_on_image[y: y + h, x: x + w].astype(np.float), (pad_y, pad_x),
@@ -361,6 +389,41 @@ class GdpytParticle(object):
             plt.savefig(fname=savedir + '/' + self.particle_collection_type + '_col' + '_max-intensity-' + str(max_int) + '_cX' + str(self.location_on_template[0]) + '_cX' + str(self.location_on_template[1]) + '.png')
             #plt.show()
         """
+
+    def estimate_noise(self, I):
+
+        H, W = I.shape
+
+        M = [[1, -2, 1],
+             [-2, 4, -2],
+             [1, -2, 1]]
+
+        sigma = np.sum(np.sum(np.absolute(convolve2d(I, M))))
+        sigma = sigma * math.sqrt(0.5 * math.pi) / (6 * (W - 2) * (H - 2))
+
+        return sigma
+
+
+    def _fit_2D_gaussian(self, normalize=True):
+        """sigma = self.estimate_noise(self._template)
+        if sigma > 2:
+            print(self.id)
+            print(sigma)
+            plt.imshow(self._template)
+            plt.title('ID: {}, noise: {}'.format(self.id, sigma))
+            plt.show()"""
+
+        dia_x, dia_y, A, yc, xc, sigmay, sigmax = gaussian.fit_gaussian_calc_diameter(self._template, normalize=normalize)
+
+        if dia_x is not None:
+            self.gauss_dia_x = dia_x
+            self.gauss_dia_y = dia_y
+            self.gauss_A = A
+            self.gauss_yc = yc + self.bbox[1]
+            self.gauss_xc = xc + self.bbox[0]
+            self.gauss_sigma_y = sigmay
+            self.gauss_sigma_x = sigmax
+
 
     def _compute_center_subpixel(self, method='centroid', save_plots=False, ax=25, ay=25, A=500, fx=1, fy=1):
 
@@ -616,6 +679,11 @@ class GdpytParticle(object):
         # get peak intensity
         peak_intensity = np.max(img_f)
 
+        # get variance
+        variance = np.var(img_f)
+        variance_squared = variance**2
+        variance_squared_norm = (variance / np.mean(img_f))**2
+
         # apply background mask to get background
         img_f_mask_inv = ma.masked_array(img_f, mask=self.mask_on_template)
 
@@ -625,6 +693,7 @@ class GdpytParticle(object):
 
         # calculate SNR for filtered image
         mean_signal_f = img_f_mask.mean()
+        variance_squared_norm_signal = (img_f_mask.var() / img_f_mask.mean())**2
         mean_background_f = img_f_mask_inv.mean()
         std_background_f = img_f_mask_inv.std()
 
@@ -635,11 +704,15 @@ class GdpytParticle(object):
         snr_filtered = (mean_signal_f - mean_background_f) / std_background_f
 
         # maximum snr for noise-less (synthetic) images
-        if snr_filtered > 250:
-            snr_filtered = 250
+        if snr_filtered > 1000:
+            snr_filtered = 1000
 
         # store particle image statistics
         self._peak_intensity = peak_intensity
+        self.int_var = variance
+        self.int_var_sq = variance_squared
+        self.int_var_sq_norm = variance_squared_norm
+        self.int_var_sq_norm_signal = variance_squared_norm_signal
         self._snr = snr_filtered
         self._mean_signal = mean_signal_f
         self._mean_background = mean_background_f
@@ -723,9 +796,30 @@ class GdpytParticle(object):
         columns = ['z', 'S_{}'.format(label_suffix.upper())]
         self._similarity_curve = pd.DataFrame({columns[0]: z, columns[1]: sim})
 
+    def set_particle_to_particle_spacing(self, ptps):
+        """
+        ptps = [mean_dx_all, min_dx_all, num_dx_all, mean_dxo, num_dxo]
+
+        mean_dx_all: mean distance to {num_dx_all} number of particles
+        min_dx_all: minimum distance to another particle
+        num_dx_all: number of particles considered as "all"
+        mean_dxo: mean distance to "overlapping" particles (where distance < mean(gauss_dia_x, gauss_dia_y))
+        num_dxo: number of "overlapping" particles
+        percent_dx_diameter: percent of diameter that particle image is overlapped = (diameter - min_dx) / diameter
+        """
+        self.mean_dx = ptps[0]
+        self.min_dx = ptps[1]
+        self.num_dx = ptps[2]
+        self.mean_dxo = ptps[3]
+        self.num_dxo = ptps[4]
+        self.percent_dx_diameter = ptps[5]
+
     def _set_location(self, location):
         assert len(location) == 2
         self._location = location
+
+    def set_match_location(self, match_loc):
+        self.match_location = match_loc
 
     def _set_location_true(self, x, y, z=None):
         self._x_true = x
@@ -813,8 +907,6 @@ class GdpytParticle(object):
         xmin = bbox[0]
         ymin = bbox[1]
 
-        if bbox[0] <= 1 or bbox[1] <= 1 or bbox[0] + bbox[2] >= 512 or bbox[1] + bbox[3] >= 512:
-            j=1
         return self._bbox
 
     @property
@@ -852,6 +944,10 @@ class GdpytParticle(object):
         coordinates in order to get the location coordinates and mask coordinates into the same coordinate system.
         """
         return self._mask_on_image
+
+    @property
+    def image_raw(self):
+        return self._image_raw
 
     @property
     def template(self):

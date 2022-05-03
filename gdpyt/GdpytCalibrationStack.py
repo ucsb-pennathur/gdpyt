@@ -284,11 +284,17 @@ class GdpytCalibrationStack(object):
 
         # perform the cross-correlation against each image in the calibration stack and append the results to a list
         sim = []
+        match_location = []
+
         for c_temp in temp_calib:
-            sim.append(sim_func(c_temp, particle.template))
+            similarity, xm, ym = sim_func(c_temp, particle.template)
+            sim.append(similarity)
+            match_location.append([xm, ym])
+
         sim = np.array(sim)
         max_idx = optim(sim)
         particle.set_cm(sim[max_idx])
+        particle.set_match_location(match_location[max_idx])
 
         # evaluate correlation value
         if sim[max_idx] > min_cm and infer_sub_image is False:
@@ -349,10 +355,10 @@ class GdpytCalibrationStack(object):
                 padded_image = np.pad(temp_calib[index], pad_width=3, mode='constant',
                                       constant_values=np.min(temp_calib[index]))
 
-                forward = sim_func(padded_image, temp_calib[index + 1])
+                forward, xf, yf = sim_func(padded_image, temp_calib[index + 1])
                 sim_self_forward.append(forward)
                 if index > 0:
-                    backward = sim_func(padded_image, temp_calib[index - 1])
+                    backward, xb, yb = sim_func(padded_image, temp_calib[index - 1])
                     sim_self_backward.append(backward)
 
                     # mean similarity
@@ -482,21 +488,27 @@ class GdpytCalibrationStack(object):
         -------
 
         """
+        locations = []
+        zs = []
         snrs = []
         areas = []
         for p in self.particles:
+            locations.append(p.location)
+            zs.append(p.z)
             snrs.append(p.snr)
             areas.append(p.area)
 
         stats = {
             'particle_id': p.id,
+            'x': np.mean(locations, axis=0)[0],
+            'y': np.mean(locations, axis=0)[1],
+            'zmin': np.min(zs),
+            'zmax': np.max(zs),
             'layers': len(self.layers),
             'avg_snr': np.mean(snrs),
             'avg_area': np.mean(areas),
             'min_particle_area': np.min(areas),
             'max_particle_area': np.max(areas),
-            'min_particle_dia': np.sqrt(np.min(areas) * 4 / np.pi),
-            'max_particle_dia': np.sqrt(np.max(areas) * 4 / np.pi),
                 }
         return stats
 
