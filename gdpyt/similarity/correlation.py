@@ -65,10 +65,10 @@ def sk_norm_cross_correlation(img1, img2):
     cm = np.max(result)
 
     # x,y coordinates in the image space where the highest correlation was found
-    """ij = np.unravel_index(np.argmax(result), result.shape)
-    x, y = ij[::-1] """
+    ij = np.unravel_index(np.argmax(result), result.shape)
+    x, y = ij[::-1]
 
-    return cm
+    return cm, x, y
 
 
 def max_cross_correlation(img1, img2):

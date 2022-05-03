@@ -448,7 +448,6 @@ def _generate_scaled_overlap_paired_random_z_grid_coordinates(grid, imshape, z=N
     z_second_to_last_column = z_coords_up_to_last_column[-n_x:]
     z_coords = np.vstack((z_coords_up_to_last_column, z_second_to_last_column))
 
-
     # stack the original particles with a random z-height
     coords = np.hstack([xy_coords, z_coords])
 
@@ -460,6 +459,89 @@ def _generate_scaled_overlap_paired_random_z_grid_coordinates(grid, imshape, z=N
 
     # stack the original particles and overlapped particles with matching z-heights together
     xyo_coords = np.vstack((coords, overlap_coords))
+
+    return xyo_coords
+
+
+def _generate_scaled_overlap_paired_random_z_plus_noise_grid_coordinates(grid, imshape, z=None, overlap_scale=5,
+                                                                         particle_diameter=2):
+
+    assert len(imshape) == 2
+
+    # Particle grid
+    xtot, ytot = imshape
+    n_x, n_y = grid
+    n_particles = n_x * n_y
+    edge_x = xtot / (n_x + 1) - 20
+    edge_y = ytot / (n_y + 1) - 20
+
+    # Make particle coordinates
+    xy_coords = np.mgrid[edge_x:xtot - 1.25 * edge_x:np.complex(0, n_x),
+                edge_y:ytot - edge_y:np.complex(0, n_y)].reshape(2, -1).T
+
+    # make linearly shifted particle coordinates
+
+    # create cutoff limits (exclude first and last rows to not expand the image size)
+    xl = n_x
+    xh = n_x * (n_y - 1)
+
+    # copy the x-coordinates from original grid
+    xyc = xy_coords[:, 0].copy()
+
+    # calculate the step size for linearly arrayed overlapping
+    grid_step_size = (xyc[11] - xyc[0]) / xyc[0] * overlap_scale
+
+    # add x-dependent spacing to particles
+    xyc = xyc[:] + (xyc[:]) / xyc[0] * overlap_scale + 2.5  # - xyc[0] + xyc[0]
+
+    # stack the new x-coordinates with the original y-coordinates
+    xy_overlap_coords = np.vstack((xyc, xy_coords[:, 1])).T
+
+    if z is None:
+        return xy_coords
+
+    if isinstance(z, (tuple, list, np.ndarray)):
+        z_coords = np.random.uniform(z[0], z[1], size=(n_particles, 1))
+
+        # stack the original particles with a random z-height
+        coords = np.hstack([xy_coords, z_coords])
+
+        # stack the paired overlapping particles with the corresponding z-height as the original particle
+        overlap_coords = np.hstack([xy_overlap_coords, z_coords])
+
+        # z-noise
+        dx = coords[:, 0] - overlap_coords[:, 0]
+        z_rand_noise = np.random.uniform(low=-1.0, high=1.0, size=len(dx)) / np.sqrt(3)
+        z_noise = dx * z_rand_noise
+
+        # add z-noise to overlap coords
+        overlap_coords[:, 2] = overlap_coords[:, 2] + z_noise
+
+        # create particle diameter array
+        arr_p_diameter = np.ones_like(z_noise) * particle_diameter
+        arr_p_diameter = arr_p_diameter[:, np.newaxis]
+
+    elif isinstance(z, (int, float)):
+        z_coords = np.ones(shape=(n_particles, 1)) * z
+        arr_p_diameter = np.ones(shape=(n_particles, 1)) * particle_diameter
+
+        # stack the original particles with a random z-height
+        coords = np.hstack([xy_coords, z_coords])
+
+        # stack the paired overlapping particles with the corresponding z-height as the original particle
+        overlap_coords = np.hstack([xy_overlap_coords, z_coords])
+    else:
+        raise ValueError('z not understood.')
+
+    # stack particle diameter before z-noise
+    overlap_coords = np.hstack((overlap_coords, arr_p_diameter))
+    coords = np.hstack((coords, arr_p_diameter))
+
+    # stack the original particles and overlapped particles with matching z-heights together
+    xyo_coords = np.vstack((coords, overlap_coords))
+
+    # sort
+    xyo_coords = xyo_coords[xyo_coords[:, 0].argsort()]
 
     return xyo_coords
 
@@ -821,6 +903,47 @@ def generate_paired_random_z_overlap_grid(settings_file, n_images, grid, range_z
         coordinates = _generate_scaled_overlap_paired_random_z_grid_coordinates(grid, img_shape, z=range_z,
                                                                                 overlap_scale=linear_overlap)
         output = _append_particle_diam(coordinates, particle_diameter)
+
+        savepath = join(txtfolder, fname + '.txt')
+        np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+
+def generate_paired_random_z_plus_noise_overlap_grid(settings_file, n_images, grid, range_z=(-40, 40),
+                                                     particle_diameter=2, linear_overlap=5):
+    """
+    4. Grid overlap: random z-coordinate
+        * Generate images according to z-levels with linearly-arrayed overlapped particles at random z-coordinates.
+    """
+    settings_path = Path(settings_file)
+    txtfolder = join(settings_path.parent, 'test_input')
+
+    if isdir(txtfolder):
+        pass
+        # raise ValueError('Folder {} already exists. Specify a new one'.format(txtfolder))
+    else:
+        mkdir(txtfolder)
+
+    settings_dict = {}
+    with open(settings_file) as file:
+        for line in file:
+            thisline = line.split('=')
+            settings_dict.update({thisline[0].strip(): eval(thisline[1].strip())})
+
+    img_shape = (settings_dict['pixel_dim_x'], settings_dict['pixel_dim_y'])
+
+    for i in range(1, n_images + 1):
+        fname = 'test_{0:03d}'.format(i + 271)
+
+        # for calibration
+        # z = range_z[i - 1]
+
+        coordinates = _generate_scaled_overlap_paired_random_z_plus_noise_grid_coordinates(grid,
+                                                                                           img_shape,
+                                                                                           z=range_z,
+                                                                                           overlap_scale=linear_overlap,
+                                                                                           particle_diameter=particle_diameter)
+        # output = _append_particle_diam(coordinates, particle_diameter)
+        output = coordinates
 
         savepath = join(txtfolder, fname + '.txt')
         np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')

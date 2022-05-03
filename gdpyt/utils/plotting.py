@@ -11,7 +11,8 @@ import random
 import cv2
 import numpy as np
 from scipy.ndimage import binary_fill_holes
-from skimage.draw import polygon
+from skimage.draw import polygon, ellipse_perimeter
+from skimage.exposure import rescale_intensity
 from skimage import exposure
 import pandas as pd
 
@@ -46,6 +47,22 @@ def plot_baseline_image_and_particle_ids(collection, filename=None):
         ax.set_title('z = {}'.format(np.round(collection.images[baseline_image_filename].z, 2)))
 
     return fig
+
+
+def plot_single_particle_template_and_z(collection, particle_id, z=None, cmap='binary',
+                                        draw_contours=False, fill_contours=False):
+
+    if z is not None:
+        if not (isinstance(z, list) or isinstance(z, tuple)):
+            raise TypeError("Specify z range as a two-element list or tuple")
+
+    z_trues = []
+    zs = []
+    templates = []
+    for img in collection.images.values():
+        for p in img.particles:
+            if p.id == particle_id:
+                yield p.z_true, p.z, p.template
 
 
 def plot_single_particle_stack(collection, particle_id, z=None, draw_contours=True, fill_contours=False, imgs_per_row=20,
@@ -1467,40 +1484,7 @@ def plot_particle_signal(collection, optics, collection_image_stats, particle_id
 
 
 def plot_particle_diameter(collection, optics, collection_image_stats, particle_id):
-
-    # get particle data
-    values = []
-    for img in collection.images.values():
-        for p in img.particles:
-            if p.id == particle_id:
-                    values.append([p.id, p.z_true, p.area, p.diameter, p.snr, p.peak_intensity, p.mean_signal, p.mean_background,
-                                   p.std_background])
-
-    dfp = pd.DataFrame(data=values, columns=['id', 'true_z', 'area', 'diameter', 'snr', 'peak_signal', 'mean_signal',
-                                             'mean_background', 'std_background'])
-    dfp = dfp.sort_values(by='true_z')
-
-    # get value of maximum particle intensity (signal) and it's z-coordinate
-    z_max_intensity = dfp.true_z.iloc[dfp[['peak_signal']].idxmax().to_numpy()[0]]
-
-    # get stigmatic diameter profile
-    z_profile, stigmatic_diameter_profile = optics.stigmatic_diameter_z(z_space=dfp.true_z,
-                                                                        z_zero=z_max_intensity)
-    # plot
-    fig, ax = plt.subplots()
-
-    # theoretical diameter profile
-    ax.plot(z_profile, stigmatic_diameter_profile / 6, color='cornflowerblue', alpha=0.5, label=r'theory')
-
-    # measured particle diameter
-    ax.scatter(dfp.true_z, dfp.diameter * optics.microns_per_pixel * 1e6, marker='s', color='mediumblue', label=r'measured', zorder=2.4)
-    ax.plot(dfp.true_z, dfp.diameter * optics.microns_per_pixel * 1e6, color='tab:blue', alpha=0.75)
-
-    ax.set_xlabel(r'$z_{true}$ $\left(\mu m)\right)$')
-    ax.set_ylabel(r'$p_{diameter}$ $\left(\mu m)\right)$')
-    ax.legend()
-    ax.grid(alpha=0.25)
-
+    fig = None
     return fig
 
 
@@ -1583,6 +1567,77 @@ def plot_gaussian_ax_ay(collection, plot_type='one', p_inspect=[0]):
     plt.tight_layout()
 
     return fig
+
+
+def plot_gaussian_fit_on_image_for_particle(collection, particle_ids, frame_step_size, path_figs):
+
+    if isinstance(particle_ids, (int, float)):
+        particle_ids = [int(particle_ids)]
+
+    for img in collection.images.values():
+
+        if img.frame % frame_step_size == 0:
+
+            for p in img.particles:
+                if p.id in particle_ids:
+
+                    # get gaussian params
+                    gauss_xc = p.gauss_xc
+                    gauss_yc = p.gauss_yc
+                    xc = gauss_xc - p.bbox[0]
+                    yc = gauss_yc - p.bbox[1]
+                    gauss_dia_x = p.gauss_dia_x
+                    gauss_dia_y = p.gauss_dia_y
+                    sigmax = p.gauss_sigma_x
+                    sigmay = p.gauss_sigma_y
+
+                    # get images
+                    img = p.image_raw.copy()
+                    p_template = p.template.copy()
+
+                    img = rescale_intensity(img, out_range=np.uint16)
+                    p_template = rescale_intensity(p_template, out_range=np.uint16)
+
+                    # generate ellipse
+                    rr, cc = ellipse_perimeter(int(gauss_yc), int(gauss_xc), int(gauss_dia_y), int(gauss_dia_x))
+                    rr, cc = filter_ellipse_points_on_image(img, rr, cc)
+                    img[rr, cc] = np.max(img)
+
+                    # plot
+                    fig, [ax1, ax2] = plt.subplots(ncols=2, figsize=(10, 5))
+
+                    # full image
+                    ax1.imshow(img)
+                    ax1.scatter(gauss_xc, gauss_yc, s=0.5, color='red', label=r'$p_{ID}$'
+                                                                    + '={} (x={}, y={})'.format(p.id,
+                                                                                                np.round(gauss_xc, 2),
+                                                                                                np.round(gauss_yc, 2),
+                                                                                                )
+                                                                    + '\n'
+                                                                    + r'$d_{e} \: (x, y)=$'
+                                                                    + '({} x, {} y)'.format(np.round(gauss_dia_x, 2),
+                                                                                            np.round(gauss_dia_y, 2),
+                                                                                            )
+                                )
+                    ax1.legend()
+
+                    # template
+                    ax2.imshow(p_template)
+                    ax2.scatter(xc, yc, color='red')
+                    ax2.plot([xc - sigmax / 2, xc + sigmax / 2], [yc, yc], linewidth=2, color='red', label=r'$\sigma_{x}$')
+                    ax2.plot([xc, xc], [yc - sigmay / 2, yc + sigmay / 2], linewidth=2, color='blue', label=r'$\sigma_{y}$')
+                    ax2.legend()
+
+                    plt.tight_layout()
+                    plt.savefig(join(path_figs, 'pid{}_x{}_y{}_frame{}.png'.format(p.id,
+                                                                                   np.round(gauss_xc, 2),
+                                                                                   np.round(gauss_yc, 2),
+                                                                                   p.frame,
+                                                                                   )
+                                     )
+                                )
+                    plt.close()
+
 
 def plot_model_based_z_calibration(collection, plot_type='one', p_inspect=[0]):
 
@@ -1717,9 +1772,6 @@ def plot_stacks_self_similarity(calib_set, min_num_layers=0, save_string=None):
 
     fig, ax = plt.subplots()
 
-    mdf = pd.DataFrame()
-    fdf = pd.DataFrame()
-
     num_plots = 0
     for stack in calib_set.calibration_stacks.values():
         if len(stack.layers) >= min_num_layers:
@@ -1731,20 +1783,7 @@ def plot_stacks_self_similarity(calib_set, min_num_layers=0, save_string=None):
             ax.plot(stack.self_similarity[:, 0], stack.self_similarity[:, 1], color=c, alpha=0.5)
             ax.scatter(stack.self_similarity[:, 0], stack.self_similarity[:, 1], s=3, color=c, label=stack.id)
 
-            mdata = np.vstack((stack._self_similarity[:, 0], stack._self_similarity[:, 1])).T
-            dfm = pd.DataFrame(mdata, columns=['z', 'cm'])
-            dfm['id'] = stack.id
-            mdf = mdf.append(dfm, ignore_index=True)
-
-            fdata = np.vstack((stack._self_similarity_forward[:, 0], stack._self_similarity_forward[:, 1])).T
-            dff = pd.DataFrame(fdata, columns=['z', 'cm'])
-            dff['id'] = stack.id
-            fdf = fdf.append(dff, ignore_index=True)
-
             num_plots += 1
-
-    mdf.to_excel('/Users/mackenzie/Desktop/spc_{}_stack_middle_self_similarity.xlsx'.format(save_string))
-    fdf.to_excel('/Users/mackenzie/Desktop/spc_{}_stack_forward_self_similarity.xlsx'.format(save_string))
 
     ax.set_xlabel(r'$z$ / h')
     ax.set_ylabel(r'$S_i$ $\left(|z_{i-1}, z_{i+1}|\right)$')
@@ -1756,3 +1795,20 @@ def plot_stacks_self_similarity(calib_set, min_num_layers=0, save_string=None):
         ax.legend(title=r'$S_i$')
 
     return fig
+
+# Helper Functions
+
+def filter_ellipse_points_on_image(img, rr, cc):
+    rn = []
+    cn = []
+
+    for r, c in zip(rr, cc):
+        if r < 0 or c < 0:
+            continue
+        elif r > img.shape[0] - 1 or c > img.shape[1] - 1:
+            continue
+        else:
+            rn.append(r)
+            cn.append(c)
+
+    return rn, cn

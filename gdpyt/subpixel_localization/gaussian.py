@@ -14,6 +14,230 @@ from skimage.transform import resize, downscale_local_mean, rescale
 from skimage.filters import gaussian
 from matplotlib.patches import Ellipse
 
+"""
+Note: the following scripts are new (2022 and later)
+"""
+
+
+def gauss_1d_function(x, a, x0, sigma):
+    return a*np.exp(-(x-x0)**2/(2*sigma**2))
+
+
+def gauss_2d_function(xy, a, x0, y0, sigmax, sigmay):
+    return a * np.exp(-((xy[:, 0] - x0)**2 / (2 * sigmax**2) + (xy[:, 1] - y0)**2 / (2 * sigmay**2)))
+
+
+def get_amplitude_center_sigma(x_space=None, y_profile=None, img=None, y_slice=None):
+
+    if y_profile is None:
+        # get sub-image slice
+        y_profile = img[y_slice, :]
+
+    if x_space is None:
+        x_space = np.arange(len(y_profile))
+
+    # get amplitude
+    raw_amplitude = y_profile.max() - y_profile.min()
+
+    # get center
+    raw_c = x_space[np.argmax(y_profile)]
+
+    # get sigma
+    raw_profile_diff = np.diff(y_profile)
+    diff_peaks = np.argpartition(np.abs(raw_profile_diff), -2)[-2:]
+    diff_width = np.abs(x_space[diff_peaks[1]] - x_space[diff_peaks[0]])
+    raw_sigma = diff_width / 2
+
+    return raw_amplitude, raw_c, raw_sigma
+
+
+def fit_2d_gaussian_on_image(img, normalize=True):
+
+    if normalize:
+        img = img - img.min()
+
+    yc, xc = np.shape(img)
+    xc, yc = xc // 2, yc // 2
+
+    guess_A, guess_c, guess_sigma = get_amplitude_center_sigma(x_space=None, y_profile=None, img=img, y_slice=yc)
+
+    # make grid
+    X = np.arange(np.shape(img)[1])
+    Y = np.arange(np.shape(img)[0])
+    X, Y = np.meshgrid(X, Y)
+
+    # flatten arrays
+    Xf = X.flatten()
+    Yf = Y.flatten()
+    Zf = img.flatten()
+
+    # stack for gaussian curve fitting
+    XYZ = np.stack([Xf.flatten(), Yf.flatten(), Zf.flatten()]).T
+
+    # fit 2D gaussian
+    guess = [guess_A, xc, yc, guess_sigma, guess_sigma]
+    try:
+        popt, pcov = curve_fit(gauss_2d_function, XYZ[:, :2], XYZ[:, 2], guess)
+    except RuntimeError:
+        popt = None
+
+    return popt
+
+
+def fit_gaussian_calc_diameter(img, normalize=True):
+    beta = 3.67
+
+    popt = fit_2d_gaussian_on_image(img, normalize=normalize)
+
+    if popt is None:
+        return None, None, None, None, None, None, None
+
+    A, xc, yc, sigmax, sigmay = popt
+
+    # diameter threshold: intensity < np.exp(-3.67 ** 2)
+    diameter_threshold = np.exp(-beta ** 2) * A
+
+    # Fit x-diameter
+    # resample and plot fitted Gaussian
+    yslice = np.arange(0, np.shape(img)[1])
+    fit_yslice = np.linspace(-yslice.max() * 2, yslice.max() * 3, len(yslice) * 10)
+    fit_yint = gauss_1d_function(fit_yslice, A, xc, sigmax)
+
+    # calculate width
+    arr = np.abs(fit_yint - diameter_threshold)
+    fit_widths = fit_yslice[np.argpartition(arr, 2)[:2]]
+    dia_x = np.abs(fit_widths[1] - fit_widths[0])
+
+    # Fit y-diameter
+    # resample and plot fitted Gaussian
+    xslice = np.arange(0, np.shape(img)[0])
+    fit_xslice = np.linspace(-xslice.max() * 2, xslice.max() * 3, len(xslice) * 10)
+    fit_xint = gauss_1d_function(fit_xslice, A, yc, sigmay)
+
+    # calculate width
+    arr = np.abs(fit_xint - diameter_threshold)
+    fit_widths = fit_xslice[np.argpartition(arr, 2)[:2]]
+    dia_y = np.abs(fit_widths[1] - fit_widths[0])
+
+    return dia_x, dia_y, A, yc, xc, sigmay, sigmax
+
+
+def calculate_maximum_of_fitted_gaussian_1d(x, y, normalize=True, show_plot=False, ylabels=None):
+
+    if isinstance(y, list):
+        y_list = y
+    else:
+        y_list = [y]
+
+    if show_plot:
+        if len(y_list) > 1:
+            fig, ax = plt.subplots(nrows=len(y_list), sharex=True)
+        else:
+            fig, ax = plt.subplots()
+
+    x_maxs = []
+    for i, y in enumerate(y_list):
+
+        if normalize:
+            y = y - y.min()
+
+        # initialize fitting parameters
+        guess_amplitude, guess_c, guess_sigma = get_amplitude_center_sigma(x_space=x, y_profile=y)
+        guess_params = [guess_amplitude, guess_c, guess_sigma]
+
+        # fit
+        popt, pcov = curve_fit(gauss_1d_function, x, y, p0=guess_params)
+        xc = popt[1]
+        x_maxs.append(xc)
+
+        # resample
+        x_fit = np.linspace(x.min(), x.max(), len(x)*10)
+        y_fit = gauss_1d_function(x_fit, *popt)
+
+        # find x-value at maximum of fitted 1D Gaussian
+        x_max = x_fit[np.argmax(y_fit)]
+
+        # OPTIONAL: plot
+        if show_plot:
+            ax[i].scatter(x, y, color='black')
+            ax[i].plot(x_fit, y_fit, color='tab:blue')
+            ax[i].scatter(x_max, np.max(y_fit), marker='*', color='red')
+            ax[i].set_xlabel('z')
+            if ylabels:
+                ax[i].set_ylabel(ylabels[i])
+            else:
+                ax[i].set_ylabel('y')
+
+    if show_plot:
+        plt.show()
+
+    return x_maxs
+
+
+def calculate_minimum_of_fitted_gaussian_diameter(x, y, fit_function, guess_x0, show_plot=False):
+
+    guess_c1, guess_c2 = 0.15, 0.65
+
+    if isinstance(y, list):
+        y_list = y
+    else:
+        y_list = [y]
+
+    if show_plot:
+        fig, ax = plt.subplots()
+        data_colors = ['blue', 'lime']
+        fit_colors = ['tab:blue', 'tab:green']
+
+    x0_c1_c2s = []
+    dia_zfs = []
+    dia_zmins = []
+    dia_zmaxs = []
+    for i, y in enumerate(y_list):
+
+        # fit diameter function
+        popt, pcov = curve_fit(fit_function,
+                               x,
+                               y,
+                               p0=[guess_x0, guess_c1, guess_c2],
+                               bounds=([x.min(), 0, 0], [x.max(), 1, 1])
+                               )
+
+        x0, c1, c2 = popt[0], popt[1], popt[2]
+        x0_c1_c2s.append([x0, c1, c2])
+
+        # resample
+        x_fit = np.linspace(x.min(), x.max(), len(x) * 25)
+        y_fit = fit_function(x_fit, *popt)
+
+        # calculate diameter @ z-in-focus, z-min, z-max
+        dia_zfs.append(np.min(y_fit))
+        dia_zmins.append(y_fit[0])
+        dia_zmaxs.append(y_fit[-1])
+
+        if show_plot:
+            ax.scatter(x, y, color=data_colors[i], label=i+1)
+            ax.plot(x_fit, y_fit, color=fit_colors[i])
+            ax.scatter(x_fit[np.argmin(y_fit)], np.min(y_fit), marker='*', color='red')
+
+    if show_plot:
+        ax.set_xlabel(r'$z \: (\mu m)$')
+        ax.set_ylabel('Diameter (pixels)')
+        ax.legend()
+        plt.tight_layout()
+        plt.show()
+
+    x0_c1_c2s = np.array(x0_c1_c2s)
+    dia_zfs = np.array(dia_zfs)
+    dia_zmins = np.array(dia_zmins)
+    dia_zmaxs = np.array(dia_zmaxs)
+
+    return x0_c1_c2s, dia_zfs, dia_zmins, dia_zmaxs
+
+
+"""
+NOTE: the below script are all old (2021 and earlier)
+"""
+
 # define 1D Gaussian
 def gaussian1D(x, a, x0, sigma):
     return a*np.exp(-(x - x0) ** 2 / (2 * sigma ** 2))
