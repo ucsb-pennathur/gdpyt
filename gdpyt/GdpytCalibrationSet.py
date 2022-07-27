@@ -18,9 +18,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class GdpytCalibrationSet(object):
 
-    def __init__(self, collections, image_to_z, dilate=False, template_padding=0, min_num_layers=None, self_similarity_method='sknccorr',  exclude=[]):
+    def __init__(self, collections, image_to_z, dilate=False, template_padding=0, min_num_layers=None,
+                 self_similarity_method='sknccorr', exclude=[]):
         super(GdpytCalibrationSet, self).__init__()
 
         self._template_padding = template_padding
@@ -80,7 +82,7 @@ class GdpytCalibrationSet(object):
         self._all_stacks_stats = self.calculate_stacks_stats()
 
         # Clean the stacks to remove bad stacks
-        self._clean_stacks(min_percent_layers=0.5)
+        self._clean_stacks()
 
         # determine the beset stack
         self.determine_best_stack()
@@ -91,7 +93,7 @@ class GdpytCalibrationSet(object):
     def __repr__(self):
         class_ = 'GdpytCalibrationSet'
         repr_dict = {
-                     'Calibration stacks for particle IDs': list(self.calibration_stacks.keys())}
+            'Calibration stacks for particle IDs': list(self.calibration_stacks.keys())}
         out_str = "{}: \n".format(class_)
         for key, val in repr_dict.items():
             out_str += '{}: {} \n'.format(key, str(val))
@@ -217,7 +219,6 @@ class GdpytCalibrationSet(object):
 
         # remove stacks from the set
         for id in exclude_particle_ids:
-
             # delete stack
             del self._calibration_stacks[id]
 
@@ -512,6 +513,14 @@ class GdpytImageInference(object):
         if function.lower() not in ['ccorr', 'nccorr', 'znccorr', 'barnkob_ccorr', 'bccorr', 'sknccorr']:
             raise ValueError("{} is not implemented or a valid function".format(function))
 
+        if use_stack == 'nearest':
+            baseline_locations = []
+            for stack in self.calib_set.calibration_stacks.values():
+                baseline_locations.append(pd.DataFrame({'x': stack.location[0], 'y': stack.location[1]},
+                                                       index=[stack.id]))
+            baseline_locations = pd.concat(baseline_locations).sort_index()
+            nneigh = NearestNeighbors(n_neighbors=1, algorithm='ball_tree').fit(baseline_locations.values)
+
         for image in self.collection.images.values():
 
             logger.info("Infering image {}".format(image.filename))
@@ -525,6 +534,21 @@ class GdpytImageInference(object):
                         stack = self.calib_set.calibration_stacks[self.calib_set.best_stack_id]
                     else:
                         stack = self.calib_set.calibration_stacks[use_stack]
+
+                elif use_stack == 'nearest':
+                    distances, indices = nneigh.kneighbors(np.array([particle.location[0], particle.location[1]]))
+                    for distance, idx in zip(distances, indices):
+                        matching_stack_id = baseline_locations.index.values[idx.squeeze()]
+                        stack = self.calib_set.calibration_stacks[matching_stack_id]
+                        print('Particle {} at ({}, {}) assigned calib stack id {} of distance {}'.format(particle.id,
+                                                                                                         particle.location[
+                                                                                                             0],
+                                                                                                         particle.location[
+                                                                                                             1],
+                                                                                                         matching_stack_id,
+                                                                                                         distance,
+                                                                                                         )
+                              )
 
                 elif particle.id in self.calib_set.particle_ids:
                     stack = self.calib_set.calibration_stacks[particle.id]
@@ -586,7 +610,8 @@ class GdpytImageInference(object):
         self._cross_correlation_inference('barnkob_ccorr', use_stack=use_stack, min_cm=min_cm)
 
     def sknccorr(self, use_stack=None, min_cm=0, skip_particle_ids=[]):
-        self._cross_correlation_inference('sknccorr', use_stack=use_stack, min_cm=min_cm, skip_particle_ids=skip_particle_ids)
+        self._cross_correlation_inference('sknccorr', use_stack=use_stack, min_cm=min_cm,
+                                          skip_particle_ids=skip_particle_ids)
 
     def cnn(self, transforms_=(Resize(180), ToTensor()), pretrained=None):
         with torch.no_grad():
@@ -595,10 +620,12 @@ class GdpytImageInference(object):
                                    "before infering using a deep learning model")
             if self.calib_set.cnn_data_params['normalize_dataset']:
                 logger.info(
-                    "Setting normalization parameters of prediction set to {}".format(self.calib_set.cnn_data_params['stats']))
+                    "Setting normalization parameters of prediction set to {}".format(
+                        self.calib_set.cnn_data_params['stats']))
                 transforms_.append(Normalize(**self.calib_set.cnn_data_params['stats']))
             predict_dset = GdpytInceptionDataset(transforms=Compose(transforms_),
-                                                 normalize_per_sample=self.calib_set.cnn_data_params['normalize_per_sample'],
+                                                 normalize_per_sample=self.calib_set.cnn_data_params[
+                                                     'normalize_per_sample'],
                                                  normalize_dataset=self.calib_set.cnn_data_params['normalize_dataset'])
             predict_dset.from_image_collections(self.collection, template_shape=self.calib_set.cnn_data_params['shape'],
                                                 max_size=self.calib_set.cnn_data_params['max_size'],

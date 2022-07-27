@@ -6,6 +6,8 @@ from scipy.optimize import curve_fit
 from skimage.feature import match_template
 import numpy as np
 
+from gdpyt.subpixel_localization.gaussian import fit_2d_gaussian_on_ccorr
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -62,13 +64,20 @@ def sk_norm_cross_correlation(img1, img2):
         logger.warning("Unable to correlate mismatched templates: (img1, img2): ({}, {})".format(img1.shape, img2.shape))
         result = np.nan
 
+    # max correlation
     cm = np.max(result)
 
     # x,y coordinates in the image space where the highest correlation was found
     ij = np.unravel_index(np.argmax(result), result.shape)
     x, y = ij[::-1]
 
-    return cm, x, y
+    # sub-pixel localization
+    if np.size(result) > 5:
+        xg, yg = fit_2d_gaussian_on_ccorr(result, x, y)
+    else:
+        xg, yg = None, None
+
+    return cm, x, y, xg, yg
 
 
 def max_cross_correlation(img1, img2):

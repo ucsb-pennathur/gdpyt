@@ -13,43 +13,81 @@ from skimage.morphology import disk, square
 
 # outdated parameters
 calib_col, calib_set = None, None
-known_z, num_test_images, nl = None, 470, 2
+known_z, num_test_images, nl = None, 500, 15
 
 # ----- ----- ----- ----- TEST DATASET UNPACKER ----- ----- ----- ----- ----- ----- -----
 
-test_dataset = '11.02.21-BPE_Pressure_Deflection_20X'  # '10.07.21-BPE_Pressure_Deflection'
-particle_distribution = 'off-bpe'
-sweep_method = 'spct'
-sweep_params = [['calib2', 'calib3']]
+test_dataset = '11.06.21_z-micrometer-v2'
+particle_distribution = 'SILPURAN'
+sweep_method = 'micrometer_5um'
+sweep_params = [15, 16, 17]
+calib_stack_id = None  # 'nearest'
 
-# generate calibration collection and calibration set
-calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration',
+single_particle_calibration = False
+static_templates = True
+hard_baseline = True
+particles_overlapping = False
+
+"""# generate calibration collection and calibration set
+calib_settings = dataset_unpacker(dataset=test_dataset,
+                                  collection_type='calibration',
+                                  noise_level=nl,
+                                  number_of_images=num_test_images,
                                   particle_distribution=particle_distribution,
-                                  single_particle_calibration=True,
-                                  static_templates=False,
-                                  hard_baseline=False,
-                                  particles_overlapping=False,
+                                  particle_density=None,
+                                  single_particle_calibration=single_particle_calibration,
+                                  static_templates=static_templates,
+                                  hard_baseline=hard_baseline,
+                                  particles_overlapping=particles_overlapping,
                                   sweep_method=sweep_method,
-                                  sweep_param=sweep_params[0],
-                                  use_stack_id='best').unpack()
+                                  sweep_param='gen-cal').unpack()
 calib_col, calib_set = GdpytCharacterize.test(calib_settings, test_settings=None, return_variables='calibration')
-
+"""
 
 # GDPyT test collection
 
-pp = True
+pp = False
 if pp:
     for sweep_param in sweep_params:
         if test_dataset == '10.07.21-BPE_Pressure_Deflection':
-            calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration',
+            """calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration',
                                               particle_distribution=particle_distribution,
                                               single_particle_calibration=True, static_templates=False,
                                               hard_baseline=False, particles_overlapping=False, sweep_method=sweep_method,
-                                              sweep_param=sweep_param, use_stack_id='best').unpack()
-            test_settings = dataset_unpacker(dataset=test_dataset, collection_type='meta-test',
-                                             static_templates=False, single_particle_calibration=True, hard_baseline=False,
-                                             particles_overlapping=False, sweep_method=sweep_method, sweep_param=sweep_param,
-                                             use_stack_id='best', particle_distribution=particle_distribution).unpack()
+                                              sweep_param=sweep_param, use_stack_id='best').unpack()"""
+            test_settings = dataset_unpacker(dataset=test_dataset,
+                                             collection_type='test',
+                                             static_templates=static_templates,
+                                             single_particle_calibration=single_particle_calibration,
+                                             hard_baseline=hard_baseline,
+                                             particles_overlapping=particles_overlapping,
+                                             sweep_method=sweep_method,
+                                             sweep_param=sweep_param,
+                                             use_stack_id=calib_stack_id,
+                                             particle_distribution=particle_distribution).unpack()
+        elif test_dataset == '02.06.22_membrane_characterization':
+            calib_settings = dataset_unpacker(dataset=test_dataset,
+                                              collection_type='calibration',
+                                              noise_level=nl,
+                                              number_of_images=num_test_images,
+                                              particle_distribution=particle_distribution,
+                                              particle_density=None,
+                                              single_particle_calibration=single_particle_calibration,
+                                              static_templates=static_templates,
+                                              hard_baseline=hard_baseline,
+                                              particles_overlapping=particles_overlapping,
+                                              sweep_method=sweep_method,
+                                              sweep_param=sweep_param).unpack()
+            test_settings = dataset_unpacker(dataset=test_dataset,
+                                             collection_type='test',
+                                             particle_distribution=particle_distribution,
+                                             single_particle_calibration=single_particle_calibration,
+                                             static_templates=static_templates,
+                                             hard_baseline=hard_baseline,
+                                             particles_overlapping=particles_overlapping,
+                                             sweep_method=sweep_method,
+                                             sweep_param=sweep_param,
+                                             use_stack_id=calib_stack_id).unpack()
         elif test_dataset == '11.02.21-BPE_Pressure_Deflection_20X':
             """calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration',
                                               static_templates=True,
@@ -69,35 +107,49 @@ if pp:
                                              use_stack_id='best').unpack()
         elif test_dataset == '11.06.21_z-micrometer-v2':
             calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration',
-                                              static_templates=False, single_particle_calibration=True,
-                                              hard_baseline=False,
-                                              particles_overlapping=False,
+                                              static_templates=static_templates,
+                                              single_particle_calibration=single_particle_calibration,
+                                              hard_baseline=hard_baseline,
+                                              particles_overlapping=particles_overlapping,
                                               particle_distribution=particle_distribution,
-                                              sweep_method=sweep_method, sweep_param=sweep_param).unpack()
+                                              sweep_method=sweep_method,
+                                              sweep_param=sweep_param,
+                                              use_stack_id=calib_stack_id).unpack()
             test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test',
-                                             static_templates=False, single_particle_calibration=True,
-                                             hard_baseline=False,
-                                             particles_overlapping=False,
+                                             static_templates=static_templates,
+                                             single_particle_calibration=single_particle_calibration,
+                                             hard_baseline=hard_baseline,
+                                             particles_overlapping=particles_overlapping,
                                              particle_distribution=particle_distribution,
-                                             sweep_method=sweep_method, sweep_param=sweep_param,
-                                             use_stack_id=44).unpack()
+                                             sweep_method=sweep_method,
+                                             sweep_param=sweep_param,
+                                             use_stack_id=calib_stack_id).unpack()
         elif test_dataset == 'synthetic_overlap_noise-level':
-            calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration', noise_level=nl,
+            """calib_settings = dataset_unpacker(dataset=test_dataset,
+                                              collection_type='calibration',
+                                              noise_level=nl,
                                               number_of_images=num_test_images,
                                               particle_distribution=particle_distribution,
                                               particle_density=sweep_param,
-                                              single_particle_calibration=False, static_templates=True,
-                                              hard_baseline=True, particles_overlapping=False,
+                                              single_particle_calibration=single_particle_calibration,
+                                              static_templates=static_templates,
+                                              hard_baseline=hard_baseline,
+                                              particles_overlapping=particles_overlapping,
                                               sweep_method=sweep_method,
-                                              sweep_param=sweep_param).unpack()
-            test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test', noise_level=nl,
+                                              sweep_param=sweep_param).unpack()"""
+            test_settings = dataset_unpacker(dataset=test_dataset,
+                                             collection_type='test',
+                                             noise_level=nl,
                                              number_of_images=num_test_images,
                                              particle_distribution=particle_distribution,
                                              particle_density=sweep_param,
-                                             single_particle_calibration=False, static_templates=True,
-                                             hard_baseline=True, particles_overlapping=False,
-                                             sweep_method=sweep_method, sweep_param=sweep_param,
-                                             use_stack_id=None).unpack()
+                                             single_particle_calibration=single_particle_calibration,
+                                             static_templates=static_templates,
+                                             hard_baseline=hard_baseline,
+                                             particles_overlapping=particles_overlapping,
+                                             sweep_method=sweep_method,
+                                             sweep_param=sweep_param,
+                                             use_stack_id=calib_stack_id).unpack()
         elif test_dataset == '10X_1Xmag_2.15umNR_HighInt_0.12XHg':
             test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test',
                                              static_templates=False, single_particle_calibration=True,
@@ -140,19 +192,6 @@ if pp:
                                                  particles_overlapping=False, sweep_method=sweep_method,
                                                  sweep_param=sweep_param,
                                                  use_stack_id=19, particle_distribution=particle_distribution).unpack()
-            elif test_dataset == '02.06.22_membrane_characterization':
-                """calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration',
-                                              particle_distribution=particle_distribution,
-                                              single_particle_calibration=False, static_templates=True,
-                                              hard_baseline=True, particles_overlapping=True, sweep_method=sweep_method,
-                                              sweep_param=sweep_param, use_stack_id=None).unpack()"""
-                test_settings = dataset_unpacker(dataset=test_dataset, collection_type='meta-test',
-                                                 static_templates=True, single_particle_calibration=False,
-                                                 hard_baseline=True,
-                                                 particles_overlapping=True,
-                                                 particle_distribution=particle_distribution,
-                                                 sweep_method=sweep_method, sweep_param=sweep_param,
-                                                 use_stack_id=None).unpack()
             elif test_dataset == '11.06.21_z-micrometer-v2':
                 calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration',
                                                   static_templates=False, single_particle_calibration=True,
@@ -298,33 +337,68 @@ if pp:
 # ----- ----- ----- ----- Synthetic Experiment Validation - Static --- -- ----- ----- ----- ----- ----- ----- ----- ----
 
 # ----- ----- ----- ----- Synthetic Experiment Validation - Static --- -- ----- ----- ----- ----- ----- ----- ----- ----
-multi = False
+multi = True
 if multi:
 
     calib_col, calib_set = None, None
-    known_z = None
-    num_test_images = 10
-    nl = 1
+    """
+    test_dataset = '11.06.21_z-micrometer-v2'
+    particle_distribution = 'SILPURAN'
+    sweep_method = 'micrometer_5um'
+    sweep_params = [[0, 5], [0, 3], [0, 0]]  #
+    calib_stack_id = 46  # 'nearest'
+    """
+    single_particle_calibration = True
+    static_templates = True
+    hard_baseline = True
+    particles_overlapping = False
 
-    test_dataset = '20X_1Xmag_0.87umNR'  #
-    particle_distribution = 'glass'
-    sweep_method = 'meta'  # 'micrometer_5um'
-    sweep_params = ['spct']
+
+    sweep_params = [34, 40, 51, 54]
 
     # generate calibration collection and calibration set
-    calib_settings = dataset_unpacker(dataset=test_dataset, collection_type='calibration',
+    calib_settings = dataset_unpacker(dataset=test_dataset,
+                                      collection_type='calibration',
+                                      noise_level=nl,
+                                      number_of_images=num_test_images,
                                       particle_distribution=particle_distribution,
-                                      single_particle_calibration=True, static_templates=False,
-                                      hard_baseline=False, particles_overlapping=False, sweep_method=sweep_method,
-                                      sweep_param='spct-cal', use_stack_id='best').unpack()
+                                      particle_density=None,
+                                      single_particle_calibration=single_particle_calibration,
+                                      static_templates=static_templates,
+                                      hard_baseline=hard_baseline,
+                                      particles_overlapping=particles_overlapping,
+                                      sweep_method=sweep_method,
+                                      sweep_param='gen-cal-spct').unpack()
+
     calib_col, calib_set = GdpytCharacterize.test(calib_settings, test_settings=None, return_variables='calibration')
 
     for sweep_param in sweep_params:
-
-        test_settings = dataset_unpacker(dataset=test_dataset, collection_type='test',
-                                         static_templates=False, single_particle_calibration=True, hard_baseline=False,
-                                         particles_overlapping=False, sweep_method=sweep_method, sweep_param=sweep_param,
-                                         use_stack_id=sweep_param, particle_distribution=particle_distribution).unpack()
+        """calib_settings = dataset_unpacker(dataset=test_dataset,
+                                          collection_type='calibration',
+                                          noise_level=nl,
+                                          number_of_images=num_test_images,
+                                          particle_distribution=particle_distribution,
+                                          particle_density=sweep_param,
+                                          single_particle_calibration=single_particle_calibration,
+                                          static_templates=static_templates,
+                                          hard_baseline=hard_baseline,
+                                          particles_overlapping=particles_overlapping,
+                                          sweep_method=sweep_method,
+                                          sweep_param=sweep_param,
+                                          use_stack_id=calib_stack_id).unpack()"""
+        test_settings = dataset_unpacker(dataset=test_dataset,
+                                         collection_type='test',
+                                         noise_level=nl,
+                                         number_of_images=num_test_images,
+                                         particle_distribution=particle_distribution,
+                                         particle_density=None,
+                                         single_particle_calibration=single_particle_calibration,
+                                         static_templates=static_templates,
+                                         hard_baseline=hard_baseline,
+                                         particles_overlapping=particles_overlapping,
+                                         sweep_method=sweep_method,
+                                         sweep_param=sweep_param,
+                                         use_stack_id=sweep_param).unpack()
 
         if calib_col is not None:
             GdpytCharacterize.test(calib_settings, test_settings, calib_col=calib_col, calib_set=calib_set,
@@ -332,6 +406,6 @@ if multi:
         else:
             GdpytCharacterize.test(calib_settings, test_settings, calib_col=None, calib_set=None, return_variables=None)
 
-
+# -----
 
 print('Analysis completed without errors.')

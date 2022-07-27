@@ -13,19 +13,19 @@ from os.path import join
 from gdpyt.utils.generate_image_txts import generate_uniform_z_grid_xy_translate
 
 folder = r'/Users/mackenzie/Desktop/synthetic'
-#settings_path = r'/Users/mackenzie/Desktop/gdpyt-characterization/datasets/synthetic_overlap_noise-level1/random/particle_density_7.5e-3/settings.txt'
+# settings_path = r'/Users/mackenzie/Desktop/gdpyt-characterization/datasets/synthetic_overlap_noise-level1/random/particle_density_7.5e-3/settings.txt'
 
 # settings
-n_calib = 71
-n_test = 200
-grid = (2, 2)  # (12, 12)
+n_calib = 66
+n_test = 300
+grid = None  # (14, 12)  # (12, 12)
 particle_diameter = 2.15
-overlap_scaling = None
+overlap_scaling = 1  # 0.75
 particle_densities = None
 particle_density = None
 
 # z-coordinate
-range_z = (-45, 25)  # used for random z-coordinate assignment: TEST
+range_z = (-50, 15)  # used for random z-coordinate assignment: TEST
 z_levels = np.linspace(range_z[0], range_z[1], n_calib)  # used for uniform z-coordinate assignment: CALIBRATION
 z_levels = np.round(z_levels, 5)
 zt_levels = np.linspace(range_z[0], range_z[1], n_test)  # used for uniform z-coordinate assignment: TEST
@@ -36,16 +36,16 @@ setup_params = dict(
     particle_diameter=particle_diameter,  # diameter of particle
     magnification=10,  # magnification of the simulated lens
     numerical_aperture=0.3,  # numerical aperture
-    focal_length=350,  # must be chosen empirically by comparison with real images (typically, 350)
+    focal_length=75,  # 350, must be chosen empirically by comparison with real images (typically, 350)
     ri_medium=1,  # refractive index of immersion medium of the light path (typically, 1)
     ri_lens=1.5,  # refractive index of immersion medium of the lens glass (typically, 1.5)
-    pixel_size=6.5,  # 6.5; size of the side of a square pixel (in microns)
-    pixel_dim_x=256,  # number of pixels in x-direction
-    pixel_dim_y=256,  # number of pixels in y-direction
-    background_mean=500,  # constant value of the image background
-    background_noise=50,  # amplitude of the Gaussian noise added to the image
-    points_per_pixel=40,  # number of point sources in a particle (decrease for larger p's) (typically, 10-20)
-    n_rays=1000,  # number of rays for point source (typically, 100-500; 500 is better quality)
+    pixel_size=16,  # 6.5; size of the side of a square pixel (in microns)
+    pixel_dim_x=1024,  # number of pixels in x-direction
+    pixel_dim_y=512,  # number of pixels in y-direction
+    background_mean=100,  # constant value of the image background
+    background_noise=15,  # amplitude of the Gaussian noise added to the image
+    points_per_pixel=20,  # number of point sources in a particle (decrease for larger p's) (typically, 10-20)
+    n_rays=500,  # number of rays for point source (typically, 100-500; 500 is better quality)
     gain=1,  # additional gain to increase or decrease image intensity
     cyl_focal_length=0,
     # (0 if no cylindrical lens is used) for astigmatic imaging; must be chosen empirically based on real images (typically, 400)
@@ -55,7 +55,6 @@ setup_params = dict(
 
 # Generate settings file
 settings_dict, settings_path = generate_sig_settings(setup_params, folder=folder)
-
 
 """
 Generate particle coordinate .txt files:
@@ -72,7 +71,7 @@ Generate particle coordinate .txt files:
     * Generate images according to z-levels where all particles are at the same z-coordinate.
 """
 # for calibration sets:
-generate_uniform_z_grid(settings_path, grid, z_levels, particle_diameter, create_multiple=None, dataset='calibration')
+# generate_uniform_z_grid(settings_path, grid, z_levels, particle_diameter, create_multiple=None, dataset='calibration')
 
 # for test sets:
 # generate_uniform_z_grid(settings_path, grid, zt_levels, particle_diameter, create_multiple=None, dataset='test')
@@ -134,15 +133,23 @@ generate_grid_calibration(settings_path, grid, z_levels=z_levels, particle_diame
     * Generate images according to z-levels with linearly-arrayed overlapped particles at random z-coordinates with
     additional z-noise
     * Note: all particle pairs are at random z-coordinates but each particle pair is at an identical z-coordinate.
+"""
+"""generate_image_txts.generate_paired_random_z_plus_noise_overlap_grid_calibration(settings_path,
+                                                                                 n_calib,
+                                                                                 grid,
+                                                                                 z_levels,
+                                                                                 particle_diameter,
+                                                                                 overlap_scaling,
+                                                                                 )"""
 
 generate_image_txts.generate_paired_random_z_plus_noise_overlap_grid(settings_path,
                                                                      n_test,
                                                                      grid,
                                                                      range_z,
                                                                      particle_diameter,
-                                                                     overlap_scaling
+                                                                     overlap_scaling,
                                                                      )
-"""
+
 # ------------------------- ------------------------- ------------------------- ------------------------- -------------
 
 """ 
@@ -174,14 +181,14 @@ generate_random_z_density_distribution(settings_path, n_test, particle_density, 
 # ------------------------- ------------------------- ------------------------- ------------------------- -------------
 
 # Create calibration images
-calibtxt_folder = join(folder, 'calibration_input')
+"""calibtxt_folder = join(folder, 'calibration_input')
 calibimg_folder = join(folder, 'calibration_images')
-generate_synthetic_images(settings_path, calibtxt_folder, calibimg_folder)
+generate_synthetic_images(settings_path, calibtxt_folder, calibimg_folder)"""
 
 # Create test images .tif
-"""testtxt_folder = join(folder, 'test_input')
+testtxt_folder = join(folder, 'test_input')
 testimg_folder = join(folder, 'test_images')
-generate_synthetic_images(settings_path, testtxt_folder, testimg_folder)"""
+generate_synthetic_images(settings_path, testtxt_folder, testimg_folder)
 
 """
 testtxt_folder = join(folder, 'grid-random-z-input')
@@ -204,17 +211,6 @@ testtxt_folder = join(folder, 'test_0.01_input')
 testimg_folder = join(folder, 'test_0.01_images')
 generate_synthetic_images(settings_path, testtxt_folder, testimg_folder)
 """
-
-
-
-
-
-
-
-
-
-
-
 
 """
 Generate particle distributions based on particle density
@@ -272,3 +268,5 @@ testimg_folder = join(folder, 'images')
 generate_synthetic_images(settings_path, testtxt_folder, testimg_folder)
 
 """
+
+print("Synthetic particle generation completed without errors.")

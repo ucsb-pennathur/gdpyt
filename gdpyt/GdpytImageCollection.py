@@ -396,6 +396,10 @@ class GdpytImageCollection(object):
         if background_subtraction_method == 'manual':
             background_img = np.ones((sizey, sizex), dtype=np.uint16) * background_subtraction_param
 
+        elif background_subtraction_method == 'median':
+            background_imgs = [i.raw for i in list(self.images.values())]
+            background_img = np.median(background_imgs, axis=0)
+
         elif background_subtraction_method == 'baseline_image_subtraction':
             baseline_image = self.images[self.baseline].raw
 
@@ -920,10 +924,6 @@ class GdpytImageCollection(object):
 
     def calculate_particle_to_particle_spacing(self, max_n_neighbors=10, theoretical_diameter_params=None):
         """
-
-        Returns
-        -------
-
         """
         if theoretical_diameter_params is not None:
             mag_eff = theoretical_diameter_params[0]
@@ -963,7 +963,7 @@ class GdpytImageCollection(object):
 
                 mean_dx_all = np.mean(distance)
                 min_dx_all = np.min(distance)
-                percent_dx_diameter = (min_dx_all - mean_diameter) / min_dx_all
+                percent_dx_diameter = mean_diameter / min_dx_all
                 num_dx_all = temp_max_n_neighbors - 1
 
                 overlapping_dists = distance[distance < mean_diameter]
@@ -1019,7 +1019,6 @@ class GdpytImageCollection(object):
 
             for img in self.images.values():
                 [p.add_particle_in_image(pid_frames) for p in img.particles if p.id == pid]
-
 
     def get_particles_in_images(self, particle_id=None):
         # get particles in every image
@@ -1386,7 +1385,7 @@ class GdpytImageCollection(object):
                 locz = p.z
                 locx = p.location[0]
                 locy = p.location[1]
-                dist_r = np.sqrt((locx - img_xc)**2 + (locy - img_yc)**2)
+                dist_r = np.sqrt((locx - img_xc) ** 2 + (locy - img_yc) ** 2)
 
                 # image
                 peak_int = p.peak_intensity
@@ -1463,9 +1462,11 @@ class GdpytImageCollection(object):
                        'mean_dxo', 'num_dxo', 'percent_dx_diameter']
         else:
 
-            columns = ['frame', 'id', 'z_true', 'z', 'x', 'y', 'r', 'peak_int', 'mean_int', 'bkg_mean', 'bkg_noise', 'snr',
+            columns = ['frame', 'id', 'z_true', 'z', 'x', 'y', 'r', 'peak_int', 'mean_int', 'bkg_mean', 'bkg_noise',
+                       'snr',
                        'nsv', 'nsv_signal', 'contour_area', 'contour_diameter', 'solidity', 'thinness_ratio',
-                       'gauss_A', 'gauss_xc', 'gauss_yc', 'gauss_dia_x', 'gauss_dia_y', 'gauss_diameter', 'gauss_dia_x_y',
+                       'gauss_A', 'gauss_xc', 'gauss_yc', 'gauss_dia_x', 'gauss_dia_y', 'gauss_diameter',
+                       'gauss_dia_x_y',
                        'gauss_sigma_x', 'gauss_sigma_y', 'gauss_sigma_x_y', 'mean_dx', 'min_dx', 'num_dx',
                        'mean_dxo', 'num_dxo', 'percent_dx_diameter']
 
@@ -1473,7 +1474,7 @@ class GdpytImageCollection(object):
 
         self.spct_stats = df
 
-    def calculate_spct_stats(self, filter_percent_frames=0.5):
+    def calculate_spct_stats(self, param_zf, filter_percent_frames=0.5):
         """
         Processing Pipeline:
             1.
@@ -1527,6 +1528,11 @@ class GdpytImageCollection(object):
 
             if num_frames < filter_percent_frames * total_num_frames:
                 continue
+
+            # 0.0 x-y location
+            x = dfpid.x.mean()
+            y = dfpid.y.mean()
+            r = dfpid.r.mean()
 
             # 1.0 IN-FOCUS Z
             z = dfpid.z_true.to_numpy()
@@ -1593,8 +1599,8 @@ class GdpytImageCollection(object):
             k3_zmin = mean_min_dia / mean_zmin_dia
             k3_zmax = mean_min_dia / mean_zmax_dia
 
-            datum = [pid, num_frames, zf_nearest_calib,
-                     zf_peak_int, zf_nsv, zf_nsv_signal, zf_from_dia_mean,
+            datum = [pid, x, y, r, num_frames,
+                     zf_nearest_calib, zf_peak_int, zf_nsv, zf_nsv_signal, zf_from_dia_mean,
                      at_zf_peak_int, at_zmin_peak_int, at_zmax_peak_int,
                      at_zf_snr, at_zmin_snr, at_zmax_snr,
                      mean_min_dia, mean_zmin_dia, mean_zmax_dia, k3_zmin, k3_zmax,
@@ -1607,14 +1613,20 @@ class GdpytImageCollection(object):
             data.append(datum)
 
             # lastly, set particle values
+            if param_zf == 'zf_nsv':
+                pid_zf = zf_nsv
+            elif param_zf == 'zf_peak_int':
+                pid_zf = zf_peak_int
+
+            # lastly, set particle values
             for img in self.images.values():
                 for p in img.particles:
                     if p.id == pid:
-                        p.set_in_focus_z(zf_peak_int)
-                        p.set_in_focus_area(np.pi * mean_min_dia**2 / 4)
+                        p.set_in_focus_z(pid_zf)
+                        p.set_in_focus_area(np.pi * mean_min_dia ** 2 / 4)
                         p.set_in_focus_intensity(at_zf_peak_int)
 
-        columns = ['id', 'num_frames',
+        columns = ['id', 'x', 'y', 'r', 'num_frames',
                    'zf_nearest_calib', 'zf_from_peak_int', 'zf_from_nsv', 'zf_from_nsv_signal', 'zf_from_dia',
                    'zf_peak_int', 'zmin_peak_int', 'zmax_peak_int',
                    'zf_snr', 'zmin_snr', 'zmax_snr',
@@ -1629,7 +1641,111 @@ class GdpytImageCollection(object):
         self.spct_particle_defocus_stats = df
         self.population_statistics_spct_stats()
 
-    def calculate_idpt_stats(self, filter_percent_frames=0.5):
+    def calculate_idpt_stats_gaussian(self, param_zf, filter_percent_frames=0.5):
+
+        df = self.spct_stats
+        total_num_frames = len(df.frame.unique())
+        pids = df.id.unique()
+
+        data = []
+        for pid in pids:
+            # 0.0 DATAFRAME OF PARTICLE ID
+            dfpid = df[df['id'] == pid]
+
+            dfpid = dfpid.dropna()
+
+            dfpid = dfpid.sort_values('z_true').reset_index()
+            num_frames = len(dfpid.z_true)
+
+            if num_frames < filter_percent_frames * total_num_frames:
+                continue
+
+            # 0.0 x-y location
+            x = dfpid.x.mean()
+            y = dfpid.y.mean()
+            r = dfpid.r.mean()
+
+            # 1.0 IN-FOCUS Z
+            z = dfpid.z_true.to_numpy()
+
+            # in-focus z (peak intensity, normalized squared variance (nsv) of template pixels, nsv of signal pixels)
+            intensity = dfpid.peak_int.to_numpy()
+            amplitude = dfpid.gauss_A.to_numpy()
+            nsv = dfpid.nsv.to_numpy()
+            nsv_signal = dfpid.nsv_signal.to_numpy()
+            ylabels = ['intensity', 'amplitude', 'nsv', 'nsv signal']
+            z_maxs = gaussian.calculate_maximum_of_fitted_gaussian_1d(x=z,
+                                                                      y=[intensity, amplitude, nsv, nsv_signal],
+                                                                      normalize=True,
+                                                                      show_plot=False,
+                                                                      ylabels=ylabels)
+            print("pid {}: {}".format(pid, z_maxs))
+            zf_peak_int, zf_gauss_A, zf_nsv, zf_nsv_signal = z_maxs[0], z_maxs[1], z_maxs[2], z_maxs[3]
+
+            if zf_peak_int == np.nan:
+                zf_peak_int = np.mean(z_maxs)
+            if zf_gauss_A == np.nan:
+                zf_gauss_A = np.mean(z_maxs)
+            if zf_nsv == np.nan:
+                zf_nsv = np.mean(z_maxs)
+            if zf_nsv_signal == np.nan:
+                zf_nsv_signal = np.mean(z_maxs)
+
+            # analyze in-focus stats
+            zf_index = np.argmin(np.abs(z - zf_nsv))
+            zf_nearest_calib = dfpid.iloc[zf_index].z_true
+            at_zf_peak_int = dfpid.iloc[zf_index].peak_int
+            at_zf_gauss_A = dfpid.iloc[zf_index].gauss_A
+            at_zf_snr = dfpid.iloc[zf_index].snr
+            at_zf_min_dx = dfpid.iloc[zf_index].min_dx
+            at_zf_percent_dx_diameter = dfpid.iloc[zf_index].percent_dx_diameter
+
+            # analyze z-min stats
+            at_zmin_peak_int = dfpid.iloc[0].peak_int
+            at_zmin_snr = dfpid.iloc[0].snr
+            at_zmin_min_dx = dfpid.iloc[0].min_dx
+            at_zmin_percent_dx_diameter = dfpid.iloc[0].percent_dx_diameter
+
+            # analyze z-max stats
+            at_zmax_peak_int = dfpid.iloc[-1].peak_int
+            at_zmax_snr = dfpid.iloc[-1].snr
+            at_zmax_min_dx = dfpid.iloc[-1].min_dx
+            at_zmax_percent_dx_diameter = dfpid.iloc[-1].percent_dx_diameter
+
+            datum = [pid, x, y, r, num_frames,
+                     zf_nearest_calib, zf_peak_int, zf_gauss_A, zf_nsv, zf_nsv_signal,
+                     at_zf_peak_int, at_zf_gauss_A, at_zmin_peak_int, at_zmax_peak_int,
+                     at_zf_snr, at_zmin_snr, at_zmax_snr,
+                     at_zf_min_dx, at_zmin_min_dx, at_zmax_min_dx,
+                     at_zf_percent_dx_diameter, at_zmin_percent_dx_diameter, at_zmax_percent_dx_diameter,
+                     ]
+
+            data.append(datum)
+
+            # lastly, set particle values
+            if param_zf == 'gauss_A':
+                pid_zf = zf_gauss_A
+                pid_zf_intensity = at_zf_gauss_A
+
+            for img in self.images.values():
+                for p in img.particles:
+                    if p.id == pid:
+                        p.set_in_focus_z(pid_zf)
+                        p.set_in_focus_intensity(pid_zf_intensity)
+
+        columns = ['id', 'x', 'y', 'r', 'num_frames',
+                   'zf_nearest_calib', 'zf_from_peak_int', 'zf_from_gauss_A', 'zf_from_nsv', 'zf_from_nsv_signal',
+                   'zf_peak_int', 'zf_gauss_A', 'zmin_peak_int', 'zmax_peak_int',
+                   'zf_snr', 'zmin_snr', 'zmax_snr',
+                   'zf_min_dx', 'zmin_min_dx', 'zmax_min_dx',
+                   'zf_percent_dx_diameter', 'zmin_percent_dx_diameter', 'zmax_percent_dx_diameter',
+                   ]
+        df = pd.DataFrame(data, columns=columns)
+
+        self.spct_particle_defocus_stats = df
+        self.population_statistics_spct_stats()
+
+    def calculate_idpt_stats(self, param_zf, filter_percent_frames=0.5):
 
         df = self.spct_stats
         total_num_frames = len(df.frame.unique())
@@ -1644,6 +1760,11 @@ class GdpytImageCollection(object):
 
             if num_frames < filter_percent_frames * total_num_frames:
                 continue
+
+            # 0.0 x-y location
+            x = dfpid.x.mean()
+            y = dfpid.y.mean()
+            r = dfpid.r.mean()
 
             # 1.0 IN-FOCUS Z
             z = dfpid.z_true.to_numpy()
@@ -1678,8 +1799,8 @@ class GdpytImageCollection(object):
             at_zmax_min_dx = dfpid.iloc[-1].min_dx
             at_zmax_percent_dx_diameter = dfpid.iloc[-1].percent_dx_diameter
 
-            datum = [pid, num_frames, zf_nearest_calib,
-                     zf_peak_int, zf_nsv, zf_nsv_signal,
+            datum = [pid, x, y, r, num_frames,
+                     zf_nearest_calib, zf_peak_int, zf_nsv, zf_nsv_signal,
                      at_zf_peak_int, at_zmin_peak_int, at_zmax_peak_int,
                      at_zf_snr, at_zmin_snr, at_zmax_snr,
                      at_zf_min_dx, at_zmin_min_dx, at_zmax_min_dx,
@@ -1692,11 +1813,11 @@ class GdpytImageCollection(object):
             for img in self.images.values():
                 for p in img.particles:
                     if p.id == pid:
-                        p.set_in_focus_z(zf_peak_int)
-                        p.set_in_focus_area(np.pi * dfpid.contour_diameter.min()**2 / 4)
+                        p.set_in_focus_z(param_zf)
+                        p.set_in_focus_area(np.pi * dfpid.contour_diameter.min() ** 2 / 4)
                         p.set_in_focus_intensity(at_zf_peak_int)
 
-        columns = ['id', 'num_frames',
+        columns = ['id', 'x', 'y', 'r', 'num_frames',
                    'zf_nearest_calib', 'zf_from_peak_int', 'zf_from_nsv', 'zf_from_nsv_signal',
                    'zf_peak_int', 'zmin_peak_int', 'zmax_peak_int',
                    'zf_snr', 'zmin_snr', 'zmax_snr',
@@ -1739,16 +1860,19 @@ class GdpytImageCollection(object):
 
         coords = []
         for img in self.images.values():
-            [coords.append([img.frame, p.id, p.z_true, p.in_focus_z, p.gauss_dia_x, p.gauss_dia_y]) for p in img.particles]
+            [coords.append([img.frame, p.id, p.z_true, p.in_focus_z, p.gauss_dia_x, p.gauss_dia_y]) for p in
+             img.particles]
 
         df = pd.DataFrame(data=coords, columns=['frame', 'id', 'z_true', 'zf', 'dia_x', 'dia_y'])
 
-        df['z_corr'] = df['zf'] - df['z_true']
+        df = df.dropna()
+
+        df['z_corr'] = df['z_true'] - df['zf']
         df['mean_dia'] = (df['dia_x'] + df['dia_y']) / 2
         df = df.sort_values('z_corr')
 
         # sometimes only a narrower range will fit without errors
-        dfz_narrow = df[(df.z_corr > -60) & (df.z_corr < 60)]
+        dfz_narrow = df[(df.z_corr > -30) & (df.z_corr < 30)]
 
         # in-focus z (diameter)
         z = dfz_narrow.z_corr
@@ -1860,6 +1984,8 @@ class GdpytImageCollection(object):
                                                 'area_f', 'area',
                                                 'snr', 'mean_int', 'mean_bkg', 'std_bkg'])
 
+        df = df.dropna()
+
         dfg = df.groupby(by='id').mean()
         z_in_focus_mean = dfg.z_f.mean()
 
@@ -1883,11 +2009,12 @@ class GdpytImageCollection(object):
                 frame_id = float(img.filename.split(self.file_basestring)[-1].split(self.filetype)[0])
                 [coords.append(
                     [frame_id, p.id, p.inference_stack_id, p.z_true, p.z, p.location[0], p.location[1], p.x_true,
-                     p.y_true, p.cm, p.max_sim, p.match_location[0], p.match_location[1]]) for p in img.particles]
+                     p.y_true, p.cm, p.max_sim, p.match_location[0], p.match_location[1],
+                     p.match_localization[0], p.match_localization[1]]) for p in img.particles]
 
             # read coords into dataframe
             df = pd.DataFrame(data=coords, columns=['frame', 'id', 'stack_id', 'z_true', 'z', 'x', 'y', 'x_true',
-                                                    'y_true', 'cm', 'max_sim', 'xm', 'ym'])
+                                                    'y_true', 'cm', 'max_sim', 'xm', 'ym', 'xg', 'yg'])
         else:
             for img in self.images.values():
                 frame_id = float(img.filename.split(self.file_basestring)[-1].split(self.filetype)[0])
@@ -1899,6 +2026,7 @@ class GdpytImageCollection(object):
                                     p.location[0], p.location[1],
                                     p.cm, p.max_sim,
                                     p.match_location[0], p.match_location[1],
+                                    p.match_localization[0], p.match_localization[1],
                                     p.location_on_template[0], p.location_on_template[1],
                                     p.gauss_xc, p.gauss_yc,
                                     p.gauss_A, p.gauss_sigma_x, p.gauss_sigma_y]) for p in img.particles]
@@ -1909,6 +2037,7 @@ class GdpytImageCollection(object):
                                                'x', 'y',
                                                'cm', 'max_sim',
                                                'xm', 'ym',
+                                               'xg', 'yg',
                                                'x_on_template', 'y_on_template',
                                                'gauss_xc', 'gauss_yc',
                                                'gauss_A', 'gauss_sigma_x', 'gauss_sigma_y'])
@@ -1918,6 +2047,7 @@ class GdpytImageCollection(object):
                                     p.location[0], p.location[1],
                                     p.cm, p.max_sim,
                                     p.match_location[0], p.match_location[1],
+                                    p.match_localization[0], p.match_localization[1],
                                     p.location_on_template[0], p.location_on_template[1]]) for p in img.particles]
 
                     df = pd.DataFrame(data=coords,
@@ -1926,6 +2056,7 @@ class GdpytImageCollection(object):
                                                'x', 'y',
                                                'cm', 'max_sim',
                                                'xm', 'ym',
+                                               'xg', 'yg',
                                                'x_on_template', 'y_on_template'])
 
         # sort the dataframe by true_z
@@ -1974,7 +2105,8 @@ class GdpytImageCollection(object):
             img_sim.append(img_average_sim)
             img_z.append(img.z)
 
-        df_img_average_sim = pd.DataFrame(data=img_sim, index=img_z, columns=['sim'])
+        df_img_average_sim = pd.DataFrame(data=img_sim, index=img_z, columns=['cm'])
+        df_img_average_sim.index.name = 'z'
 
         collection_particle_sims = np.array(collection_particle_sims)
         df_collection_particle_sims = pd.DataFrame(data=collection_particle_sims,
@@ -2005,7 +2137,6 @@ class GdpytImageCollection(object):
 
         return df_sim
 
-
     def calculate_image_stats(self):
 
         stats = {
@@ -2019,6 +2150,23 @@ class GdpytImageCollection(object):
             'true_num_particles': np.mean(self.image_stats.true_num_particles)
         }
         return stats
+
+    def package_test_particle_image_stats(self):
+        coords = []
+        for img in self.images.values():
+            [coords.append([p.frame, p.id, p.z_true, p.z, p.location[0], p.location[1], p.cm,
+                            p.match_location[0], p.match_location[1],
+                            p.match_localization[0], p.match_localization[1],
+                            p.gauss_A, p.area, p.diameter, p.aspect_ratio, p.thinness_ratio, p.solidity,
+                            p.gauss_xc, p.gauss_yc,
+                            p.gauss_sigma_x, p.gauss_sigma_y]) for p in img.particles]
+
+        # read coords into dataframe
+        dft = pd.DataFrame(data=coords, columns=['frame', 'id', 'z_true', 'z', 'x', 'y', 'cm', 'xm', 'ym', 'xg', 'yg',
+                                                 'gauss_A', 'contour_area', 'contour_diameter', 'aspect_ratio',
+                                                 'thinness_ratio', 'solidity',
+                                                 'gauss_xc', 'gauss_yc', 'gauss_sigma_x', 'gauss_sigma_y'])
+        return dft
 
     # ----------------------------------------- ASSESS MEASUREMENT QUALITY (OLD) ---------------------------------------
 

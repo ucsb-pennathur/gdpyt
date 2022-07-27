@@ -101,12 +101,12 @@ class GdpytImage(object):
         return out_str
 
     def _add_particle(self, id_, contour, bbox, particle_mask, particle_collection_type=None, location=None,
-                      template_use_raw=False, fit_gauss=False):
+                      template_use_raw=False, fit_gauss=True):
         self._particles.append(GdpytParticle(self.raw, self.filtered, id_, contour, bbox,
                                              particle_mask_on_image=particle_mask,
                                              particle_collection_type=particle_collection_type,
                                              location=location, frame=self.frame, template_use_raw=template_use_raw,
-                                             fit_gauss=False))
+                                             fit_gauss=fit_gauss))
 
     def _update_processing_stats(self, names, values):
         if not isinstance(names, list):
@@ -309,20 +309,20 @@ class GdpytImage(object):
         if shape_tol is not None:
             assert 0 < shape_tol < 1
 
-        if self.frame in [0, 1, 2, 34, 36, 70, 120, 140, 148]:
-            show_threshold = True
-        else:
-            show_threshold = False
+        #if self.frame in [0, 1,]:  # [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 30, 40, 48, 50, 52, 60, 70, 80]:  #
+        #    show_threshold = True
+        #else:
+        show_threshold = False
 
         if particle_id_image is not None:
             """ Using static templates in this case """
             particle_mask = apply_threshold(particle_id_image, parameter=thresh_specs, min_particle_size=min_size,
-                                            padding=padding, overlapping_particles=overlapping_particles,
+                                            overlapping_particles=overlapping_particles,
                                             show_threshold=show_threshold).astype(np.uint16)
         else:
             """ Using dynamic templates in this case """
             particle_mask = apply_threshold(self.filtered, parameter=thresh_specs, min_particle_size=min_size,
-                                            padding=padding, overlapping_particles=overlapping_particles,
+                                            overlapping_particles=overlapping_particles,
                                             show_threshold=show_threshold).astype(np.uint16)
 
         """if self.filename in ['calib_1.tif', 'calib_33.tif', 'calib_77.tif']:
@@ -359,11 +359,12 @@ class GdpytImage(object):
             # filter on area
             area = region.area
             if area < min_size or area > max_size:
+                logger.warning("Region skipped b/c area {} < {} | area {} > {}".format(area, min_size, area, max_size))
                 skipped_contours.append(region.label)
                 continue
 
             # filter on length of minor axis
-            minor_axis_length_threshold = 2
+            minor_axis_length_threshold = 1.5
             if region.minor_axis_length < minor_axis_length_threshold:
                 logger.warning("Region skipped b/c minor axis length {} < {}".format(region.minor_axis_length,
                                                                                      minor_axis_length_threshold))
@@ -373,9 +374,9 @@ class GdpytImage(object):
             # filter on aspect ratio
             aspect_ratio = region.major_axis_length / region.minor_axis_length
             if image_collection_type == 'calibration':
-                aspect_ratio_threshold = 3  # IDPT: 3
+                aspect_ratio_threshold = 4  # IDPT: 3
             else:
-                aspect_ratio_threshold = 3  # IDPT: 3
+                aspect_ratio_threshold = 4  # IDPT: 3
             if aspect_ratio > aspect_ratio_threshold:
                 logger.warning("Region skipped b/c aspect ratio = {} > {}.".format(aspect_ratio, aspect_ratio_threshold))
                 skipped_contours.append(region.label)
@@ -391,63 +392,88 @@ class GdpytImage(object):
             bbox, bbox_center = self.pad_and_center_region(cX, cY, bbox, padding=padding)
 
             # discard contours that are too close to the image borders to include the desired padding
-            if bbox[0] - padding * 0.1 < 1 or bbox[1] - padding * 0.1 < 1:
-                # NOTE: the constant 0.1 used to be 0.5
-                skipped_contours.append(region.label)
-                print("FIRST FILTER: Skipped because template + padding near the image borders")
-                continue
-            elif bbox[0] + bbox[2] + padding * 0.1 >= self.shape[1] or bbox[1] + bbox[3] + padding * 0.1 >= self.shape[0]:
-                # NOTE: the constant 0.1 used to be 0.5
-                skipped_contours.append(region.label)
-                print("SECOND FILTER: Skipped because template + padding near the image borders")
-                continue
+            filter_borders = True
+            if filter_borders:
+                if bbox[0] - padding * 0.1 < 1 or bbox[1] - padding * 0.1 < 1:
+                    # NOTE: the constant 0.1 used to be 0.5
+                    skipped_contours.append(region.label)
+                    print("FIRST FILTER: Skipped because template + padding near the image borders")
+                    continue
+                elif bbox[0] + bbox[2] + padding * 0.1 >= self.shape[1] or bbox[1] + bbox[3] + padding * 0.1 >= self.shape[0]:
+                    # NOTE: the constant 0.1 used to be 0.5
+                    skipped_contours.append(region.label)
+                    print("SECOND FILTER: Skipped because template + padding near the image borders")
+                    continue
 
             # get particle image template
             xb, yb, wb, hb = bbox
             particle_image_template = self._filtered[yb: yb + hb, xb: xb + wb]
 
-            filter_on_gaussian = True
+            filter_on_gaussian = False
             if filter_on_gaussian:
                 dia_x, dia_y, A, yc, xc, sigmay, sigmax = fit_gaussian_calc_diameter(particle_image_template,  normalize=True)
                 if dia_x is None:
+                    """if aspect_ratio < 2:
+                        fig, [axl, axr] = plt.subplots(ncols=2, figsize=(6, 4))
+                        axl.imshow(particle_image_template)
+                        axl.set_title('image')
+                        axr.imshow(region.intensity_image)
+                        axr.set_title('contour')
+                        plt.suptitle("Gauss fitting failed")
+                        plt.show()
+                        plt.close()"""
                     logger.warning("Region skipped b/c Gaussian did not fit")
                     skipped_contours.append(region.label)
                     continue
 
+                if A > np.max(region.intensity_image) * 2.5:
+                    logger.warning("Region skipped b/c Gaussian amplitude > 2.5X peak intensity.")
+                    skipped_contours.append(region.label)
+                    continue
+
             show_skipped = False
-            old_school = True
+            old_school = False
 
             if old_school:
 
+                filter_on_solidity, filter_on_eccentricity = False, False
+
                 if not overlapping_particles:
                     # filter on circularity
-                    if image_collection_type == 'calibration':
-                        solidity_threshold = 0.775
-                    else:
-                        solidity_threshold = 0.8
-
-                    solidity = region.solidity
-                    if solidity < solidity_threshold:
-                        if show_skipped and solidity > solidity_threshold * 0.75:
-                            plt.imshow(particle_image_template)
-                            plt.title("solidity {} < {} threshold".format(np.round(solidity, 3), solidity_threshold))
-                            plt.show()
-                        logger.warning("Region skipped b/c solidity = {} < {}.".format(solidity, solidity_threshold))
-                        skipped_contours.append(region.label)
-                        continue
+                    if filter_on_solidity:
+                        solidity_threshold = 0.7
+                        solidity = region.solidity
+                        if solidity < solidity_threshold:
+                            if show_skipped and solidity > solidity_threshold * 0.75:
+                                fig, [axl, axr] = plt.subplots(ncols=2, figsize=(6, 4))
+                                axl.imshow(particle_image_template)
+                                axl.set_title('image')
+                                axr.imshow(region.filled_image)
+                                axr.set_title('contour')
+                                plt.suptitle("solidity {} < {} threshold".format(np.round(solidity, 3), solidity_threshold))
+                                plt.show()
+                                plt.close()
+                            logger.warning("Region skipped b/c solidity = {} < {}.".format(solidity, solidity_threshold))
+                            skipped_contours.append(region.label)
+                            continue
 
                     # filter on eccentricity
-
-                    eccentricity_threshold = 0.9
-                    eccentricity = region.eccentricity
-                    if eccentricity > eccentricity_threshold:
-                        if show_skipped and eccentricity < eccentricity_threshold * 1.25:
-                            plt.imshow(particle_image_template)
-                            plt.title("eccen {} > {} threshold".format(eccentricity, eccentricity_threshold))
-                            plt.show()
-                        logger.warning("Region skipped b/c eccentricity = {} > {}.".format(eccentricity, eccentricity_threshold))
-                        skipped_contours.append(region.label)
-                        continue
+                    if filter_on_eccentricity:
+                        eccentricity_threshold = 0.9
+                        eccentricity = region.eccentricity
+                        if eccentricity > eccentricity_threshold:
+                            if show_skipped and eccentricity < eccentricity_threshold * 1.25:
+                                fig, [axl, axr] = plt.subplots(ncols=2, figsize=(6, 4))
+                                axl.imshow(particle_image_template)
+                                axl.set_title('image')
+                                axr.imshow(region.filled_image)
+                                axr.set_title('contour')
+                                plt.suptitle("eccen {} > {} threshold".format(eccentricity, eccentricity_threshold))
+                                plt.show()
+                                plt.close()
+                            logger.warning("Region skipped b/c eccentricity = {} > {}.".format(eccentricity, eccentricity_threshold))
+                            skipped_contours.append(region.label)
+                            continue
 
                 # filter on template noise
                 if not overlapping_particles:
@@ -465,6 +491,7 @@ class GdpytImage(object):
                                         plt.imshow(particle_image_template)
                                         plt.title("EDGE FILTERED - Sobel {} < {} threshold".format(edges_sobel, sobel_threshold))
                                         plt.show()
+                                        plt.close()
                                     print("EDGE FILTERED - Sobel {} < {} threshold".format(edges_sobel, sobel_threshold))
                                     continue
 
@@ -477,6 +504,7 @@ class GdpytImage(object):
                                         plt.imshow(particle_image_template)
                                         plt.title("NOISE FILTERED - Sigma = {}".format(sigma))
                                         plt.show()
+                                        plt.close()
                                     print("NOISE FILTER: sigma {} > {} sigma threshold".format(sigma, sigma_threshold))
                                     continue
 
@@ -492,6 +520,7 @@ class GdpytImage(object):
                                         plt.imshow(smoothed_image_template)
                                         plt.title("PEAKS FILTERED: {}".format(len(peaks)))
                                         plt.show()
+                                        plt.close()
                                     print("PEAKS FILTERED: {}".format(len(peaks)))
                                     continue
 
@@ -501,7 +530,7 @@ class GdpytImage(object):
 
             # Add particle
             self._add_particle(id_, contour_coords, bbox, particle_mask, particle_collection_type=image_collection_type,
-                               location=(cX, cY), template_use_raw=template_use_raw, fit_gauss=overlapping_particles)
+                               location=(cX, cY), template_use_raw=template_use_raw, fit_gauss=True)
             id_ = id_ + 1
 
         # Calculate contour statistics
@@ -900,8 +929,10 @@ class GdpytImage(object):
 
         return merged_cnts, merged_bboxes
 
-    def pad_and_center_region(self, cX, cY, bbox, padding=2):
+    def pad_and_center_region(self, cX, cY, bbox, padding):
         """
+        Note: padding=2 was changed, 7/23/2022
+
         Steps:
             1. Pad and size the bounding box to be a square of odd-numbered side lengths.
             2. Center the bounding box on the computed contour center.
@@ -934,8 +965,10 @@ class GdpytImage(object):
 
         return bbox, (cX, cY)
 
-    def pad_and_center_contour(self, contour, bbox, padding=2):
+    def pad_and_center_contour(self, contour, bbox, padding):
         """
+        Note: padding=2 was changed, 7/23/2022
+
         Steps:
             1. Pad and size the bounding box to be a square of odd-numbered side lengths.
             2. Center the bounding box on the computed contour center.

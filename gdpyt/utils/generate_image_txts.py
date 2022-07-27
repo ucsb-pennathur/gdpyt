@@ -3,6 +3,7 @@ from os.path import isdir, join, dirname
 from os import mkdir
 from pathlib import Path
 
+
 DEFAULTS = dict(
     magnification=50,
     numerical_aperture=0.5,
@@ -463,6 +464,22 @@ def _generate_scaled_overlap_paired_random_z_grid_coordinates(grid, imshape, z=N
     return xyo_coords
 
 
+def max_overlap_spacing(image_size, max_diameter, boundary, overlap_scaling):
+    xo = max_diameter + boundary
+    xp = max_diameter + boundary
+    xs = [[xo, np.nan]]
+    ni = 4
+    while xp < image_size - max_diameter - boundary:
+        ni = ni + 1
+        xo = xp + (max_diameter + boundary)
+        xp = xo + overlap_scaling * ni
+
+        if xp < image_size - max_diameter - boundary:
+            xs.append([xo, xp])
+
+    return np.array(xs)
+
+
 def _generate_scaled_overlap_paired_random_z_plus_noise_grid_coordinates(grid, imshape, z=None, overlap_scale=5,
                                                                          particle_diameter=2):
 
@@ -470,32 +487,46 @@ def _generate_scaled_overlap_paired_random_z_plus_noise_grid_coordinates(grid, i
 
     # Particle grid
     xtot, ytot = imshape
-    n_x, n_y = grid
-    n_particles = n_x * n_y
-    edge_x = xtot / (n_x + 1) - 20
-    edge_y = ytot / (n_y + 1) - 20
 
-    # Make particle coordinates
-    xy_coords = np.mgrid[edge_x:xtot - 1.25 * edge_x:np.complex(0, n_x),
-                edge_y:ytot - edge_y:np.complex(0, n_y)].reshape(2, -1).T
+    if grid is None:
+        max_diameter = 32
+        boundary = 7
+        xs = max_overlap_spacing(xtot, max_diameter, boundary, overlap_scaling=overlap_scale)
+        xo = xs[:, 0]
+        xov = xs[1:, 1]
+        ys = np.arange(1, np.floor(ytot / (max_diameter + boundary + 0.0))) * (max_diameter + boundary)
 
-    # make linearly shifted particle coordinates
+        Xo, Yo = np.meshgrid(xo, ys)
+        Xov, Yov = np.meshgrid(xov, ys)
 
-    # create cutoff limits (exclude first and last rows to not expand the image size)
-    xl = n_x
-    xh = n_x * (n_y - 1)
+        xy_coords = np.vstack([Xo.flatten(), Yo.flatten()]).T
+        xy_overlap_coords = np.vstack([Xov.flatten(), Yov.flatten()]).T
 
-    # copy the x-coordinates from original grid
-    xyc = xy_coords[:, 0].copy()
+        xy_coords = xy_coords[np.lexsort((xy_coords[:, 1], xy_coords[:, 0]))]
+        xy_overlap_coords = xy_overlap_coords[np.lexsort((xy_overlap_coords[:, 1], xy_overlap_coords[:, 0]))]
 
-    # calculate the step size for linearly arrayed overlapping
-    grid_step_size = (xyc[11] - xyc[0]) / xyc[0] * overlap_scale
+        n_particles = len(xy_coords)
+        n_particles_overlapping = len(xy_overlap_coords)
 
-    # add x-dependent spacing to particles
-    xyc = xyc[:] + (xyc[:]) / xyc[0] * overlap_scale + 2.5  # - xyc[0] + xyc[0]
+    else:
+        n_x, n_y = grid
+        n_particles = n_x * n_y
+        edge_x = xtot / (n_x + 1) - 25
+        edge_y = ytot / (n_y + 1) - 25
 
-    # stack the new x-coordinates with the original y-coordinates
-    xy_overlap_coords = np.vstack((xyc, xy_coords[:, 1])).T
+        # Make particle coordinates
+        xy_coords = np.mgrid[edge_x:xtot - 1.25 * edge_x:np.complex(0, n_x),
+                    edge_y:ytot - edge_y:np.complex(0, n_y)].reshape(2, -1).T
+
+        # copy the x-coordinates from original grid
+        xyc = xy_coords[:, 0].copy()
+
+        # add x-dependent spacing to particles
+        xyc = xyc[:] + (xyc[:]) / xyc[0] * overlap_scale + 3
+
+        # stack the new x-coordinates with the original y-coordinates
+        xy_overlap_coords = np.vstack((xyc, xy_coords[:, 1])).T
+
 
     if z is None:
         return xy_coords
@@ -507,19 +538,27 @@ def _generate_scaled_overlap_paired_random_z_plus_noise_grid_coordinates(grid, i
         coords = np.hstack([xy_coords, z_coords])
 
         # stack the paired overlapping particles with the corresponding z-height as the original particle
-        overlap_coords = np.hstack([xy_overlap_coords, z_coords])
+        overlap_coords = np.hstack([xy_overlap_coords, z_coords[len(ys):]])
 
         # z-noise
-        dx = coords[:, 0] - overlap_coords[:, 0]
-        z_rand_noise = np.random.uniform(low=-1.0, high=1.0, size=len(dx)) / np.sqrt(3)
-        z_noise = dx * z_rand_noise
+        dx = coords[len(ys):, 0] - overlap_coords[:, 0]
+        z_rand_angle = 30 * np.random.uniform(low=-1.0, high=1.0, size=len(dx))
+        print("Max angle: {}, Min angle: {}".format(np.max(z_rand_angle), np.min(z_rand_angle)))
+        z_rand_noise = np.tan(np.deg2rad(z_rand_angle))  # np.zeros_like(dx)  #
+        z_noise = dx * z_rand_noise * 1.6  # where 1.6X is the pixel-to-micron scaling factor
 
         # add z-noise to overlap coords
-        overlap_coords[:, 2] = overlap_coords[:, 2] + z_noise
+        # overlap_coords[:, 2] = overlap_coords[:, 2] + z_noise
+
+        # correct any z-coordinates that are outside the range by reflecting them across the z-range limits
+        # overlap_coords[:, 2] = reflect_outside_range(overlap_coords[:, 2], z)
 
         # create particle diameter array
-        arr_p_diameter = np.ones_like(z_noise) * particle_diameter
+        arr_p_diameter = np.ones_like(coords[:, 0]) * particle_diameter
         arr_p_diameter = arr_p_diameter[:, np.newaxis]
+
+        arr_p_diameter_ov = np.ones_like(z_noise) * particle_diameter
+        arr_p_diameter_ov = arr_p_diameter_ov[:, np.newaxis]
 
     elif isinstance(z, (int, float)):
         z_coords = np.ones(shape=(n_particles, 1)) * z
@@ -529,19 +568,21 @@ def _generate_scaled_overlap_paired_random_z_plus_noise_grid_coordinates(grid, i
         coords = np.hstack([xy_coords, z_coords])
 
         # stack the paired overlapping particles with the corresponding z-height as the original particle
-        overlap_coords = np.hstack([xy_overlap_coords, z_coords])
+        z_coords_ov = np.ones(shape=(n_particles_overlapping, 1)) * z
+        arr_p_diameter_ov = np.ones(shape=(n_particles_overlapping, 1)) * particle_diameter
+        overlap_coords = np.hstack([xy_overlap_coords, z_coords_ov])
     else:
         raise ValueError('z not understood.')
 
     # stack particle diameter before z-noise
-    overlap_coords = np.hstack((overlap_coords, arr_p_diameter))
+    overlap_coords = np.hstack((overlap_coords, arr_p_diameter_ov))
     coords = np.hstack((coords, arr_p_diameter))
 
     # stack the original particles and overlapped particles with matching z-heights together
     xyo_coords = np.vstack((coords, overlap_coords))
 
     # sort
-    xyo_coords = xyo_coords[xyo_coords[:, 0].argsort()]
+    xyo_coords = xyo_coords[np.lexsort((xyo_coords[:, 0], xyo_coords[:, 1]))]
 
     return xyo_coords
 
@@ -908,6 +949,45 @@ def generate_paired_random_z_overlap_grid(settings_file, n_images, grid, range_z
         np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
 
 
+def generate_paired_random_z_plus_noise_overlap_grid_calibration(settings_file, n_images, grid, range_z=(-40, 40),
+                                                     particle_diameter=2, linear_overlap=5):
+    """
+    4. Grid overlap: random z-coordinate
+        * Generate images according to z-levels with linearly-arrayed overlapped particles at random z-coordinates.
+    """
+    settings_path = Path(settings_file)
+    txtfolder = join(settings_path.parent, 'calibration_input')
+
+    if isdir(txtfolder):
+        pass
+        # raise ValueError('Folder {} already exists. Specify a new one'.format(txtfolder))
+    else:
+        mkdir(txtfolder)
+
+    settings_dict = {}
+    with open(settings_file) as file:
+        for line in file:
+            thisline = line.split('=')
+            settings_dict.update({thisline[0].strip(): eval(thisline[1].strip())})
+
+    img_shape = (settings_dict['pixel_dim_x'], settings_dict['pixel_dim_y'])
+
+    for i in range(1, n_images + 1):
+        z = range_z[i - 1]
+        fname = 'calib_{}'.format(z)
+
+        coordinates = _generate_scaled_overlap_paired_random_z_plus_noise_grid_coordinates(grid,
+                                                                                           img_shape,
+                                                                                           z=z,
+                                                                                           overlap_scale=linear_overlap,
+                                                                                           particle_diameter=particle_diameter)
+        # output = _append_particle_diam(coordinates, particle_diameter)
+        output = coordinates
+
+        savepath = join(txtfolder, fname + '.txt')
+        np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
+
+
 def generate_paired_random_z_plus_noise_overlap_grid(settings_file, n_images, grid, range_z=(-40, 40),
                                                      particle_diameter=2, linear_overlap=5):
     """
@@ -932,10 +1012,8 @@ def generate_paired_random_z_plus_noise_overlap_grid(settings_file, n_images, gr
     img_shape = (settings_dict['pixel_dim_x'], settings_dict['pixel_dim_y'])
 
     for i in range(1, n_images + 1):
-        fname = 'test_{0:03d}'.format(i + 271)
-
-        # for calibration
-        # z = range_z[i - 1]
+        i = i + 1700
+        fname = 'test_{0:03d}'.format(i)
 
         coordinates = _generate_scaled_overlap_paired_random_z_plus_noise_grid_coordinates(grid,
                                                                                            img_shape,
@@ -1132,7 +1210,27 @@ def generate_random_z_density_distribution(settings_file, n_images, particle_den
         np.savetxt(savepath, output, fmt='%.6f', delimiter=' ')
 
 
+# ------------------------- ------------------ HELPER FUNCTIONS ---------------- ------------------------- -------------
 
+def reflect_outside_range(arr, z_range):
+    low_limit = z_range[0]
+    up_limit = z_range[1]
+
+    # lower limit
+    idx_underlimit = np.argwhere(arr < low_limit)
+
+    # reflect value across limit
+    for i in idx_underlimit:
+        arr[i] = low_limit - (arr[i] - low_limit)
+
+    # upper limit
+    idx_overlimit = np.argwhere(arr > up_limit)
+
+    # reflect value across limit
+    for i in idx_overlimit:
+        arr[i] = up_limit - (arr[i] - up_limit)
+
+    return arr
 
 
 if __name__ == '__main__':

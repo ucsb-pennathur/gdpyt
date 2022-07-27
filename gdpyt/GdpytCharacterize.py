@@ -92,8 +92,22 @@ def test(calib_settings, test_settings=None, calib_col=None, calib_set=None, ret
         """df_img_average_sim, df_collection_particle_sims = calib_col.calculate_image_particle_similarity()
         save_avg_sims = join(calib_settings.outputs.results_path, 'average_similarity_{}.xlsx'.format(calib_settings.outputs.save_id_string))
         df_img_average_sim.to_excel(save_avg_sims, index=True)
-        save_col_sims = join(calib_settings.outputs.results_path, 'collection_similarities_{}.xlsx'.format(calib_settings.outputs.save_id_string))
-        df_collection_particle_sims.to_excel(save_col_sims, index=True)"""
+        num_exports = int(np.ceil(len(df_collection_particle_sims) / 1e6))
+        if num_exports > 1:
+            for i in range(num_exports + 1):
+                row_i = int(i * 1e6)
+                row_f = int((i + 1) * 1e6)
+                export_ptp_similarities = df_collection_particle_sims.iloc[row_i:row_f]
+                export_ptp_similarities.to_excel(join(calib_settings.outputs.results_path,
+                                                       'collection_similarities_sheet{}_{}.xlsx'.format(
+                                                           i,
+                                                           calib_settings.outputs.save_id_string)),
+                                                  index=True)
+        else:
+            save_col_sims = join(calib_settings.outputs.results_path,
+                                 'collection_similarities_{}.xlsx'.format(calib_settings.outputs.save_id_string))
+            df_collection_particle_sims.to_excel(save_col_sims, index=True)"""
+
 
         # plot the baseline image with particle ID's
         if calib_col.baseline is not None:
@@ -110,20 +124,13 @@ def test(calib_settings, test_settings=None, calib_col=None, calib_set=None, ret
 
             if calib_settings.inputs.single_particle_calibration is False:
                 # NOTE: this works when minimum particle size is 8 but fails when it is 5.
-                calc_gauss = False
+                calc_gauss = True
                 if calc_gauss:
-                    # manually input gaussian diameter parameters
-                    mag_eff = 20.0
-                    zf = 35.0165
-                    c1 = 0.097797
-                    c2 = 0.360364
-                    theoretical_diameter_params = [mag_eff, zf, c1, c2]
-                    calib_col.calculate_particle_to_particle_spacing(
-                        max_n_neighbors=3,
-                        theoretical_diameter_params=theoretical_diameter_params
-                    )
-                    calib_col.structure_spct_stats(idpt=True)
-                    calib_col.calculate_idpt_stats(filter_percent_frames=0.5)
+                    calib_col.calculate_particle_to_particle_spacing(max_n_neighbors=3,
+                                                                     theoretical_diameter_params=None,
+                                                                     )
+                    calib_col.structure_spct_stats(idpt=False)
+                    calib_col.calculate_idpt_stats_gaussian(param_zf='gauss_A', filter_percent_frames=0.5)
                     calib_col.correct_plane_tilt(zf_from='nsv')
                     calib_col.update_particles_in_images()
 
@@ -138,19 +145,19 @@ def test(calib_settings, test_settings=None, calib_col=None, calib_set=None, ret
                     calib_col.fitted_plane_equation.to_excel(
                         join(spath, 'calib_idpt_fitted_plane_params_{}.xlsx'.format(sid)))
 
-                    dfc, dfz = calib_col.correct_calibration()
+                    """dfc, dfz = calib_col.correct_calibration()
                     savecoords = join(calib_settings.outputs.results_path,
                                       'calib_correction_coords_{}.xlsx'.format(calib_settings.outputs.save_id_string))
                     dfc.to_excel(savecoords, index=False)
                     savefocus = join(calib_settings.outputs.results_path,
                                      'calib_in-focus_coords_{}.xlsx'.format(calib_settings.outputs.save_id_string))
-                    dfz.to_excel(savefocus, index=False)
+                    dfz.to_excel(savefocus, index=False)"""
 
             elif calib_settings.inputs.single_particle_calibration is True:
                 calib_col.calculate_particle_to_particle_spacing(max_n_neighbors=3, theoretical_diameter_params=None)
                 calib_col.structure_spct_stats()
-                calib_col.calculate_spct_stats(filter_percent_frames=0.35)
-                calib_col.correct_plane_tilt(zf_from='nsv')
+                calib_col.calculate_spct_stats(param_zf='zf_peak_int', filter_percent_frames=0.5)
+                calib_col.correct_plane_tilt(zf_from='peak_int')
                 calib_col.update_particles_in_images()
 
                 spath = calib_settings.outputs.results_path
@@ -165,9 +172,11 @@ def test(calib_settings, test_settings=None, calib_col=None, calib_set=None, ret
                     join(spath, 'calib_spct_fitted_plane_params_{}.xlsx'.format(sid)))
 
                 dfc, dfz = calib_col.correct_calibration()
-                savecoords = join(calib_settings.outputs.results_path, 'calib_correction_coords_{}.xlsx'.format(calib_settings.outputs.save_id_string))
+                savecoords = join(calib_settings.outputs.results_path,
+                                  'calib_correction_coords_{}.xlsx'.format(calib_settings.outputs.save_id_string))
                 dfc.to_excel(savecoords, index=False)
-                savefocus = join(calib_settings.outputs.results_path, 'calib_in-focus_coords_{}.xlsx'.format(calib_settings.outputs.save_id_string))
+                savefocus = join(calib_settings.outputs.results_path,
+                                 'calib_in-focus_coords_{}.xlsx'.format(calib_settings.outputs.save_id_string))
                 dfz.to_excel(savefocus, index=False)
 
         # get calibration collection image stats
@@ -194,14 +203,20 @@ def test(calib_settings, test_settings=None, calib_col=None, calib_set=None, ret
 
         if plot_calibration_set:
             # plot
-            plot_calibration(calib_settings, test_settings, calib_col, calib_set, calib_col_image_stats, calib_col_stats,
+            plot_calibration(calib_settings, test_settings, calib_col, calib_set, calib_col_image_stats,
+                             calib_col_stats,
                              calib_stack_data)
 
     if return_variables == 'calibration':
         return calib_col, calib_set
 
     # for analyses of the standard GDPT dataset, there must not be a baseline.
-    if calib_settings.inputs.ground_truth_file_path is None and calib_settings.inputs.single_particle_calibration is False:
+    if test_settings.inputs.hard_baseline is False and calib_settings.inputs.single_particle_calibration is False:
+        """ we allow movement of the particles in the test images and try to match them to calibration stacks """
+        test_collection_baseline = None
+        test_particle_id_image = test_settings.inputs.baseline_image
+        use_stack_for_inference = None
+    elif calib_settings.inputs.ground_truth_file_path is None and calib_settings.inputs.single_particle_calibration is False:
         """ any analysis where the particle distribution in the test collection matches the calibration collection """
         test_collection_baseline = calib_set
         test_particle_id_image = test_settings.inputs.baseline_image
@@ -294,9 +309,13 @@ def test(calib_settings, test_settings=None, calib_col=None, calib_set=None, ret
     # Infer the z-height of each particle
     test_col.infer_z(calib_set, infer_sub_image=test_settings.z_assessment.sub_image_interpolation).sknccorr(
         min_cm=test_settings.z_assessment.min_cm, use_stack=use_stack_for_inference)
-    
+
     # export the particle coordinates
     test_coords = export_particle_coords(test_col, calib_settings, test_settings)
+
+    # export particle image stats
+    dft = test_col.package_test_particle_image_stats()
+    dft.to_excel(join(test_settings.outputs.results_path, 'test_coords_particle_image_stats.xlsx'), index=False)
 
     # get test collection stats
     test_col_stats = test_col.calculate_image_stats()
@@ -312,27 +331,38 @@ def test(calib_settings, test_settings=None, calib_col=None, calib_set=None, ret
     test_col_global_meas_quality = test_col.calculate_measurement_quality_global(local=test_col_local_meas_quality)
 
     # export data to excel
-    export_results_and_settings('test', calib_settings, calib_col, calib_stack_data, calib_col_stats, test_settings, test_col, test_col_global_meas_quality, test_col_stats)
+    export_results_and_settings('test', calib_settings, calib_col, calib_stack_data, calib_col_stats, test_settings,
+                                test_col, test_col_global_meas_quality, test_col_stats)
 
     # export key results to excel (redundant data as full excel export but useful for quickly ascertaining results)
-    export_key_results(calib_settings, calib_col, calib_stack_data, calib_col_stats, test_settings, test_col, test_col_global_meas_quality, test_col_stats)
+    export_key_results(calib_settings, calib_col, calib_stack_data, calib_col_stats, test_settings, test_col,
+                       test_col_global_meas_quality, test_col_stats)
 
     # plot
-    plot_test(test_settings, test_col, test_col_stats, test_col_local_meas_quality, test_col_global_meas_quality, calib_set)
+    plot_test(test_settings, test_col, test_col_stats, test_col_local_meas_quality, test_col_global_meas_quality,
+              calib_set)
 
     # export particle similarity curves
-    pid_similarity_curves = test_col.package_particle_similarity_curves()
-    num_exports = int(np.ceil(len(pid_similarity_curves) / 1e6))
-    if num_exports > 1:
-        for i in range(num_exports + 1):
-            row_i = int(i * 1e6)
-            row_f = int((i + 1) * 1e6)
-            export_similarity_curves = pid_similarity_curves.iloc[row_i:row_f]
-            export_similarity_curves.to_excel(join(test_settings.outputs.results_path,
-                                                'particle_similarity_curves_sheet{}_t{}_c{}.xlsx'.format(
-                                                i,
-                                                calib_settings.outputs.save_id_string,
-                                                test_settings.outputs.save_id_string)),
+    export_similarity_curves = False
+    if export_similarity_curves:
+        pid_similarity_curves = test_col.package_particle_similarity_curves()
+        num_exports = int(np.ceil(len(pid_similarity_curves) / 1e6))
+        if num_exports > 1:
+            for i in range(num_exports + 1):
+                row_i = int(i * 1e6)
+                row_f = int((i + 1) * 1e6)
+                export_similarity_curves = pid_similarity_curves.iloc[row_i:row_f]
+                export_similarity_curves.to_excel(join(test_settings.outputs.results_path,
+                                                       'particle_similarity_curves_sheet{}_t{}_c{}.xlsx'.format(
+                                                           i,
+                                                           calib_settings.outputs.save_id_string,
+                                                           test_settings.outputs.save_id_string)),
+                                                  index=False)
+        else:
+            pid_similarity_curves.to_excel(join(test_settings.outputs.results_path,
+                                                'particle_similarity_curves_t{}_c{}.xlsx'.format(
+                                                    calib_settings.outputs.save_id_string,
+                                                    test_settings.outputs.save_id_string)),
                                            index=False)
 
     # assess every calib stack and particle ID
@@ -369,7 +399,7 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
             # plot NEW normalized local rmse uncertainty
             fig = test_col.plot_bin_local_rmse_z(measurement_quality=test_col_local_meas_quality,
                                                  measurement_depth=test_col.measurement_depth,
-                                                 second_plot=None)
+                                                 second_plot='cm')
             fig.suptitle(settings.outputs.save_id_string)
             plt.tight_layout()
             if settings.outputs.save_plots is True:
@@ -425,15 +455,16 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
                 fig.show()"""
 
             # plot local rmse uncertainty in real-coordinates
-            fig = test_col.plot_local_rmse_uncertainty(measurement_quality=test_col_local_meas_quality)
+            """fig = test_col.plot_local_rmse_uncertainty(measurement_quality=test_col_local_meas_quality)
             fig.suptitle(settings.outputs.save_id_string)
             plt.tight_layout()
             if settings.outputs.save_plots is True:
-                savefigpath = join(settings.outputs.results_path, settings.outputs.save_id_string + '_rmse_uncertainty.png')
+                savefigpath = join(settings.outputs.results_path,
+                                   settings.outputs.save_id_string + '_rmse_uncertainty.png')
                 fig.savefig(fname=savefigpath, bbox_inches='tight')
                 plt.close()
             if settings.outputs.show_plots:
-                fig.show()
+                fig.show()"""
 
             # plot local rmse uncertainty and correlation value
             """fig = test_col.plot_local_rmse_uncertainty(measurement_quality=test_col_local_meas_quality, second_plot='cm')
@@ -461,7 +492,7 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
                 fig.show()"""
 
         # plot particle image stats
-        plot_particle_image_stats = False
+        plot_particle_image_stats = True
 
         if plot_particle_image_stats:
             # plot particle area vs z/h for every particle
@@ -500,7 +531,7 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
                 plt.show()
 
             # plot snr and percent of particles assigned valid z-coordinate
-            test_col.plot_particle_snr_and(second_plot='percent_measured')
+            """test_col.plot_particle_snr_and(second_plot='percent_measured')
             plt.suptitle(settings.outputs.save_id_string)
             plt.tight_layout()
             if settings.outputs.save_plots is True:
@@ -509,30 +540,29 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
                 plt.savefig(fname=savefigpath, bbox_inches='tight')
                 plt.close()
             if settings.outputs.show_plots:
-                plt.show()
+                plt.show()"""
 
             # plot snr and percent of particles assigned valid z-coordinate
             test_col.plot_particle_snr_and(second_plot='cm')
             plt.suptitle(settings.outputs.save_id_string)
             plt.tight_layout()
             if settings.outputs.save_plots is True:
-                savefigpath = join(settings.outputs.results_path, settings.outputs.save_id_string + '_snr_cm_max_sim.png')
+                savefigpath = join(settings.outputs.results_path,
+                                   settings.outputs.save_id_string + '_snr_cm_max_sim.png')
                 plt.savefig(fname=savefigpath, bbox_inches='tight')
                 plt.close()
             if settings.outputs.show_plots:
                 plt.show()
 
-
         # plot for a random selection of particles in the test collection
-        if len(test_col.particle_ids) >= 6:
-            P_INSPECTS = [int(p) for p in random.sample(set(test_col.particle_ids), 6)]
+        if len(test_col.particle_ids) >= 10:
+            P_INSPECTS = [int(p) for p in random.sample(set(test_col.particle_ids), 10)]
         else:
             P_INSPECTS = test_col.particle_ids
 
         for P_INSPECT in P_INSPECTS:
 
             P_INSPECT = int(P_INSPECT)
-
 
             # plot particle template at z_guess and z_calib_nearest_true
             """
@@ -560,6 +590,7 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
                     fig.show()
 
             # plot the mean peak intensity per particle:
+
             fig = test_col.plot_particle_peak_intensity(particle_id=P_INSPECT)
             if fig:
                 plt.suptitle(settings.outputs.save_id_string)
@@ -572,18 +603,24 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
                 if settings.outputs.show_plots:
                     plt.show()
 
+
             # plot interpolation curves for every particle
-            fig = test_col.plot_similarity_curve(sub_image=settings.z_assessment.sub_image_interpolation, method=settings.z_assessment.infer_method, min_cm=settings.z_assessment.min_cm,
+            """
+            fig = test_col.plot_similarity_curve(sub_image=settings.z_assessment.sub_image_interpolation,
+                                                 method=settings.z_assessment.infer_method,
+                                                 min_cm=settings.z_assessment.min_cm,
                                                  particle_id=P_INSPECT, image_id=None)
             if fig is not None:
                 fig.suptitle(settings.outputs.save_id_string + ': particle id {}'.format(P_INSPECT))
                 plt.tight_layout()
                 if settings.outputs.save_plots is True:
-                    savefigpath = join(settings.outputs.results_path, settings.outputs.save_id_string + '_correlation_pid{}.png'.format(P_INSPECT))
+                    savefigpath = join(settings.outputs.results_path,
+                                       settings.outputs.save_id_string + '_correlation_pid{}.png'.format(P_INSPECT))
                     fig.savefig(fname=savefigpath)
                     plt.close()
                 if settings.outputs.show_plots:
                     fig.show()
+            """
 
         # plot test collection images with particles
         if len(test_col.files) >= 4:
@@ -606,7 +643,7 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
                 plt.show()
 
         # plot every test image with identified particles: '_test_col{}.png'
-        """plot_test_col_imgs = test_col.files
+        plot_test_col_imgs = test_col.files[2:4]
         for i, img in enumerate(plot_test_col_imgs):
             fig, ax = plt.subplots(figsize=(8, 8))
             ax.imshow(test_col.images[img].draw_particles(raw=False, thickness=1, draw_id=False, draw_bbox=False))
@@ -619,7 +656,7 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
                 plt.savefig(savepath)
                 plt.close()
             if settings.outputs.show_plots is True:
-                plt.show()"""
+                plt.show()
 
         # plot the mean peak intensity per particle:
         fig = test_col.plot_particle_peak_intensity()
@@ -634,14 +671,18 @@ def plot_test(settings, test_col, test_col_stats, test_col_local_meas_quality, t
 
         # plot interpolation curves for every particle on image_id N_CAL//2
         for IMG_INSPECT in np.arange(start=0, stop=len(test_col.images), step=50):
-            fig = test_col.plot_similarity_curve(sub_image=settings.z_assessment.sub_image_interpolation, method=settings.z_assessment.infer_method, min_cm=settings.z_assessment.min_cm,
+            fig = test_col.plot_similarity_curve(sub_image=settings.z_assessment.sub_image_interpolation,
+                                                 method=settings.z_assessment.infer_method,
+                                                 min_cm=settings.z_assessment.min_cm,
                                                  particle_id=None, image_id=IMG_INSPECT)
             if fig is not None:
-                fig.suptitle(settings.outputs.save_id_string + ': ' + r'image #/$N_{cal}$' + ' = {}'.format(IMG_INSPECT))
+                fig.suptitle(
+                    settings.outputs.save_id_string + ': ' + r'image #/$N_{cal}$' + ' = {}'.format(IMG_INSPECT))
                 plt.tight_layout()
                 if settings.outputs.save_plots is True:
                     savefigpath = join(settings.outputs.results_path,
-                                       settings.outputs.save_id_string + '_correlation_particles_in_img_{}.png'.format(IMG_INSPECT))
+                                       settings.outputs.save_id_string + '_correlation_particles_in_img_{}.png'.format(
+                                           IMG_INSPECT))
                     fig.savefig(fname=savefigpath, bbox_inches='tight')
                 if settings.outputs.show_plots:
                     fig.show()
@@ -739,7 +780,8 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
         plt.suptitle(settings.outputs.save_id_string)
         plt.tight_layout()
         if settings.outputs.save_plots is True:
-            savepath = join(settings.outputs.results_path, settings.outputs.save_id_string + '_multi_calib_col{}.png'.format(i))
+            savepath = join(settings.outputs.results_path,
+                            settings.outputs.save_id_string + '_multi_calib_col{}.png'.format(i))
             plt.savefig(savepath)
             plt.close()
         if settings.outputs.show_plots is True:
@@ -764,7 +806,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
         """
 
         # plot the mean peak intensity per particle:
-        """fig = calib_col.plot_particle_peak_intensity()
+        fig = calib_col.plot_particle_peak_intensity()
         plt.suptitle(settings.outputs.save_id_string)
         plt.tight_layout()
         if settings.outputs.save_plots is True:
@@ -772,7 +814,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
             plt.savefig(fname=savefigpath, bbox_inches='tight')
             plt.close()
         if settings.outputs.show_plots:
-            plt.show()"""
+            plt.show()
 
         # plot calibration set's stack's self similarity: '_calibset_stacks_self_similarity_{}.png'
         """fig = calib_set.plot_stacks_self_similarity(min_num_layers=settings.processing.min_layers_per_stack,
@@ -785,7 +827,6 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
             plt.close()
         if settings.outputs.show_plots is True:
             plt.show()"""
-
 
         """
         per-particle (in calibration set) plots:
@@ -805,24 +846,27 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
         """
         save_particle_images = True
         save_particle_arrays = True
+        num_particles_to_save_images = 5
+
         if save_particle_images or save_particle_arrays:
 
             # select "good" particles
-            plot_calib_stack_particle_ids = calib_set.best_stack_ids[:6]
+            plot_calib_stack_particle_ids = calib_set.best_stack_ids[:num_particles_to_save_images]
             plot_zs = calib_col_image_stats.z.to_numpy()
-            plot_zs = np.arange(np.min(plot_zs), np.max(plot_zs) + 1, 2)
+            plot_zs = np.arange(np.min(plot_zs), np.max(plot_zs) + 1, 5)
 
             # Gaussian fit image folder
-            dir_gauss = os.path.join(settings.outputs.results_path, 'gaussians')
+            """dir_gauss = os.path.join(settings.outputs.results_path, 'gaussians')
             if not os.path.exists(dir_gauss):
-                os.makedirs(dir_gauss)
+                os.makedirs(dir_gauss)"""
 
             # plot Gaussian fit on image
-            if settings.inputs.single_particle_calibration is True:
+            """if settings.inputs.single_particle_calibration is True:
                 plotting.plot_gaussian_fit_on_image_for_particle(collection=calib_col,
                                                                  particle_ids=plot_calib_stack_particle_ids,
-                                                                 frame_step_size=int(np.floor(len(calib_col.images.values()) / 11)),
-                                                                 path_figs=dir_gauss)
+                                                                 frame_step_size=int(
+                                                                     np.floor(len(calib_col.images.values()) / 11)),
+                                                                 path_figs=dir_gauss)"""
 
             # image folder
             dir_png = os.path.join(settings.outputs.results_path, 'pngs')
@@ -861,13 +905,15 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
         Particles at random
         """
         # choose particle ID's at random from calibration set
-        if len(calib_set.best_stack_ids) < 10:
+        if len(calib_set.best_stack_ids) < 2:
             plot_calib_stack_particle_ids = calib_set.best_stack_ids
         else:
-            plot_calib_stack_particle_ids = [pid for pid in random.sample(set(calib_set.best_stack_ids), 10)]
+            plot_calib_stack_particle_ids = [pid for pid in random.sample(set(calib_set.best_stack_ids), 2)]
 
-        """if settings.inputs.use_stack_id not in plot_calib_stack_particle_ids:
-            plot_calib_stack_particle_ids.append(settings.inputs.use_stack_id)"""
+        # plot_calib_stack_particle_ids = [9, 11, 22, 41, 46, 47, 52, 71, 73, 90]
+        if settings.inputs.use_stack_id not in plot_calib_stack_particle_ids:
+            if isinstance(settings.inputs.use_stack_id, int):
+                plot_calib_stack_particle_ids.append(settings.inputs.use_stack_id)
 
         for id in plot_calib_stack_particle_ids:
 
@@ -891,7 +937,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
             # --------------------------
 
             # plot the mean peak intensity per particle:
-            """fig = calib_col.plot_particle_peak_intensity(particle_id=id)
+            fig = calib_col.plot_particle_peak_intensity(particle_id=id)
             plt.suptitle(settings.outputs.save_id_string)
             plt.tight_layout()
             if settings.outputs.save_plots is True:
@@ -900,7 +946,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.savefig(fname=savefigpath, bbox_inches='tight')
                 plt.close()
             if settings.outputs.show_plots:
-                plt.show()"""
+                plt.show()
 
             # plot calibration stack and contour outline for a single particle: '_filtered_calib_stack.png'
             calib_set.calibration_stacks[id].plot_calib_stack(imgs_per_row=9, fig=None, ax=None, format_string=False)
@@ -977,8 +1023,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.show()"""
 
             # plot 3D calibration stack for a single particle: '_calib_stack_3d.png'
-            """
-            if len(calib_col.images) > 80:
+            """if len(calib_col.images) > 80:
                 len(calib_col.images) // 10
                 stepsize = 10
             elif len(calib_col.images) > 30:
@@ -994,8 +1039,8 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.savefig(savepath, bbox_inches="tight")
                 plt.close()
             if settings.outputs.show_plots is True:
-                plt.show()
-            """
+                plt.show()"""
+
 
             # plot adjacent similarities with template images: '_calib_stack_index_{}_adjacent_similarity_{}.png'
             """
@@ -1430,12 +1475,12 @@ def export_calib_stats(calib_settings, calib_col_image_stats, calib_stack_data):
     """
 
     savedata = join(calib_settings.outputs.results_path,
-                        'calib_col_image_stats_{}_{}.xlsx'.format(calib_settings.outputs.save_id_string, datetime.now()))
+                    'calib_col_image_stats_{}_{}.xlsx'.format(calib_settings.outputs.save_id_string, datetime.now()))
 
     calib_col_image_stats.to_excel(savedata, index=False)
 
     savedata = join(calib_settings.outputs.results_path,
-                        'calib_stack_data_{}_{}.xlsx'.format(calib_settings.outputs.save_id_string, datetime.now()))
+                    'calib_stack_data_{}_{}.xlsx'.format(calib_settings.outputs.save_id_string, datetime.now()))
 
     calib_stack_data = calib_stack_data.sort_values('layers', ascending=False)
     calib_stack_data.to_excel(savedata, index=False)

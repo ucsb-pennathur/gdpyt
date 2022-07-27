@@ -22,8 +22,8 @@ from skimage.feature import peak_local_max
 from skimage.segmentation import watershed
 
 
-def apply_threshold(img, parameter, overlapping_particles=True, min_particle_size=5, padding=3, invert=False,
-                    show_threshold=False):
+def apply_threshold(img, parameter, overlapping_particles=True, min_particle_size=5,
+                    invert=False, show_threshold=False):
 
     if not len(parameter) == 1:
         raise ValueError("Thresholding parameter must be specified as a dictionary with one key and a list containing"
@@ -63,17 +63,28 @@ def apply_threshold(img, parameter, overlapping_particles=True, min_particle_siz
         thresh_img = clear_border(bw)
         # thresh_img = img > thresh_val -- old: updated 8/14/21
     elif method == 'median_percent':
-        if np.max(img) > 2500:
-            thresh_val = np.median(img) + np.std(img) * parameter[method][0] + 30
+
+        if len(parameter[method]) > 1:
+            thresh_mod = parameter[method][1]
         else:
-            thresh_val = np.median(img) + np.std(img) * parameter[method][0]
+            thresh_mod = parameter[method][0]
+
+        if np.max(img) > 2500:
+            thresh_val = np.median(img) + np.std(img) * thresh_mod + 30
+        else:
+            thresh_val = np.median(img) + np.std(img) * thresh_mod
+
+        print("median intensity: {}".format(np.median(img)))
+        print("std intensity: {}".format(np.std(img)))
+        print("thresh val: {}".format(thresh_val))
+
         bw = closing(img > thresh_val, square(3))
         thresh_img = clear_border(bw)
         thresh_img = img > thresh_val  # -- old: updated 8/14/21
         thresh_img_one = img > thresh_val
 
         if show_threshold:
-            fig, ax = plt.subplots(ncols=2)
+            fig, ax = plt.subplots(sharex=True, nrows=2, figsize=(10, 10))
             ax[0].imshow(img)
             ax[1].imshow(thresh_img_one)
             plt.show()
@@ -110,12 +121,25 @@ def apply_threshold(img, parameter, overlapping_particles=True, min_particle_siz
         thresh_img = img > thresh_val
     elif method == 'manual_percent':
 
-        if np.max(img) > 4000:
+        if np.max(img) > 5000:
+            thresh_mod = parameter[method][1] * 4  # 8.5  # 8.5
+        elif np.max(img) > 4000:
+            thresh_mod = parameter[method][1] * 3  # 5.25  # 5.5
+        elif np.max(img) > 3000:
+            thresh_mod = parameter[method][1] * 2.5  # 3
+        elif np.max(img) > 2500:
             thresh_mod = parameter[method][1] * 1.5
+        elif np.max(img) > 1500:
+            thresh_mod = parameter[method][1] * 1.25
         else:
-            thresh_mod = parameter[method][1]
+            thresh_mod = parameter[method][1] * 1
 
         thresh_val = np.round(parameter[method][0] + np.std(img) * thresh_mod, 1)
+
+        print("max intensity: {}".format(np.max(img)))
+        print("mean intensity: {}".format(np.mean(img)))
+        print("std intensity: {}".format(np.std(img)))
+        print("thresh val: {}".format(thresh_val))
 
         bw = closing(img > thresh_val, square(3))
         thresh_img = clear_border(bw)
@@ -157,7 +181,7 @@ def apply_threshold(img, parameter, overlapping_particles=True, min_particle_siz
             thresh_img = clear_border(thresh_img_one, buffer_size=1)
 
         else:
-            fill_particle_image_holes = False
+            fill_particle_image_holes = True
 
             if not fill_particle_image_holes:
                 thresh_img = img > thresh_val
@@ -317,12 +341,12 @@ def identify_contours_sk(particle_mask, intensity_image, same_id_threshold, over
         mean_intensities.append(region.mean_intensity)
 
     labels_to_remove = []
-    for lbl, wc, maxi, meani in zip(labels, weighted_centroids, max_intensities, mean_intensities):
+    """for lbl, wc, maxi, meani in zip(labels, weighted_centroids, max_intensities, mean_intensities):
         for lbl_i, wc_i, maxi_i, meani_i in zip(labels, weighted_centroids, max_intensities, mean_intensities):
             if lbl_i != lbl:
                 if np.all([np.abs(wc[0] - wc_i[0]) < same_id_threshold, np.abs(wc[1] - wc_i[1]) < same_id_threshold]):
                     if maxi_i < maxi * 0.85:
-                        labels_to_remove.append(lbl_i)
+                        labels_to_remove.append(lbl_i)"""
 
     """logger.debug("{} contours in thresholded image".format(len(contours)))
     contours, bboxes = self.merge_overlapping_particles(contours, bboxes, overlap_thresh=overlap_threshold)

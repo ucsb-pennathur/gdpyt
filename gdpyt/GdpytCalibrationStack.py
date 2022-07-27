@@ -207,7 +207,12 @@ class GdpytCalibrationStack(object):
         """
 
         # the minimum correlation value must be between 0 and 1
-        assert 0 <= min_cm <= 1
+        if min_cm < 0:
+            print("min_cm auto-adjusted from {} to 0!".format(min_cm))
+            min_cm = 0
+        elif min_cm > 1:
+            print("min_cm auto-adjusted from {} to 1!".format(min_cm))
+            min_cm = 1
 
         # option to print particle id being inferred to console
         if self.print_status:
@@ -285,16 +290,19 @@ class GdpytCalibrationStack(object):
         # perform the cross-correlation against each image in the calibration stack and append the results to a list
         sim = []
         match_location = []
+        match_localization = []
 
         for c_temp in temp_calib:
-            similarity, xm, ym = sim_func(c_temp, particle.template)
+            similarity, xm, ym, xg, yg = sim_func(c_temp, particle.template)
             sim.append(similarity)
             match_location.append([xm, ym])
+            match_localization.append([xg, yg])
 
         sim = np.array(sim)
         max_idx = optim(sim)
         particle.set_cm(sim[max_idx])
         particle.set_match_location(match_location[max_idx])
+        particle.set_match_localization(match_localization[max_idx])
 
         # evaluate correlation value
         if sim[max_idx] > min_cm and infer_sub_image is False:
@@ -355,10 +363,10 @@ class GdpytCalibrationStack(object):
                 padded_image = np.pad(temp_calib[index], pad_width=3, mode='constant',
                                       constant_values=np.min(temp_calib[index]))
 
-                forward, xf, yf = sim_func(padded_image, temp_calib[index + 1])
+                forward, xf, yf, xg, yg = sim_func(padded_image, temp_calib[index + 1])
                 sim_self_forward.append(forward)
                 if index > 0:
-                    backward, xb, yb = sim_func(padded_image, temp_calib[index - 1])
+                    backward, xb, yb, xg, yg = sim_func(padded_image, temp_calib[index - 1])
                     sim_self_backward.append(backward)
 
                     # mean similarity

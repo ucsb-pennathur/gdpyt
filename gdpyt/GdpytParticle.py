@@ -22,7 +22,7 @@ from gdpyt.subpixel_localization.centroid_based_iterative import plot_2D_image_a
 class GdpytParticle(object):
 
     def __init__(self, image_raw, image_filt, id_, contour, bbox, particle_mask_on_image, particle_collection_type,
-                 location=None, frame=None, template_use_raw=False, fit_gauss=False):
+                 location=None, frame=None, template_use_raw=False, fit_gauss=True):
         super(GdpytParticle, self).__init__()
         self._id = int(id_)
         self.frame = frame
@@ -38,6 +38,7 @@ class GdpytParticle(object):
         self._template = None
         self._location = None
         self.match_location = None
+        self.match_localization = None
         self._location_on_template = None
         self._mask_on_template = None
         self._template_contour = None
@@ -64,6 +65,7 @@ class GdpytParticle(object):
         self._mean_signal = None
         self._mean_background = None
         self._std_background = None
+        self._mean_intensity_of_template = None
         self._max_sim = None
 
         self.mean_dx = None
@@ -86,7 +88,6 @@ class GdpytParticle(object):
         self._create_template(bbox=bbox)
 
         # fit a Gaussian profile to find subpixel center and recenter the bbox
-        fit_gauss = True
         if fit_gauss:
             self.gauss_dia_x = None
             self.gauss_dia_y = None
@@ -137,6 +138,8 @@ class GdpytParticle(object):
         thinness_ratio = 4 * np.pi * area / perimeter ** 2
         hull = cv2.convexHull(self.contour)
         hull_area = float(cv2.contourArea(hull))
+        if self.id == 41:
+            j = 1
         solidity = area / hull_area
 
         self._area = area
@@ -287,7 +290,8 @@ class GdpytParticle(object):
             tempy = image[y: y + h, x: x + w]
 
             template = np.pad(tempy.astype(np.float), (pad_y, pad_x),
-                              'constant', constant_values=np.nan)
+                              'constant', constant_values=np.median(tempy))
+            # changed from: "'constant', np.nan)" on 7/23/2022
 
             # the below are my additions
             # set the template
@@ -295,7 +299,7 @@ class GdpytParticle(object):
 
             # set mask on template
             self._mask_on_template = np.pad(self.mask_on_image[y: y + h, x: x + w].astype(np.float), (pad_y, pad_x),
-                              'constant', constant_values=np.nan)
+                              'constant', constant_values=0)  # changed from np.nan, 7/23/2022
 
             # set particle center location on template
             self._location_on_template = (np.shape(template)[0] // 2, np.shape(template)[1] // 2)
@@ -676,6 +680,9 @@ class GdpytParticle(object):
         img_f_bkg = img_f.copy()
         background_mask = self.mask_on_template
 
+        # get mean intensity of template
+        mean_intensity_of_template_pixels = np.mean(img_f)
+
         # get peak intensity
         peak_intensity = np.max(img_f)
 
@@ -717,6 +724,7 @@ class GdpytParticle(object):
         self._mean_signal = mean_signal_f
         self._mean_background = mean_background_f
         self._std_background = std_background_f
+        self._mean_intensity_of_template = mean_intensity_of_template_pixels
 
     def _dilated_bbox(self, dilation=None, dims=None):
         if dims is None:
@@ -820,6 +828,9 @@ class GdpytParticle(object):
 
     def set_match_location(self, match_loc):
         self.match_location = match_loc
+
+    def set_match_localization(self, match_loc):
+        self.match_localization = match_loc
 
     def _set_location_true(self, x, y, z=None):
         self._x_true = x
@@ -1021,6 +1032,10 @@ class GdpytParticle(object):
     @property
     def std_background(self):
         return self._std_background
+
+    @property
+    def mean_intensity_of_template(self):
+        return self._mean_intensity_of_template
 
     @property
     def similarity_curve(self):

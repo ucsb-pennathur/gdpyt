@@ -74,15 +74,17 @@ def plot_single_particle_stack(collection, particle_id, z=None, draw_contours=Tr
 
     z_trues = []
     zs = []
+    cms = []
     templates = []
     for img in collection.images.values():
         for p in img.particles:
             if p.id == particle_id:
                 z_trues.append(p.z_true)
                 zs.append(p.z)
+                cms.append(p.cm)
                 templates.append(p.get_template())
 
-    zipped = list(zip(z_trues, zs, templates))
+    zipped = list(zip(z_trues, zs, cms, templates))
     sorted_list = sorted(zipped, key=lambda x: x[0])
 
     n_images = len(templates)
@@ -104,10 +106,14 @@ def plot_single_particle_stack(collection, particle_id, z=None, draw_contours=Tr
                 else:
                     z_true = sorted_list[n][0]
                     z = sorted_list[n][1]
-                    template = sorted_list[n][2]
+                    cm = sorted_list[n][2]
+                    template = sorted_list[n][3]
 
                     axes[i, j].imshow(template, cmap='viridis')
-                    axes[i, j].set_title('(z, true z) = ({}, {})'.format(np.round(z, 2), np.round(z_true, 2)), fontsize=10)
+                    # axes[i, j].set_title('(z, true z) = ({}, {})'.format(np.round(z, 2), np.round(z_true, 2)), fontsize=10)
+                    axes[i, j].set_title(r'$(\epsilon_{z}, c_{m}) =$' + ' ({}, {})'.format(np.round(z - z_true, 2),
+                                                                                           np.round(cm, 2)),
+                                         fontsize=8)
                     axes[i, j].get_xaxis().set_visible(False)
                     axes[i, j].get_yaxis().set_visible(False)
 
@@ -1242,7 +1248,7 @@ def plot_particles_stats(collection, stat='area'):
             ax.set_xlabel(r'$z_{true}$')
             ax.set_ylabel(r'$A_{p}$ $(pixels^2)$')
             ymax = int(np.round(np.max(df.area) * 1.1, -1))
-            ax.set_ylim([0, ymax])
+            # ax.set_ylim([0, ymax])
             if len(particles_ids) < 40:
                 ax.legend(title=r'$p_{ID}$', fontsize=8, loc='upper center', bbox_to_anchor=(0.5, 0.95), ncol=8,
                           fancybox=True, shadow=True)
@@ -1591,6 +1597,9 @@ def plot_gaussian_fit_on_image_for_particle(collection, particle_ids, frame_step
                     sigmax = p.gauss_sigma_x
                     sigmay = p.gauss_sigma_y
 
+                    if all([gauss_yc, gauss_xc, gauss_dia_y, gauss_dia_x]) is False:
+                        continue
+
                     # get images
                     img = p.image_raw.copy()
                     p_template = p.template.copy()
@@ -1599,7 +1608,7 @@ def plot_gaussian_fit_on_image_for_particle(collection, particle_ids, frame_step
                     p_template = rescale_intensity(p_template, out_range=np.uint16)
 
                     # generate ellipse
-                    rr, cc = ellipse_perimeter(int(gauss_yc), int(gauss_xc), int(gauss_dia_y), int(gauss_dia_x))
+                    rr, cc = ellipse_perimeter(int(gauss_yc), int(gauss_xc), int(gauss_dia_y/2), int(gauss_dia_x/2))
                     rr, cc = filter_ellipse_points_on_image(img, rr, cc)
                     img[rr, cc] = np.max(img)
 
