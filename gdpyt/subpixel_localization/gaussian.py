@@ -14,6 +14,9 @@ from skimage.transform import resize, downscale_local_mean, rescale
 from skimage.filters import gaussian
 from matplotlib.patches import Ellipse
 
+from skimage.draw import ellipse_perimeter
+from gdpyt.utils.plotting import filter_ellipse_points_on_image
+
 """
 Note: the following scripts are new (2022 and later)
 """
@@ -28,6 +31,7 @@ def gauss_2d_function(xy, a, x0, y0, sigmax, sigmay):
 
 
 def get_amplitude_center_sigma_improved(x_space=None, y_profile=None, img=None):
+    """ raw_amplitude, raw_c, raw_sigma = get_amplitude_center_sigma_improved(x_space=None, y_profile=None, img=None) """
     if y_profile is None:
         y_slice = np.unravel_index(np.argmax(img, axis=None), img.shape)[0]
         y_profile = img[y_slice, :]
@@ -42,8 +46,11 @@ def get_amplitude_center_sigma_improved(x_space=None, y_profile=None, img=None):
     raw_c = x_space[np.argmax(y_profile)]
 
     # get sigma
-    y_pl_zero = np.where(y_profile[:np.argmax(y_profile)] - np.mean(y_profile) < 0)[0][0]
-    y_pr_zero = np.where(y_profile[np.argmax(y_profile):] - np.mean(y_profile) < 0)[0][0]
+    y_pl_zero = len(np.where(y_profile[:np.argmax(y_profile)] - np.mean(y_profile) < 0)[0])
+    y_pr_zero = len(np.where(y_profile[np.argmax(y_profile):] - np.mean(y_profile) < 0)[0])
+
+    """y_pl_zero = np.where(y_profile[:np.argmax(y_profile)] - np.mean(y_profile) < 0)[0][0]
+    y_pr_zero = np.where(y_profile[np.argmax(y_profile):] - np.mean(y_profile) < 0)[0][0]"""
     raw_sigma = np.mean([y_pl_zero, y_pr_zero])
 
     return raw_amplitude, raw_c, raw_sigma
@@ -73,15 +80,26 @@ def get_amplitude_center_sigma(x_space=None, y_profile=None, img=None, y_slice=N
     return raw_amplitude, raw_c, raw_sigma
 
 
-def fit_2d_gaussian_on_image(img, normalize=True):
+def fit_2d_gaussian_on_image(img, normalize=True, guess='center'):
+
+    img_original = img
 
     if normalize:
-        img = img - img.min()
+        img = img - img.min() + 1
 
-    yc, xc = np.shape(img)
-    xc, yc = xc // 2, yc // 2
+    y, x = np.shape(img)
+    xc, yc = x // 2, y // 2
 
-    guess_A, guess_c, guess_sigma = get_amplitude_center_sigma(x_space=None, y_profile=None, img=img, y_slice=yc)
+    bounds = None
+    if guess == 'center':
+        guess_A = np.max(img) / 2
+        guess_sigma = xc / 2
+        bounds = ([0, x / 8, y / 8, 0, 0], [2 ** 16, 7 * x / 8, 7 * y / 8, x, y])
+    elif guess == 'sigma':
+        guess_A, guess_c, guess_sigma = get_amplitude_center_sigma(x_space=None, y_profile=None, img=img, y_slice=yc)
+    elif guess == 'sigma_improved':
+        guess_A, guess_c, guess_sigma = get_amplitude_center_sigma_improved(x_space=None, y_profile=None, img=img)
+
 
     # make grid
     X = np.arange(np.shape(img)[1])
@@ -99,9 +117,48 @@ def fit_2d_gaussian_on_image(img, normalize=True):
     # fit 2D gaussian
     guess = [guess_A, xc, yc, guess_sigma, guess_sigma]
     try:
-        popt, pcov = curve_fit(gauss_2d_function, XYZ[:, :2], XYZ[:, 2], guess)
+        if bounds is not None:
+            popt, pcov = curve_fit(gauss_2d_function, XYZ[:, :2], XYZ[:, 2], p0=guess, bounds=bounds)
+        else:
+            popt, pcov = curve_fit(gauss_2d_function, XYZ[:, :2], XYZ[:, 2], guess)
     except RuntimeError:
         popt = None
+
+    """
+    if popt is not None:
+        # experimental
+        y_slice = np.unravel_index(np.argmax(img, axis=None), img.shape)[0]
+        y_profile = img[y_slice, :]
+        x_space = np.arange(len(y_profile))
+
+        # Gaussian
+        imgf = gauss_2d_function(XYZ[:, :2], *popt)
+        imf = np.reshape(imgf, img.shape)
+
+        fig, ax = plt.subplots(nrows=2, ncols=2)
+        ax1 = ax[0, 0]
+        ax2 = ax[0, 1]
+        ax3 = ax[1, 0]
+        ax4 = ax[1, 1]
+
+        ax1.imshow(img)
+        ax1.set_title('Normalized (max={})'.format(np.round(np.max(img), 1)))
+
+        ax2.imshow(imf)
+        ax2.set_title('A={}, wx={}, wy={}'.format(np.round(popt[0], 1), np.round(popt[3], 1), np.round(popt[4], 1)))
+
+        ax3.plot(x_space, y_profile)
+        ax3.set_ylabel('Img Intensity')
+
+        x_gauss = np.linspace(-popt[4] * 2, len(y_profile) + popt[4] * 2, 200)
+        y_gauss = gauss_1d_function(x_gauss, popt[0], popt[1], popt[3])
+        ax4.plot(x_gauss, y_gauss)
+        ax4.set_ylabel('1D Gauss')
+
+        plt.tight_layout()
+        plt.show()
+        j = 1
+    """
 
     return popt
 
@@ -134,7 +191,7 @@ def fit_2d_gaussian_on_ccorr(res, xc, yc):
 
 def fit_gaussian_calc_diameter(img, normalize=True):
 
-    popt = fit_2d_gaussian_on_image(img, normalize=normalize)
+    popt = fit_2d_gaussian_on_image(img, normalize=normalize, guess='sigma_improved')
 
     if popt is None:
         return None, None, None, None, None, None, None
@@ -148,14 +205,14 @@ def fit_gaussian_calc_diameter(img, normalize=True):
 
 
 def calc_diameter_from_theory(img, A, xc, yc, sigmax, sigmay):
-    beta = 3.67
+    beta = np.sqrt(3.67)
 
     # diameter threshold: intensity < np.exp(-3.67 ** 2)
-    diameter_threshold = np.exp(-beta ** 2) * A
+    diameter_threshold = np.exp(-1 * beta ** 2) * A
 
     # spatial arrays
-    x_arr = np.linspace(0, 250, 1000)
-    y_arr = np.linspace(0, 250, 1000)
+    x_arr = np.linspace(0, sigmax * 5, 1000)
+    y_arr = np.linspace(0, sigmay * 5, 1000)
 
     # xy-radius intensity distribution (fitted Gaussian distribution)
     x_intensity = gauss_1d_function(x=x_arr, a=A, x0=0, sigma=sigmax)
@@ -163,8 +220,10 @@ def calc_diameter_from_theory(img, A, xc, yc, sigmax, sigmay):
 
     # find where intensity distribution, I_xy(x, y) < np.exp(-3.67 ** 2) * maximum intensity at the center
     # NOTE: is "maximum intensity at the center" defined as A (fitted Gaussian amplitude) or peak pixel intensity?
-    x_intensity_rel = np.abs(x_intensity - np.exp(-beta ** 2) * A)
-    y_intensity_rel = np.abs(y_intensity - np.exp(-beta ** 2) * A)
+    x_intensity_raw = x_intensity - np.exp(-1 * beta ** 2) * A
+    y_intensity_raw = y_intensity - np.exp(-1 * beta ** 2) * A
+    x_intensity_rel = np.abs(x_intensity_raw)
+    y_intensity_rel = np.abs(y_intensity_raw)
 
     # radius (in pixels) is equal to xy-coordinate where xy_intensity_rel is minimized
     radius_x = x_arr[np.argmin(x_intensity_rel)]
@@ -173,14 +232,34 @@ def calc_diameter_from_theory(img, A, xc, yc, sigmax, sigmay):
     dia_x = radius_x * 2
     dia_y = radius_y * 2
 
+    # experimental slice
+    """
+    y_slice_exp = np.unravel_index(np.argmax(img, axis=None), img.shape)[0]
+    y_profile_exp = img[y_slice_exp, :]
+    x_space_exp = np.arange(len(y_profile_exp))
+
+    fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(12, 6))
+    ax1.plot(x_space_exp, y_profile_exp)
+    ax1.set_xlabel('image pixels')
+    ax1.set_ylabel('image intensity')
+    ax2.plot(x_arr, x_intensity, label='dx={}'.format(np.round(dia_x, 3)))
+    ax2.axhline(diameter_threshold, color='black', label='Threshold={}'.format(np.round(diameter_threshold, 1)))
+    ax2.set_xlabel('resampled pixels')
+    ax2.set_ylabel('Gaussian intensity')
+    ax2.legend()
+    plt.show()
+    
+    j = 1
+    """
+
     return dia_x, dia_y
 
 
 def calc_diameter_from_pixel_intensities(img, A, xc, yc, sigmax, sigmay):
-    beta = 3.67
+    beta = np.sqrt(3.67)
 
     # diameter threshold: intensity < np.exp(-3.67 ** 2)
-    diameter_threshold = np.exp(-beta ** 2) * A
+    diameter_threshold = np.exp(-1 * beta ** 2) * A
 
     # Fit x-diameter
     # resample and plot fitted Gaussian
@@ -203,6 +282,24 @@ def calc_diameter_from_pixel_intensities(img, A, xc, yc, sigmax, sigmay):
     arr = np.abs(fit_xint - diameter_threshold)
     fit_widths = fit_xslice[np.argpartition(arr, 2)[:2]]
     dia_y = np.abs(fit_widths[1] - fit_widths[0])
+
+    # experimental slice
+    y_slice_exp = np.unravel_index(np.argmax(img, axis=None), img.shape)[0]
+    y_profile_exp = img[y_slice_exp, :]
+    x_space_exp = np.arange(len(y_profile_exp))
+
+    fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(12, 6))
+    ax1.plot(x_space_exp, y_profile_exp)
+    ax1.set_xlabel('image pixels')
+    ax1.set_ylabel('image intensity')
+    ax2.plot(fit_yslice, fit_yint, label='dx={}'.format(dia_x, 1))
+    ax2.axhline(diameter_threshold, color='black', label='Threshold={}'.format(np.round(diameter_threshold, 1)))
+    ax2.set_xlabel('resampled pixels')
+    ax2.set_ylabel('Gaussian intensity')
+    ax2.legend()
+    plt.show()
+    j = 1
+
 
     return dia_x, dia_y
 

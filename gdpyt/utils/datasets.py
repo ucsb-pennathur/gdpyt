@@ -2746,29 +2746,39 @@ class dataset_unpacker(object):
             # image pre-processing
             DILATE = None  # None or True
             SHAPE_TOL = 0.25
-            MIN_P_AREA = 5
+            MIN_P_AREA = 7
+            TEST_MIN_P_AREA = 7
             MAX_P_AREA = 925
             SAME_ID_THRESH = 5
-            BACKGROUND_SUBTRACTION = 'median'  # 'min_value'  # 'min_value'
+            BACKGROUND_SUBTRACTION = None  # 'median'  # 'min_value'  # 'min_value'
             OVERLAP_THRESHOLD = 8
 
             # shared setup
-            if self.static_templates:
-                cropping_specs = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 0}
-            else:
-                cropping_specs = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 0}
-            image_subset = None  # [15, 85]
-            test_image_subset = None  # [38, 42, 1]  # [40, 70, 1]
+            cropping_specs = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 5}
+            calib_step_size = self.sweep_param
+            image_subset = [self.sweep_param, 106, calib_step_size]  # [15, 85]
+            test_image_subset = None  # [1, 79, 4]  # [15, 57, 10]  # [40, 70, 1]
             calib_baseline_image = 'calib_50.tif'  # 1-micron calib: 'calib_50.tif'; for 5-micron calib: 'calib_13.tif'
-            calib_template_padding = 19  # self.sweep_param + 3
-            test_template_padding = 16  # self.sweep_param
+            test_baseline_image = 'test_39.tif'
 
             if self.static_templates:
+                test_template_padding = 16
+                calib_template_padding = test_template_padding + self.sweep_param
+
                 thresholding = 'manual'
-                threshold_modifier = 600  # 140
+                threshold_modifier = 1349  # 140
+                test_threshold_modifier = 1349
+                spct_calib_method = None
+
             else:
-                thresholding = 'manual'  # 'median_percent'  # general: 'manual':115;  # SPCT: 'median_percent'
-                threshold_modifier = 140  # 0.5  # 0.5  # if background subtraction == 'min_value': IDPT: 12; --> ? SPCT: 0.62
+                calib_template_padding = 0
+                test_template_padding = 0
+
+                thresholding = 'manual'  # 'manual'  # 'median_percent'  # general: 'manual':115;  # SPCT: 'median_percent'
+                threshold_modifier = 130  # 200  # 108  # 0.5  # 0.5  # if background subtraction == 'min_value': IDPT: 12; --> ? SPCT: 0.62
+                test_threshold_modifier = 130
+
+                spct_calib_method = 'theory'
 
             if self.collection_type == 'calibration':
                 CALIB_IMG_PATH = calib_img_path
@@ -2793,7 +2803,7 @@ class dataset_unpacker(object):
 
                 # calib dataset information
                 CALIB_SUBSET = image_subset  #
-                CALIBRATION_Z_STEP_SIZE = 1.0
+                CALIBRATION_Z_STEP_SIZE = calib_step_size
                 TRUE_NUM_PARTICLES_PER_CALIB_IMAGE = 1
                 BASELINE_IMAGE = calib_baseline_image  # 'calib_50.tif'
 
@@ -2805,7 +2815,7 @@ class dataset_unpacker(object):
                 if self.static_templates:
                     CALIB_TEMPLATE_PADDING = calib_template_padding
                 else:
-                    CALIB_TEMPLATE_PADDING = 0  # 3
+                    CALIB_TEMPLATE_PADDING = 0  # 0
 
                 CALIB_CROPPING_SPECS = cropping_specs
                 CALIB_PROCESSING_METHOD = 'median'
@@ -2815,7 +2825,11 @@ class dataset_unpacker(object):
                 CALIB_PROCESSING_FILTER_TYPE2 = None
                 CALIB_PROCESSING_FILTER_SIZE2 = 1
                 #if self.sweep_param[0] == 0:
-                CALIB_PROCESSING = None
+                if self.static_templates:
+                    CALIB_PROCESSING = None
+                else:
+                    CALIB_PROCESSING = {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+
                 #else:
                 #    CALIB_PROCESSING = {CALIB_PROCESSING_METHOD: {'args': [square(CALIB_PROCESSING_FILTER_SIZE), None, 'wrap']}}
                 # {'none': None}
@@ -2834,6 +2848,14 @@ class dataset_unpacker(object):
                     CALIB_THRESHOLD_MODIFIER = threshold_modifier  # optics.bkg_mean + optics.bkg_noise * 10
 
                 CALIB_THRESHOLD_PARAMS = {CALIB_THRESHOLD_METHOD: [CALIB_THRESHOLD_MODIFIER]}
+
+                if spct_calib_method == 'theory':
+                    CALIB_THRESHOLD_PARAMS = {'theory': CALIB_THRESHOLD_MODIFIER,
+                                              'thresh_min': 108,  # 130
+                                              'thresh_max': 220,
+                                              'frame_max': 50,
+                                              'dz_per_frame': calib_step_size,
+                                              }
 
                 # similarity
                 #if self.sweep_param[0] == 0:
@@ -2879,7 +2901,7 @@ class dataset_unpacker(object):
                 IF_TEST_IMAGE_STACK = 'first'
                 TAKE_TEST_IMAGE_SUBSET_MEAN = [0, 1]
 
-                TEST_PARTICLE_ID_IMAGE = 'test_39.tif'  # 'test_X045.tif'  # 'test_39.tif'
+                TEST_PARTICLE_ID_IMAGE = test_baseline_image  # 'test_X045.tif'  # 'test_39.tif'
                 # 1-micron calib: 50; 5-micron test: 39; 1-um calib flat test: 'test_149.tif', test: 'test_X001.tif'
 
                 # test processing parameters
@@ -2897,7 +2919,11 @@ class dataset_unpacker(object):
                 TEST_PROCESSING_FILTER_TYPE2 = None
                 TEST_PROCESSING_FILTER_SIZE2 = 1
                 #if self.sweep_param[1] == 0:
-                TEST_PROCESSING = {TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+                if self.static_templates:
+                    TEST_PROCESSING = None
+                else:
+                    TEST_PROCESSING = {TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
+
                 #else:
                 #    TEST_PROCESSING = {TEST_PROCESSING_METHOD: {'args': [square(TEST_PROCESSING_FILTER_SIZE), None, 'wrap']}}
                 # {'none': None}
@@ -2911,7 +2937,7 @@ class dataset_unpacker(object):
                 elif TEST_THRESHOLD_METHOD == 'median_percent':
                     TEST_THRESHOLD_MODIFIER = threshold_modifier
                 else:
-                    TEST_THRESHOLD_MODIFIER = threshold_modifier  # optics.bkg_mean + optics.bkg_noise * 10  # tbkg_mean + tbkg_noise * 3
+                    TEST_THRESHOLD_MODIFIER = test_threshold_modifier  # optics.bkg_mean + optics.bkg_noise * 10  # tbkg_mean + tbkg_noise * 3
 
                 TEST_THRESHOLD_PARAMS = {TEST_THRESHOLD_METHOD: [TEST_THRESHOLD_MODIFIER]}
 
@@ -3843,7 +3869,7 @@ class dataset_unpacker(object):
             BACKGROUND_SUBTRACTION = None  # {'method': 'baseline_image_subtraction', 'param': 100}
             cropping_specs = {'xmin': 0, 'xmax': 512, 'ymin': 0, 'ymax': 512, 'pad': 10}
             image_subset = None
-            test_image_subset = [20, 80, 1]  # [33, 42, 1]  # None  # [40, 200, 1]
+            test_image_subset = None  # [33, 42, 1]  # None  # [40, 200, 1]
             baseline_image = calib_baseline_image
             idpt_test_template_padding = self.sweep_param[1]  # 13
             idpt_calib_template_padding = idpt_test_template_padding + 4  # 11

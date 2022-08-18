@@ -57,12 +57,15 @@ def sk_norm_cross_correlation(img1, img2):
     if img1.size >= img2.size:
         result = match_template(img1, img2)
 
-    elif img2.shape[0] > img1.shape[0] and img2.shape[1] > img1.shape[1]:
-        result = match_template(img2, img1)
+        """elif img2.shape[0] > img1.shape[0] and img2.shape[1] > img1.shape[1]:
+        result = match_template(img2, img1)"""
 
     else:
         logger.warning("Unable to correlate mismatched templates: (img1, img2): ({}, {})".format(img1.shape, img2.shape))
         result = np.nan
+
+    """# evaluate results
+    res_length = np.floor(result.shape[0] / 2)
 
     # max correlation
     cm = np.max(result)
@@ -70,14 +73,23 @@ def sk_norm_cross_correlation(img1, img2):
     # x,y coordinates in the image space where the highest correlation was found
     ij = np.unravel_index(np.argmax(result), result.shape)
     x, y = ij[::-1]
+    x = x - res_length
+    y = y - res_length
 
     # sub-pixel localization
     if np.size(result) > 5:
         xg, yg = fit_2d_gaussian_on_ccorr(result, x, y)
+        if xg is not None and yg is not None:
+            xg = xg - res_length
+            yg = yg - res_length
     else:
         xg, yg = None, None
-
+        
     return cm, x, y, xg, yg
+    """
+
+    return result
+
 
 
 def max_cross_correlation(img1, img2):

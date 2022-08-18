@@ -38,7 +38,8 @@ class GdpytSetup(object):
 
 
 class inputs(object):
-    def __init__(self, dataset, image_collection_type=None, image_path=None, image_file_type=None, image_base_string=None,
+    def __init__(self, dataset, image_collection_type=None, image_path=None, image_file_type=None,
+                 image_base_string=None,
                  image_subset=None, calibration_z_step_size=1, baseline_image=None, static_templates=False,
                  if_image_stack='first', take_image_stack_subset_mean_of=[], single_particle_calibration=False,
                  ground_truth_file_path=None, ground_truth_file_type=None, known_z=None, true_number_of_particles=None,
@@ -108,6 +109,7 @@ class outputs(object):
         self.save_id_string = save_id_string
         self.inspect_contours = inspect_contours
         self.assess_similarity_for_all_stacks = assess_similarity_for_all_stacks
+
 
 class processing(object):
     def __init__(self, min_layers_per_stack=None,
@@ -183,8 +185,10 @@ class z_assessment(object):
 
         self.use_stack_id = use_stack_id
 
+
 class optics(object):
-    def __init__(self, particle_diameter=None, demag=None, magnification=None, numerical_aperture=None, focal_length=None,
+    def __init__(self, particle_diameter=None, demag=None, magnification=None, numerical_aperture=None,
+                 focal_length=None,
                  ref_index_medium=None, ref_index_lens=None, pixel_size=None,
                  pixel_dim_x=None, pixel_dim_y=None, bkg_mean=None, bkg_noise=None, points_per_pixel=None, n_rays=None,
                  gain=None, cyl_focal_length=None, wavelength=None, overlap_scaling=None, z_range=20):
@@ -269,12 +273,13 @@ class optics(object):
             1. at higher numerical apertures, the wave optics dominates the depth of field (left term)
             2. at lower numerical apertures, the circle of confusion dominates; which is dependent on the CCD pixel size
         """
-        self.depth_of_field = ref_index_medium * wavelength / numerical_aperture ** 2 + ref_index_medium * pixel_size /\
+        self.depth_of_field = ref_index_medium * wavelength / numerical_aperture ** 2 + ref_index_medium * pixel_size / \
                               (self.effective_magnification * numerical_aperture)
 
         # constants for stigmatic/astigmatic imaging systems (ref: Rossi & Kahler 2014, DOI 10.1007/s00348-014-1809-2)
         self.c1 = 2 * (ref_index_medium ** 2 / numerical_aperture ** 2 - 1) ** -0.5
-        self.c2 = (particle_diameter ** 2 + 1.49 * wavelength ** 2 * (ref_index_medium ** 2 / numerical_aperture ** 2 - 1)) ** 0.5
+        self.c2 = (particle_diameter ** 2 + 1.49 * wavelength ** 2 * (
+                    ref_index_medium ** 2 / numerical_aperture ** 2 - 1)) ** 0.5
 
         # create a measurement depth
         z_space = np.linspace(start=-z_range, stop=z_range, num=250)
@@ -303,7 +308,8 @@ class optics(object):
 
         # particle image diameter with distance from focal plane (stigmatic system)
         # (ref 1: Rossi & Kahler 2014, DOI 10.1007 / s00348-014-1809-2)
-        particle_diameter_z1 = self.effective_magnification * (self.c1 ** 2 * (z_space - z_zero*1e-6) ** 2 + self.c2 ** 2) ** 0.5
+        particle_diameter_z1 = self.effective_magnification * (
+                    self.c1 ** 2 * (z_space - z_zero * 1e-6) ** 2 + self.c2 ** 2) ** 0.5
 
         # convert units to microns
         particle_diameter_z1 = particle_diameter_z1 * 1e6
@@ -313,7 +319,8 @@ class optics(object):
 
         return z_space, particle_diameter_z1
 
-    def stigmatic_maximum_intensity_z(self, z_space, max_intensity_in_focus, z_zero=0, background_intensity=0):
+    def stigmatic_maximum_intensity_z(self, z_space, max_intensity_in_focus, z_zero=0, background_intensity=0,
+                                      num=250):
         """
         maximum intensity with distance from the focal plane (stigmatic system)
 
@@ -328,16 +335,18 @@ class optics(object):
             mod = True
 
         # create dense z-space for smooth plotting
-        z_space = np.linspace(start=np.min(z_space), stop=np.max(z_space), num=250)
+        z_space = np.linspace(start=np.min(z_space), stop=np.max(z_space), num=num)
 
         # calculate the intensity profile as a function of z
-        stigmatic_intensity_profile = self.c2 ** 2 / ((self.c1 ** 2 * (z_space - z_zero*1e-6) ** 2 + self.c2 ** 2) **
-                                                      0.5 * (self.c1**2 * (z_space - z_zero*1e-6) ** 2 +
+        stigmatic_intensity_profile = self.c2 ** 2 / ((self.c1 ** 2 * (z_space - z_zero * 1e-6) ** 2 + self.c2 ** 2) **
+                                                      0.5 * (self.c1 ** 2 * (z_space - z_zero * 1e-6) ** 2 +
                                                              self.c2 ** 2) ** 0.5)
 
         # normalize the intensity profile so it's maximum value is equal to the max_intensity_in_focus
-        stigmatic_intensity_profile = (max_intensity_in_focus - background_intensity) * stigmatic_intensity_profile /\
-                                       np.max(stigmatic_intensity_profile) + background_intensity
+        stigmatic_intensity_profile = np.round(
+            (max_intensity_in_focus - background_intensity) * stigmatic_intensity_profile / \
+            np.max(stigmatic_intensity_profile) + background_intensity,
+            1)
 
         if mod is True:
             z_space = z_space * 1e6

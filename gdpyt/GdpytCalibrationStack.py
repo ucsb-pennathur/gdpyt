@@ -227,13 +227,15 @@ class GdpytCalibrationStack(object):
         """
 
         # get array of z-coords and image templates
-        z_calib, temp_calib_original = np.array(list(self.layers.keys())), np.array(list(self.layers.values()))
+        z_calib, temp_calib = np.array(list(self.layers.keys())), np.array(list(self.layers.values()))
 
         # pad the calibration image templates to allow for test particle template sliding across the calibration image
-        temp_calib = []
+        """temp_calib = []
         for t in temp_calib_original:
             temp_calib.append(np.pad(t, pad_width=1, mode='constant', constant_values=np.min(t)))
-        temp_calib = np.array(temp_calib)
+        temp_calib = np.array(temp_calib)"""
+
+        temp_calib_3d = np.reshape(temp_calib, (temp_calib.shape[1], temp_calib.shape[2], temp_calib.shape[0]))
 
         """ End Note """
 
@@ -289,20 +291,71 @@ class GdpytCalibrationStack(object):
 
         # perform the cross-correlation against each image in the calibration stack and append the results to a list
         sim = []
+        res = []
         match_location = []
         match_localization = []
 
+        # 3D template matching
+        # result = match_template(temp_calib_3d, particle.template[:, :, np.newaxis])
+
         for c_temp in temp_calib:
-            similarity, xm, ym, xg, yg = sim_func(c_temp, particle.template)
-            sim.append(similarity)
-            match_location.append([xm, ym])
-            match_localization.append([xg, yg])
+            # similarity, xm, ym, xg, yg = sim_func(c_temp, particle.template)
+            result = sim_func(c_temp, particle.template)
+            res.append(result)
+            sim.append(np.max(result))
+            # match_location.append([xm, ym])
+            # match_localization.append([xg, yg])
 
         sim = np.array(sim)
         max_idx = optim(sim)
         particle.set_cm(sim[max_idx])
-        particle.set_match_location(match_location[max_idx])
-        particle.set_match_localization(match_localization[max_idx])
+
+        # get the correlation map where peak correlation was found
+        result = res[max_idx]
+        res_length = np.floor(result.shape[0] / 2)
+
+        # x,y coordinates in the image space where the highest correlation was found
+        ij = np.unravel_index(np.argmax(result), result.shape)
+        xmt, ymt = ij[::-1]
+        xm = res_length - xmt
+        ym = res_length - ymt
+
+        # set template matching location according to particle location
+        mlx, mly = xm, ym
+        if mlx is not None and mly is not None:
+            mlx, mly = particle.location[0] + mlx, particle.location[1] + mly
+        particle.set_match_location([mlx, mly])
+
+        # sub-pixel localization
+        xg, yg = None, None
+        result = result - np.min(result)
+        pad_width = 0
+        # result = np.pad(result, pad_width)
+
+        locate_subpix = False
+        if locate_subpix:
+            if np.size(result) > 5:
+                xgt, ygt = fit_2d_gaussian_on_ccorr(result, xmt + pad_width, ymt + pad_width)
+                if xgt is not None and ygt is not None:
+                    xg = res_length - xgt
+                    yg = res_length - ygt
+                    xg, yg = particle.location[0] + xg, particle.location[1] + yg
+
+                    """plot_fit_gauss = True
+                    if plot_fit_gauss:
+                        xg_r = np.round(xgt, 1)
+                        yg_r = np.round(ygt, 1)
+                        fig, ax = plt.subplots()
+                        ax.imshow(result)
+                        ax.scatter(xgt, ygt, color='red')
+                        ax.set_title('pid{}, z{}, ({}, {})'.format(particle.id, z_calib[optim(sim)], xg_r, yg_r))
+                        plt.tight_layout()
+                        plt.savefig('/Users/mackenzie/Desktop/gdpyt-characterization/experiments/11.06.21_z-micrometer-v2/'
+                                    'results/tmg/pid{}_z{}_xg{}_yg{}.png'.format(particle.id, z_calib[optim(sim)], xg_r, yg_r),
+                                    dpi=200)
+                        plt.close()"""
+
+        particle.set_match_localization([xg, yg])
 
         # evaluate correlation value
         if sim[max_idx] > min_cm and infer_sub_image is False:
@@ -363,10 +416,12 @@ class GdpytCalibrationStack(object):
                 padded_image = np.pad(temp_calib[index], pad_width=3, mode='constant',
                                       constant_values=np.min(temp_calib[index]))
 
-                forward, xf, yf, xg, yg = sim_func(padded_image, temp_calib[index + 1])
+                result = sim_func(padded_image, temp_calib[index + 1])
+                forward = np.max(result)
                 sim_self_forward.append(forward)
                 if index > 0:
-                    backward, xb, yb, xg, yg = sim_func(padded_image, temp_calib[index - 1])
+                    result = sim_func(padded_image, temp_calib[index - 1])
+                    backward = np.max(result)
                     sim_self_backward.append(backward)
 
                     # mean similarity

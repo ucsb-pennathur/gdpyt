@@ -18,31 +18,44 @@ known_z, num_test_images, nl = None, 500, 15
 # ----- ----- ----- ----- TEST DATASET UNPACKER ----- ----- ----- ----- ----- ----- -----
 
 test_dataset = '11.06.21_z-micrometer-v2'
-particle_distribution = 'SILPURAN'
-sweep_method = 'micrometer_5um'
-sweep_params = [15, 16, 17]
-calib_stack_id = None  # 'nearest'
 
-single_particle_calibration = False
-static_templates = True
-hard_baseline = True
+if test_dataset == '02.06.22_membrane_characterization':
+    particle_distribution = '10X'
+    sweep_method = 'testset'
+    sweep_params = [['dynamic_neg_first', 6]]  # [40, 42, 44, 35, 0, 78]
+    calib_stack_id = None  # 'nearest'
+
+elif test_dataset == '11.06.21_z-micrometer-v2':
+    particle_distribution = 'SILPURAN'
+    sweep_method = 'z-step'
+    sweep_params = [1]  # [40, 42, 44, 35, 0, 78]
+    calib_stack_id = None  # 'nearest'
+
+single_particle_calibration = True
+static_templates = False
+hard_baseline = False
 particles_overlapping = False
 
-"""# generate calibration collection and calibration set
-calib_settings = dataset_unpacker(dataset=test_dataset,
-                                  collection_type='calibration',
-                                  noise_level=nl,
-                                  number_of_images=num_test_images,
-                                  particle_distribution=particle_distribution,
-                                  particle_density=None,
-                                  single_particle_calibration=single_particle_calibration,
-                                  static_templates=static_templates,
-                                  hard_baseline=hard_baseline,
-                                  particles_overlapping=particles_overlapping,
-                                  sweep_method=sweep_method,
-                                  sweep_param='gen-cal').unpack()
-calib_col, calib_set = GdpytCharacterize.test(calib_settings, test_settings=None, return_variables='calibration')
-"""
+# generate calibration collection and calibration set
+for sweep_param in sweep_params:
+    calib_settings = dataset_unpacker(dataset=test_dataset,
+                                      collection_type='calibration',
+                                      noise_level=nl,
+                                      number_of_images=num_test_images,
+                                      particle_distribution=particle_distribution,
+                                      particle_density=None,
+                                      single_particle_calibration=single_particle_calibration,
+                                      static_templates=static_templates,
+                                      hard_baseline=hard_baseline,
+                                      particles_overlapping=particles_overlapping,
+                                      sweep_method=sweep_method,
+                                      sweep_param=sweep_param).unpack()
+    calib_col, calib_set = GdpytCharacterize.test(calib_settings, test_settings=None, return_variables='calibration')
+
+    del calib_col, calib_set, calib_settings
+
+    print("Finished test param {}".format(sweep_param))
+
 
 # GDPyT test collection
 
@@ -337,7 +350,7 @@ if pp:
 # ----- ----- ----- ----- Synthetic Experiment Validation - Static --- -- ----- ----- ----- ----- ----- ----- ----- ----
 
 # ----- ----- ----- ----- Synthetic Experiment Validation - Static --- -- ----- ----- ----- ----- ----- ----- ----- ----
-multi = True
+multi = False
 if multi:
 
     calib_col, calib_set = None, None
@@ -349,12 +362,12 @@ if multi:
     calib_stack_id = 46  # 'nearest'
     """
     single_particle_calibration = True
-    static_templates = True
-    hard_baseline = True
+    static_templates = False
+    hard_baseline = False
     particles_overlapping = False
 
-
-    sweep_params = [34, 40, 51, 54]
+    sweep_params = [41, 48, 52, 56]
+    calib_stack_id = None  # 'nearest'
 
     # generate calibration collection and calibration set
     calib_settings = dataset_unpacker(dataset=test_dataset,
@@ -368,7 +381,7 @@ if multi:
                                       hard_baseline=hard_baseline,
                                       particles_overlapping=particles_overlapping,
                                       sweep_method=sweep_method,
-                                      sweep_param='gen-cal-spct').unpack()
+                                      sweep_param='spct-cal').unpack()
 
     calib_col, calib_set = GdpytCharacterize.test(calib_settings, test_settings=None, return_variables='calibration')
 

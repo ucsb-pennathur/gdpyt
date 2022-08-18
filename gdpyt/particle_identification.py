@@ -23,17 +23,21 @@ from skimage.segmentation import watershed
 
 
 def apply_threshold(img, parameter, overlapping_particles=True, min_particle_size=5,
-                    invert=False, show_threshold=False):
-
-    if not len(parameter) == 1:
-        raise ValueError("Thresholding parameter must be specified as a dictionary with one key and a list containing"
-                         "supplementary arguments for that function as a value")
+                    invert=False, show_threshold=False, frame=None):
 
     method = list(parameter.keys())[0]
     if method not in ['none', 'otsu', 'multiotsu', 'local', 'min', 'mean', 'mean_percent', 'median', 'median_percent',
-                      'manual', 'manual_percent', 'triangle', 'manual_smoothing', 'li', 'niblack', 'sauvola']:
+                      'manual', 'manual_percent', 'triangle', 'manual_smoothing', 'li', 'niblack', 'sauvola',
+                      'theory',
+                      ]:
         raise ValueError("method must be one of ['none', otsu', 'multiotsu', 'local', 'min',"
-                         " 'manual', 'triangle', 'manual_smoothing', 'li', 'niblack', 'sauvola']")
+                         " 'manual', 'triangle', 'manual_smoothing', 'li', 'niblack', 'sauvola', 'theory']")
+
+    if method == 'theory':
+        theory_thresh_val = parameter[frame]
+        print("Thresh value = {} (from theory)".format(theory_thresh_val))
+        method = 'manual'
+        parameter = {method: theory_thresh_val}
 
     if method in ['manual', 'manual_percent', 'manual_smoothing']:
         manual_initial_guess = np.round(img.mean() + np.std(img)*0.33, 0)  #  * parameter[method][0]
@@ -43,9 +47,10 @@ def apply_threshold(img, parameter, overlapping_particles=True, min_particle_siz
         thresh_img = img
     elif method == 'otsu':
         thresh_val = threshold_otsu(img)
-        bw = closing(img > thresh_val, square(3))
-        thresh_img = clear_border(bw)
-        # thresh_img = img > thresh_val -- old: updated 8/14/21
+        print("Ostu threshold value = {}".format(thresh_val))
+        # bw = closing(img > thresh_val, square(3))
+        # thresh_img = clear_border(bw)
+        thresh_img = img > thresh_val  # -- old: updated 8/14/21
     elif method == 'multiotsu':
         kwargs = parameter[method]
         thresh_val = threshold_multiotsu(img, **kwargs)
@@ -228,11 +233,9 @@ def apply_threshold(img, parameter, overlapping_particles=True, min_particle_siz
                         thresh_img = temp
 
                     # Plot to check flood filling contours
-
                     """fig, ax = plt.subplots()
                     ax.imshow(thresh_img)
                     plt.show()"""
-                    j = 1
 
     if invert:
         thresh_img = ~thresh_img

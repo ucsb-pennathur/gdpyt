@@ -1607,10 +1607,20 @@ def plot_gaussian_fit_on_image_for_particle(collection, particle_ids, frame_step
                     img = rescale_intensity(img, out_range=np.uint16)
                     p_template = rescale_intensity(p_template, out_range=np.uint16)
 
+                    # ---
+
                     # generate ellipse
                     rr, cc = ellipse_perimeter(int(gauss_yc), int(gauss_xc), int(gauss_dia_y/2), int(gauss_dia_x/2))
+
+                    # paint ellipse on big image
                     rr, cc = filter_ellipse_points_on_image(img, rr, cc)
                     img[rr, cc] = np.max(img)
+
+                    # paint ellipse on template
+                    rr, cc = filter_ellipse_points_on_image(p_template, rr, cc)
+                    p_template[rr, cc] = np.max(p_template)
+
+                    # ---
 
                     # plot
                     fig, [ax1, ax2] = plt.subplots(ncols=2, figsize=(10, 5))

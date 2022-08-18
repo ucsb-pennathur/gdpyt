@@ -37,6 +37,7 @@ import logging
 
 logger = logging.getLogger()
 
+
 class GdpytImage(object):
     """
     This class holds an image along with it's properties such as the
@@ -121,7 +122,6 @@ class GdpytImage(object):
         else:
             self._processing_stats = new_stats.combine_first(self._processing_stats)
 
-
     def draw_particles(self, raw=True, thickness=2, draw_id=True, draw_bbox=True):
         if raw:
             canvas = self.raw.copy()
@@ -138,7 +138,7 @@ class GdpytImage(object):
                 bbox = particle.bbox
                 coords = (int(bbox[0] - 0.2 * bbox[2]), int(bbox[1] - 0.2 * bbox[3]))
                 cv2.putText(canvas, "ID: {}".format(particle.id), coords, cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5, color, 2)
+                            0.5, color, 2)
             if draw_bbox:
                 x, y, w, h = particle.bbox
                 cv2.rectangle(canvas, (x, y), (x + w, y + h), color, 2)
@@ -169,7 +169,8 @@ class GdpytImage(object):
         raise ValueError('ha')"""
 
         if 'pad' in cropspecs.keys():
-            self._raw = np.pad(self._raw, pad_width=cropspecs['pad'], mode='constant', constant_values=np.min(self._raw))
+            self._raw = np.pad(self._raw, pad_width=cropspecs['pad'], mode='constant',
+                               constant_values=np.min(self._raw))
             # logger.warning("CAREFUL!!! IMAGE PADDING SET TO 120!!!  ---   CAREFUL!!! IMAGE PADDING SET TO 130!!!")
 
     def subtract_background(self, background_subtraction, background_img):
@@ -247,7 +248,7 @@ class GdpytImage(object):
 
         valid_filters = ['none', 'median', 'mean_bilateral', 'gaussian', 'white_tophat', 'equalize_adapthist',
                          'flipud']
-        #TODO: - there are several 'denoising' filters that would be useful to investigate.
+        # TODO: - there are several 'denoising' filters that would be useful to investigate.
         #   > particularly the skimage.restoration.denoise_bilateral function which perserves edges.
         #   > see more here: https://scikit-image.org/docs/dev/auto_examples/filters/plot_denoise.html#sphx-glr-auto-examples-filters-plot-denoise-py
         #   > there are very exciting results that perserve texture shown in the example below:
@@ -258,7 +259,8 @@ class GdpytImage(object):
         else:
             for process_func in filterspecs.keys():
                 if process_func not in valid_filters:
-                    raise ValueError("{} is not a valid filter. Implemented so far are {}".format(process_func, valid_filters))
+                    raise ValueError(
+                        "{} is not a valid filter. Implemented so far are {}".format(process_func, valid_filters))
                 if process_func == "none":
                     img = img_copy
                 else:
@@ -272,7 +274,7 @@ class GdpytImage(object):
                     img = apply_filter(img_copy, func, *args, **kwargs)
 
                     if process_func == "equalize_adapthist":
-                        img = img*img_copy.max()
+                        img = img * img_copy.max()
                     if force_rawdtype and img.dtype != raw_dtype:
                         img = img.astype(raw_dtype)
 
@@ -286,7 +288,8 @@ class GdpytImage(object):
         if len(ret_particle) == 0:
             logger.error("No particle with ID {} found in this image".format(id_))
         elif len(ret_particle) > 1:
-            logger.warning("In image {}, {} particles with ID {} were found".format(self.filename, len(ret_particle), id_))
+            logger.warning(
+                "In image {}, {} particles with ID {} were found".format(self.filename, len(ret_particle), id_))
 
         return ret_particle
 
@@ -309,21 +312,29 @@ class GdpytImage(object):
         if shape_tol is not None:
             assert 0 < shape_tol < 1
 
-        #if self.frame in [0, 1,]:  # [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 30, 40, 48, 50, 52, 60, 70, 80]:  #
-        #    show_threshold = True
-        #else:
-        show_threshold = False
+        if self.frame in [0, 5, 40, 50, 100]:  # [1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 30, 40, 48, 50, 52, 60, 70, 80]:  #
+            show_threshold = True
+        else:
+            show_threshold = False
 
         if particle_id_image is not None:
             """ Using static templates in this case """
-            particle_mask = apply_threshold(particle_id_image, parameter=thresh_specs, min_particle_size=min_size,
+            particle_mask = apply_threshold(particle_id_image,
+                                            parameter=thresh_specs,
+                                            min_particle_size=min_size,
                                             overlapping_particles=overlapping_particles,
-                                            show_threshold=show_threshold).astype(np.uint16)
+                                            show_threshold=show_threshold,
+                                            frame=self.frame,
+                                            ).astype(np.uint16)
         else:
             """ Using dynamic templates in this case """
-            particle_mask = apply_threshold(self.filtered, parameter=thresh_specs, min_particle_size=min_size,
+            particle_mask = apply_threshold(self.filtered,
+                                            parameter=thresh_specs,
+                                            min_particle_size=min_size,
                                             overlapping_particles=overlapping_particles,
-                                            show_threshold=show_threshold).astype(np.uint16)
+                                            show_threshold=show_threshold,
+                                            frame=self.frame,
+                                            ).astype(np.uint16)
 
         """if self.filename in ['calib_1.tif', 'calib_33.tif', 'calib_77.tif']:
             fig, ax = plt.subplots(ncols=2)
@@ -341,9 +352,10 @@ class GdpytImage(object):
 
         # store the regionprops table
         regionprops_data = regionprops_table(label_image, self.filtered,
-                                properties=['label', 'area', 'bbox', 'centroid', 'weighted_centroid', 'local_centroid',
-                                            'weighted_local_centroid', 'max_intensity', 'mean_intensity',
-                                            'minor_axis_length', 'major_axis_length'])
+                                             properties=['label', 'area', 'bbox', 'centroid', 'weighted_centroid',
+                                                         'local_centroid',
+                                                         'weighted_local_centroid', 'max_intensity', 'mean_intensity',
+                                                         'minor_axis_length', 'major_axis_length'])
         regionprops_data = pd.DataFrame(regionprops_data)
         self.regionprops_table = regionprops_data
 
@@ -378,7 +390,8 @@ class GdpytImage(object):
             else:
                 aspect_ratio_threshold = 4  # IDPT: 3
             if aspect_ratio > aspect_ratio_threshold:
-                logger.warning("Region skipped b/c aspect ratio = {} > {}.".format(aspect_ratio, aspect_ratio_threshold))
+                logger.warning(
+                    "Region skipped b/c aspect ratio = {} > {}.".format(aspect_ratio, aspect_ratio_threshold))
                 skipped_contours.append(region.label)
                 continue
 
@@ -386,8 +399,10 @@ class GdpytImage(object):
             min_row, min_col, max_row, max_col = region.bbox
             bbox = (min_col, min_row, max_col - min_col, max_row - min_row)
 
-            cX = int(np.round(regionprops_data[regionprops_data['label'] == region.label]['weighted_centroid-1'].item(), 0))
-            cY = int(np.round(regionprops_data[regionprops_data['label'] == region.label]['weighted_centroid-0'].item(), 0))
+            cX = int(
+                np.round(regionprops_data[regionprops_data['label'] == region.label]['weighted_centroid-1'].item(), 0))
+            cY = int(
+                np.round(regionprops_data[regionprops_data['label'] == region.label]['weighted_centroid-0'].item(), 0))
 
             bbox, bbox_center = self.pad_and_center_region(cX, cY, bbox, padding=padding)
 
@@ -399,7 +414,8 @@ class GdpytImage(object):
                     skipped_contours.append(region.label)
                     print("FIRST FILTER: Skipped because template + padding near the image borders")
                     continue
-                elif bbox[0] + bbox[2] + padding * 0.1 >= self.shape[1] or bbox[1] + bbox[3] + padding * 0.1 >= self.shape[0]:
+                elif bbox[0] + bbox[2] + padding * 0.1 >= self.shape[1] or bbox[1] + bbox[3] + padding * 0.1 >= \
+                        self.shape[0]:
                     # NOTE: the constant 0.1 used to be 0.5
                     skipped_contours.append(region.label)
                     print("SECOND FILTER: Skipped because template + padding near the image borders")
@@ -411,7 +427,8 @@ class GdpytImage(object):
 
             filter_on_gaussian = False
             if filter_on_gaussian:
-                dia_x, dia_y, A, yc, xc, sigmay, sigmax = fit_gaussian_calc_diameter(particle_image_template,  normalize=True)
+                dia_x, dia_y, A, yc, xc, sigmay, sigmax = fit_gaussian_calc_diameter(particle_image_template,
+                                                                                     normalize=True)
                 if dia_x is None:
                     """if aspect_ratio < 2:
                         fig, [axl, axr] = plt.subplots(ncols=2, figsize=(6, 4))
@@ -450,10 +467,12 @@ class GdpytImage(object):
                                 axl.set_title('image')
                                 axr.imshow(region.filled_image)
                                 axr.set_title('contour')
-                                plt.suptitle("solidity {} < {} threshold".format(np.round(solidity, 3), solidity_threshold))
+                                plt.suptitle(
+                                    "solidity {} < {} threshold".format(np.round(solidity, 3), solidity_threshold))
                                 plt.show()
                                 plt.close()
-                            logger.warning("Region skipped b/c solidity = {} < {}.".format(solidity, solidity_threshold))
+                            logger.warning(
+                                "Region skipped b/c solidity = {} < {}.".format(solidity, solidity_threshold))
                             skipped_contours.append(region.label)
                             continue
 
@@ -471,7 +490,8 @@ class GdpytImage(object):
                                 plt.suptitle("eccen {} > {} threshold".format(eccentricity, eccentricity_threshold))
                                 plt.show()
                                 plt.close()
-                            logger.warning("Region skipped b/c eccentricity = {} > {}.".format(eccentricity, eccentricity_threshold))
+                            logger.warning("Region skipped b/c eccentricity = {} > {}.".format(eccentricity,
+                                                                                               eccentricity_threshold))
                             skipped_contours.append(region.label)
                             continue
 
@@ -484,15 +504,17 @@ class GdpytImage(object):
                             # filter on edge strength
                             if filter_on_edges:
                                 # particle_image_template_med = median(particle_image_template, square(3))
-                                edges_sobel = np.round(np.mean(sobel(particle_image_template))*1e3, 2)
+                                edges_sobel = np.round(np.mean(sobel(particle_image_template)) * 1e3, 2)
                                 sobel_threshold = 0.05
                                 if edges_sobel < sobel_threshold:
                                     if show_skipped and edges_sobel > sobel_threshold * 0.75:
                                         plt.imshow(particle_image_template)
-                                        plt.title("EDGE FILTERED - Sobel {} < {} threshold".format(edges_sobel, sobel_threshold))
+                                        plt.title("EDGE FILTERED - Sobel {} < {} threshold".format(edges_sobel,
+                                                                                                   sobel_threshold))
                                         plt.show()
                                         plt.close()
-                                    print("EDGE FILTERED - Sobel {} < {} threshold".format(edges_sobel, sobel_threshold))
+                                    print(
+                                        "EDGE FILTERED - Sobel {} < {} threshold".format(edges_sobel, sobel_threshold))
                                     continue
 
                             # filter on noise
@@ -558,7 +580,8 @@ class GdpytImage(object):
                            padding=2, inspect_contours_for_every_image=False, image_collection_type=None):
         if shape_tol is not None:
             assert 0 < shape_tol < 1
-        particle_mask = apply_threshold(self.filtered, parameter=thresh_specs, min_particle_size=min_size, padding=padding).astype(np.uint16)
+        particle_mask = apply_threshold(self.filtered, parameter=thresh_specs, min_particle_size=min_size,
+                                        padding=padding).astype(np.uint16)
 
         # Identify particles
         contours, bboxes = identify_contours(particle_mask.astype(np.uint8))
@@ -609,13 +632,15 @@ class GdpytImage(object):
                     print("Skipped because bbox aspect ratio {} < {} shape tolerance".format(bbox_ar, shape_tol))
                     continue
                 # Check if circle by calculating thinness ratio
-                bbox_tr = 4 * np.pi * contour_area / contour_perim**2
+                bbox_tr = 4 * np.pi * contour_area / contour_perim ** 2
                 bbox_thinness = abs(np.maximum(bbox_tr, 1 / bbox_tr) - 1)
                 if bbox_tr < shape_tol:
-                    #skipped_cnts.append(contour)
-                    #print("Skipped because bbox thinness {} < {} shape tolerance".format(bbox_tr, shape_tol))
-                    #continue
-                    print("Would've skipped because bbox thinness {} < {} shape tolerance but thinness filter is off".format(bbox_tr, shape_tol))
+                    # skipped_cnts.append(contour)
+                    # print("Skipped because bbox thinness {} < {} shape tolerance".format(bbox_tr, shape_tol))
+                    # continue
+                    print(
+                        "Would've skipped because bbox thinness {} < {} shape tolerance but thinness filter is off".format(
+                            bbox_tr, shape_tol))
 
             bbox, bbox_center = self.pad_and_center_contour(contour, bbox, padding=padding)
 
@@ -765,12 +790,13 @@ class GdpytImage(object):
             percent_particles_idd = num_particles / self.true_num_particles
             self._update_processing_stats(
                 ['mean_signal', 'mean_background', 'std_background', 'snr_filtered', 'pixel_density',
-                 'particle_density', 'percent_particles_idd', 'true_num_particles', 'contour_area_mean', 'contour_area_std'],
+                 'particle_density', 'percent_particles_idd', 'true_num_particles', 'contour_area_mean',
+                 'contour_area_std'],
                 [mean_signal_f, mean_background_f, std_background_f, snr_filtered, pixel_density, particle_density,
                  percent_particles_idd, self.true_num_particles, mean_contour_area, std_contour_area])
         else:
             raise ValueError("why are there zero particles for this image?")
-            #TODO: add statistics for contours that did not pass--so I can understand why they didn't pass.
+            # TODO: add statistics for contours that did not pass--so I can understand why they didn't pass.
             self._update_processing_stats(
                 ['mean_signal', 'mean_background', 'std_background', 'snr_filtered', 'pixel_density',
                  'particle_density', 'percent_particles_idd', 'true_num_particles'],
@@ -786,14 +812,13 @@ class GdpytImage(object):
         plt.show()
         """
 
-
     def _update_particle_density_stats(self):
         num_particles = len(self.particles)
         particle_density = num_particles / self.raw.size
         percent_particles_idd = num_particles / self.true_num_particles
 
         self._update_processing_stats(['particle_density', 'percent_particles_idd', 'true_num_particles'],
-            [particle_density, percent_particles_idd, self.true_num_particles])
+                                      [particle_density, percent_particles_idd, self.true_num_particles])
 
     def is_infered(self):
         return all([particle.z is not None for particle in self.particles])
@@ -803,7 +828,7 @@ class GdpytImage(object):
         img = io.imread(self._filepath, plugin='tifffile')
 
         # check if image is a stack
-        if len(np.shape(img)) > 2:   # image is a stack
+        if len(np.shape(img)) > 2:  # image is a stack
 
             if np.shape(img)[0] < np.shape(img)[2]:
                 stack_axis = 0
@@ -834,15 +859,18 @@ class GdpytImage(object):
                 """
                 if stack_axis == 0:
                     img = np.rint(
-                        np.mean(img[take_subset_mean[0]:take_subset_mean[1], :, :], axis=0, dtype=float)).astype(np.int16)
+                        np.mean(img[take_subset_mean[0]:take_subset_mean[1], :, :], axis=0, dtype=float)).astype(
+                        np.int16)
                 elif stack_axis == 2:
-                    img = np.rint(np.mean(img[:, :, take_subset_mean[0]:take_subset_mean[1]], axis=2, dtype=float)).astype(np.int16)
+                    img = np.rint(
+                        np.mean(img[:, :, take_subset_mean[0]:take_subset_mean[1]], axis=2, dtype=float)).astype(
+                        np.int16)
             else:
-                raise ValueError("if_img_stack_take must equal 'mean', 'first', or 'subset'. If 'subset', take_subset_mean must be a 2-item tuple or list indicating a START and STOP index.")
+                raise ValueError(
+                    "if_img_stack_take must equal 'mean', 'first', or 'subset'. If 'subset', take_subset_mean must be a 2-item tuple or list indicating a START and STOP index.")
 
         self._original = img
         self._raw = self._original
-
 
     def read_tiff_tag(self):
         """
@@ -886,7 +914,7 @@ class GdpytImage(object):
         percent_particles_idd = num_particles / self.true_num_particles
 
         self._update_processing_stats(['particle_density', 'percent_particles_idd'],
-            [particle_density, percent_particles_idd])
+                                      [particle_density, percent_particles_idd])
 
     def merge_overlapping_particles(self, cnts, bboxes, overlap_thresh=0.3, timeout=10):
         grp = 0
@@ -961,7 +989,7 @@ class GdpytImage(object):
         bbox = [bbox[0] - padding, bbox[1] - padding, bbox[2] + padding * 2, bbox[3] + padding * 2]
 
         # center bounding box on computed contour center
-        bbox = [cX - int(np.floor(bbox[2]/2)), cY - int(np.floor(bbox[3]/2)), bbox[2], bbox[3]]
+        bbox = [cX - int(np.floor(bbox[2] / 2)), cY - int(np.floor(bbox[3] / 2)), bbox[2], bbox[3]]
 
         return bbox, (cX, cY)
 
@@ -998,11 +1026,11 @@ class GdpytImage(object):
 
         # compute center from contour
         M = cv2.moments(contour)
-        cX = int(M["m10"] / M["m00"]) # note, x is in plotting coordinates (x would be columns in array)
-        cY = int(M["m01"] / M["m00"]) # note, y is in plotting coordinates (y would be rows in array)
+        cX = int(M["m10"] / M["m00"])  # note, x is in plotting coordinates (x would be columns in array)
+        cY = int(M["m01"] / M["m00"])  # note, y is in plotting coordinates (y would be rows in array)
 
         # center bounding box on computed contour center
-        bbox = [cX - int(np.floor(bbox[2]/2)), cY - int(np.floor(bbox[3]/2)), bbox[2], bbox[3]]
+        bbox = [cX - int(np.floor(bbox[2] / 2)), cY - int(np.floor(bbox[3] / 2)), bbox[2], bbox[3]]
 
         return bbox, (cX, cY)
 
@@ -1044,7 +1072,8 @@ class GdpytImage(object):
                 padded_img = np.pad(img, pad_width=[padx, pady], mode='constant', constant_values=np.min(img))
 
                 # compute cross-correlation
-                sim, xm, ym = sim_func(padded_img, temp)
+                result = sim_func(padded_img, temp)
+                sim = np.max(result)
 
                 # append to inspection-correlation list
                 if inspect_particle_ids is None:
@@ -1119,7 +1148,6 @@ class GdpytImage(object):
         # If the image is set to be at a certain height, all the particles' true_z are assigned that height
         for particle in self.particles:
             particle.set_true_z(z=z)
-
 
     def set_z(self, z):
         """
@@ -1242,6 +1270,7 @@ def _compute_rel_bbox_overlap(bbox1, bbox2):
         return dx * dy / min(a_rect1, a_rect2)
     else:
         return 0
+
 
 def apply_filter(img, func, *args, **kwargs):
     assert callable(func)

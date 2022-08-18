@@ -11,10 +11,12 @@ from scipy.signal import convolve2d
 
 from matplotlib import pyplot as plt
 from matplotlib.patches import Ellipse
+from skimage.draw import ellipse_perimeter
+from gdpyt.utils.plotting import filter_ellipse_points_on_image
 
 from gdpyt.particle_identification import binary_mask
 from gdpyt.subpixel_localization import gaussian
-from gdpyt.subpixel_localization.gaussian import fit as fit_gaussian_subpixel
+from gdpyt.subpixel_localization.gaussian import fit as fit_gaussian_subpixel, gauss_2d_function
 from gdpyt.subpixel_localization.gaussian import fit_results, plot_2D_image_contours, plot_3D_fit, plot_3D_image
 from gdpyt.subpixel_localization.centroid_based_iterative import refine_coords_via_centroid, bandpass, grey_dilation
 from gdpyt.subpixel_localization.centroid_based_iterative import plot_2D_image_and_center, validate_tuple
@@ -138,8 +140,6 @@ class GdpytParticle(object):
         thinness_ratio = 4 * np.pi * area / perimeter ** 2
         hull = cv2.convexHull(self.contour)
         hull_area = float(cv2.contourArea(hull))
-        if self.id == 41:
-            j = 1
         solidity = area / hull_area
 
         self._area = area
@@ -409,13 +409,6 @@ class GdpytParticle(object):
 
 
     def _fit_2D_gaussian(self, normalize=True):
-        """sigma = self.estimate_noise(self._template)
-        if sigma > 2:
-            print(self.id)
-            print(sigma)
-            plt.imshow(self._template)
-            plt.title('ID: {}, noise: {}'.format(self.id, sigma))
-            plt.show()"""
 
         dia_x, dia_y, A, yc, xc, sigmay, sigmax = gaussian.fit_gaussian_calc_diameter(self._template, normalize=normalize)
 
@@ -427,6 +420,45 @@ class GdpytParticle(object):
             self.gauss_xc = xc + self.bbox[0]
             self.gauss_sigma_y = sigmay
             self.gauss_sigma_x = sigmax
+
+            # plot
+            """# gauss_2d_function(xy, a, x0, y0, sigmax, sigmay)
+            popt = [A, yc, xc, sigmay, sigmax]
+            img = self._template
+
+            X = np.arange(np.shape(img)[1])
+            Y = np.arange(np.shape(img)[0])
+            X, Y = np.meshgrid(X, Y)
+
+            # flatten arrays
+            Xf = X.flatten()
+            Yf = Y.flatten()
+            Zf = img.flatten()
+
+            # stack for gaussian curve fitting
+            XYZ = np.stack([Xf.flatten(), Yf.flatten(), Zf.flatten()]).T
+            # popt, pcov = curve_fit(gauss_2d_function, XYZ[:, :2], XYZ[:, 2], p0=guess, bounds=bounds)
+
+            imgf = gauss_2d_function(XYZ[:, :2], *popt)
+            imf = np.reshape(imgf, img.shape).T
+
+            # generate ellipse (sigma x y)
+            rr, cc = ellipse_perimeter(int(popt[2]), int(popt[1]), int(np.ceil(popt[4] / 2)), int(np.ceil(popt[3] / 2)))
+            rr, cc = filter_ellipse_points_on_image(imf, rr, cc)
+            imf[rr, cc] = 1
+
+            # diameter (beta = 3.67)
+            rr, cc = ellipse_perimeter(int(popt[1]), int(popt[2]), int(dia_x / 2), int(dia_y / 2))
+            rr, cc = filter_ellipse_points_on_image(imf, rr, cc)
+            # imf[rr, cc] = np.max(imf)
+
+            fig, (ax1, ax3) = plt.subplots(ncols=2, figsize=(12, 6))
+            ax1.imshow(img)
+            ax1.set_title('Original (max Int = {})'.format(np.max(img)))
+            ax3.imshow(imf)
+            ax3.set_title('dia_x={}, dia_y = {}'.format(np.round(dia_x, 1), np.round(dia_y, 1)))
+            plt.show()
+            j = 1"""
 
 
     def _compute_center_subpixel(self, method='centroid', save_plots=False, ax=25, ay=25, A=500, fx=1, fy=1):
@@ -827,10 +859,10 @@ class GdpytParticle(object):
         self._location = location
 
     def set_match_location(self, match_loc):
-        self.match_location = match_loc
+        self.match_location = (match_loc[0], match_loc[1])
 
     def set_match_localization(self, match_loc):
-        self.match_localization = match_loc
+        self.match_localization = (match_loc[0], match_loc[1])
 
     def _set_location_true(self, x, y, z=None):
         self._x_true = x

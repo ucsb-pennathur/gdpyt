@@ -520,17 +520,52 @@ class GdpytImageCollection(object):
         else:
             raise ValueError("Image collection must either be 'calibration' or 'test'.")
 
+        # thresh value dependent on frame and calculated from theory
+        if list(self._thresholding_specs.keys())[0] == 'theory':
+            from gdpyt.GdpytSetup import optics
+            thresh_min = self._thresholding_specs['thresh_min']  # 130
+            thresh_max = self._thresholding_specs['thresh_max']  # 1349
+            frame_max = self._thresholding_specs['frame_max']  # 50
+            dz_per_frame = self._thresholding_specs['dz_per_frame']  # 1
+
+            arr_f = np.arange(0, self.num_images)
+            z_space = arr_f * dz_per_frame
+            arr_z, arr_int = optics.stigmatic_maximum_intensity_z(self=self.optics,
+                                                                  z_space=z_space,
+                                                                  max_intensity_in_focus=thresh_max,
+                                                                  z_zero=frame_max,
+                                                                  background_intensity=thresh_min,
+                                                                  num=self.num_images)
+
+            # normalize arr_z to convert units to 'frames' instead of 'z'
+            # or, would otherwise: arr_z = np.round(arr_z, 0).astype(int)
+
+            fig, (ax1, ax2) = plt.subplots(ncols=2, sharey=True, figsize=(8, 4))
+            ax1.plot(arr_f, arr_int, '-o')
+            ax1.set_xlabel('Frame')
+            ax1.set_ylabel('Threshold Value')
+            ax2.plot(arr_z, arr_int, '-o')
+            ax2.set_xlabel('z')
+            plt.show()
+
+            dict_thresh_by_z = dict(zip(arr_f, arr_int))
+            self._thresholding_specs.update(dict_thresh_by_z)
+
         for image in self.images.values():
             image.identify_particles_sk(self._thresholding_specs,
-                                        min_size=self._min_particle_size, max_size=self._max_particle_size,
-                                        shape_tol=self._shape_tol, overlap_threshold=self._overlap_threshold,
+                                        min_size=self._min_particle_size,
+                                        max_size=self._max_particle_size,
+                                        shape_tol=self._shape_tol,
+                                        overlap_threshold=self._overlap_threshold,
                                         same_id_threshold=self._same_id_threshold,
                                         inspect_contours_for_every_image=self._inspect_contours_for_every_image,
                                         padding=self._template_padding,
                                         image_collection_type=self._image_collection_type,
                                         particle_id_image=particle_identification_image,
                                         overlapping_particles=self._overlapping_particles,
-                                        template_use_raw=self._stacks_use_raw)
+                                        template_use_raw=self._stacks_use_raw,
+                                        )
+
             logger.info("Identified {} particles on image {}".format(len(image.particles), image.filename))
 
     def _set_measurement_depth(self, measurement_depth):

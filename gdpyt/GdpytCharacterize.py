@@ -130,7 +130,8 @@ def test(calib_settings, test_settings=None, calib_col=None, calib_set=None, ret
                                                                      theoretical_diameter_params=None,
                                                                      )
                     calib_col.structure_spct_stats(idpt=False)
-                    calib_col.calculate_idpt_stats_gaussian(param_zf='gauss_A', filter_percent_frames=0.5)
+                    calib_col.calculate_idpt_stats_gaussian(param_zf='gauss_A',
+                                                            filter_percent_frames=calib_settings.processing.min_layers_per_stack)
                     calib_col.correct_plane_tilt(zf_from='nsv')
                     calib_col.update_particles_in_images()
 
@@ -156,7 +157,8 @@ def test(calib_settings, test_settings=None, calib_col=None, calib_set=None, ret
             elif calib_settings.inputs.single_particle_calibration is True:
                 calib_col.calculate_particle_to_particle_spacing(max_n_neighbors=3, theoretical_diameter_params=None)
                 calib_col.structure_spct_stats()
-                calib_col.calculate_spct_stats(param_zf='zf_peak_int', filter_percent_frames=0.5)
+                calib_col.calculate_spct_stats(param_zf='zf_peak_int',
+                                               filter_percent_frames=calib_settings.processing.min_layers_per_stack)
                 calib_col.correct_plane_tilt(zf_from='peak_int')
                 calib_col.update_particles_in_images()
 
@@ -200,9 +202,6 @@ def test(calib_settings, test_settings=None, calib_col=None, calib_set=None, ret
         # export calibration images data
         if plot_calibration_set:
             export_calib_stats(calib_settings, calib_col_image_stats, calib_stack_data)
-
-        if plot_calibration_set:
-            # plot
             plot_calibration(calib_settings, test_settings, calib_col, calib_set, calib_col_image_stats,
                              calib_col_stats,
                              calib_stack_data)
@@ -806,7 +805,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
         """
 
         # plot the mean peak intensity per particle:
-        fig = calib_col.plot_particle_peak_intensity()
+        """fig = calib_col.plot_particle_peak_intensity()
         plt.suptitle(settings.outputs.save_id_string)
         plt.tight_layout()
         if settings.outputs.save_plots is True:
@@ -814,7 +813,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
             plt.savefig(fname=savefigpath, bbox_inches='tight')
             plt.close()
         if settings.outputs.show_plots:
-            plt.show()
+            plt.show()"""
 
         # plot calibration set's stack's self similarity: '_calibset_stacks_self_similarity_{}.png'
         """fig = calib_set.plot_stacks_self_similarity(min_num_layers=settings.processing.min_layers_per_stack,
@@ -856,17 +855,19 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
             plot_zs = np.arange(np.min(plot_zs), np.max(plot_zs) + 1, 5)
 
             # Gaussian fit image folder
-            """dir_gauss = os.path.join(settings.outputs.results_path, 'gaussians')
+            """
+            dir_gauss = os.path.join(settings.outputs.results_path, 'gaussians')
             if not os.path.exists(dir_gauss):
-                os.makedirs(dir_gauss)"""
+                os.makedirs(dir_gauss)
 
             # plot Gaussian fit on image
-            """if settings.inputs.single_particle_calibration is True:
+            if settings.inputs.single_particle_calibration is True:
                 plotting.plot_gaussian_fit_on_image_for_particle(collection=calib_col,
                                                                  particle_ids=plot_calib_stack_particle_ids,
                                                                  frame_step_size=int(
                                                                      np.floor(len(calib_col.images.values()) / 11)),
-                                                                 path_figs=dir_gauss)"""
+                                                                 path_figs=dir_gauss)
+            """
 
             # image folder
             dir_png = os.path.join(settings.outputs.results_path, 'pngs')
@@ -905,12 +906,12 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
         Particles at random
         """
         # choose particle ID's at random from calibration set
-        if len(calib_set.best_stack_ids) < 2:
+        if len(calib_set.best_stack_ids) < 5:
             plot_calib_stack_particle_ids = calib_set.best_stack_ids
         else:
-            plot_calib_stack_particle_ids = [pid for pid in random.sample(set(calib_set.best_stack_ids), 2)]
+            plot_calib_stack_particle_ids = [pid for pid in random.sample(set(calib_set.best_stack_ids), 5)]
 
-        # plot_calib_stack_particle_ids = [9, 11, 22, 41, 46, 47, 52, 71, 73, 90]
+        # plot_calib_stack_particle_ids = [40, 42, 44, 35, 0, 78]
         if settings.inputs.use_stack_id not in plot_calib_stack_particle_ids:
             if isinstance(settings.inputs.use_stack_id, int):
                 plot_calib_stack_particle_ids.append(settings.inputs.use_stack_id)
@@ -923,7 +924,8 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
             # --------------------------
 
             # plot the particle image + fitted Gaussian at 3 different z-heights
-            """fig = calib_col.plot_particle_peak_intensity(particle_id=id)
+            """
+            fig = calib_col.plot_particle_peak_intensity(particle_id=id)
             plt.suptitle(settings.outputs.save_id_string)
             plt.tight_layout()
             if settings.outputs.save_plots is True:
@@ -932,7 +934,8 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.savefig(fname=savefigpath, bbox_inches='tight')
                 plt.close()
             if settings.outputs.show_plots:
-                plt.show()"""
+                plt.show()
+            """
 
             # --------------------------
 
@@ -1011,7 +1014,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.show()
 
             # plot theoretical and measured particle diameter: '_diameter_theory_and_measure.png'
-            """fig = calib_col.plot_particle_diameter(collection_image_stats=calib_col_image_stats, optics=settings.optics,
+            fig = calib_col.plot_particle_diameter(collection_image_stats=calib_col_image_stats, optics=settings.optics,
                                                    particle_id=id)
             plt.suptitle(save_calib_pid)
             plt.tight_layout()
@@ -1020,7 +1023,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.savefig(fname=savefigpath, bbox_inches='tight')
                 plt.close()
             if settings.outputs.show_plots:
-                plt.show()"""
+                plt.show()
 
             # plot 3D calibration stack for a single particle: '_calib_stack_3d.png'
             """if len(calib_col.images) > 80:
@@ -1058,7 +1061,7 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
             """
 
             # plot Gaussian fitted ax and ay: '_Gaussian_fit_axy.png'
-            """calib_col.plot_gaussian_ax_ay(plot_type='one', p_inspect=[id])
+            """fig = calib_col.plot_gaussian_ax_ay(plot_type='one', p_inspect=[id])
             plt.suptitle(save_calib_pid)
             plt.tight_layout()
             if settings.outputs.save_plots is True:
@@ -1066,7 +1069,8 @@ def plot_calibration(settings, test_settings, calib_col, calib_set, calib_col_im
                 plt.savefig(fname=savefigpath, bbox_inches='tight')
                 plt.close()
             if settings.outputs.show_plots:
-                plt.show()"""
+                plt.show()
+            """
 
         """
         Plots in development:
