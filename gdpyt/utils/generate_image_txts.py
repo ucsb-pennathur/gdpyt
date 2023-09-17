@@ -139,6 +139,8 @@ def _generate_xy_coords(settings_file, particle_density=None):
 def _add_z_coord(xy_coords, z):
     if isinstance(z, int) or isinstance(z, float):
         z_coords = z * np.ones((len(xy_coords), 1))
+        r = ((365 - np.sqrt((xy_coords[:, 0] - 256) ** 2 + (xy_coords[:, 1] - 256) ** 2)) * 5 / 365) ** 2
+        z_coords -= r[:, np.newaxis]
     else:
         z_coords = np.random.uniform(z[0], z[1], size=(len(xy_coords), 1))
 
@@ -260,6 +262,8 @@ def _generate_grid_coordinates(grid, imshape, z=None):
     # Make particle coordinates
     xy_coords = np.mgrid[edge_x:xtot - edge_x:np.complex(0, n_x),
                 edge_y:ytot - edge_y:np.complex(0, n_y)].reshape(2, -1).T
+
+    # xy_coords += [0, 0.5]
 
     if z is None:
         return xy_coords
@@ -724,7 +728,7 @@ def generate_uniform_z_grid(settings_file, grid, z_levels, particle_diameter=2, 
     if dataset == 'calibration':
         calib_path = join(settings_path.parent, 'calibration_input')
     else:
-        calib_path = join(settings_path.parent, 'test-input')
+        calib_path = join(settings_path.parent, 'test_input')
 
     if isdir(calib_path):
         raise ValueError('Folder {} already exists. Specify a new one'.format(calib_path))
@@ -1103,8 +1107,10 @@ def generate_uniform_z_density_distribution(settings_file, z_levels, particle_de
 
 # ------------------------- ------------------------- ------------------------- ------------------------- -------------
 
-def generate_uniform_z_density_distribution_collection(settings_file, z_levels, zt_levels, particle_densities, particle_diameter=2,
-                                            create_multiple=None):
+def generate_uniform_z_density_distribution_collection(settings_file, z_levels, zt_levels,
+                                                       particle_densities,
+                                                       particle_diameter=2,
+                                                       create_multiple=None):
     """
     5. Random distribution by density: uniform z-coordinate
         * Generate images according to z-levels with randomly distributed particles at uniform z-coordinates.
@@ -1130,11 +1136,15 @@ def generate_uniform_z_density_distribution_collection(settings_file, z_levels, 
         percent_particles = int(pd / max_particle_density * num_particles)
         xy_coordinates_pd = xy_coordinates[:percent_particles, :]
 
-        calib_path = join(settings_path.parent, 'calibration_{}_input'.format(pd))
-        test_path = join(settings_path.parent, 'test_{}_input'.format(pd))
+        fp = '/Users/mackenzie/Desktop/gdpyt-characterization/datasets/synthetic_example/calibration_input/calib_-5.0.txt'
+        xy_coordinates_pdd = np.loadtxt(fp)
+        xy_coordinates_pd = xy_coordinates_pdd[:, :2]
+
+        calib_path = join(settings_path.parent, 'calibration_input'.format(pd))
+        test_path = join(settings_path.parent, 'test_input'.format(pd))
 
         if isdir(calib_path):
-            raise ValueError('Folder {} already exists. Specify a new one'.format(calib_path))
+            pass  # raise ValueError('Folder {} already exists. Specify a new one'.format(calib_path))
         else:
             mkdir(calib_path)
             mkdir(test_path)

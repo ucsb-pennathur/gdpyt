@@ -93,12 +93,12 @@ def take_image(mic, P):
 
             ecc = P[ii, 4]
             if ecc > 1:
-                # area elipsoid/area sphere
+                # area ellipsoid/area sphere
                 fact = 1 / 2 * (1 + ecc / np.sqrt(1 - 1 / ecc ** 2)
                                 * np.arcsin(np.sqrt(1 - 1 / ecc ** 2)))
                 n_points = int(np.round(fact * n_points))
             elif ecc < 1:
-                # area elipsoid/area sphere
+                # area ellipsoid/area sphere
                 fact = 1 / 2 * (1 + ecc ^ 2 / np.sqrt(1 - ecc ** 2)
                                 * np.arctan(np.sqrt(1 - ecc ** 2)))
                 n_points = int(np.round(fact * n_points))

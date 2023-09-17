@@ -16,10 +16,11 @@ from gdpyt.utils.plotting import filter_ellipse_points_on_image
 
 from gdpyt.particle_identification import binary_mask
 from gdpyt.subpixel_localization import gaussian
-from gdpyt.subpixel_localization.gaussian import fit as fit_gaussian_subpixel, gauss_2d_function
+from gdpyt.subpixel_localization.gaussian import fit as fit_gaussian_subpixel, gauss_2d_function, evaluate_fit_2d_gaussian_on_image
 from gdpyt.subpixel_localization.gaussian import fit_results, plot_2D_image_contours, plot_3D_fit, plot_3D_image
 from gdpyt.subpixel_localization.centroid_based_iterative import refine_coords_via_centroid, bandpass, grey_dilation
 from gdpyt.subpixel_localization.centroid_based_iterative import plot_2D_image_and_center, validate_tuple
+
 
 class GdpytParticle(object):
 
@@ -99,6 +100,20 @@ class GdpytParticle(object):
             self.gauss_sigma_y = None
             self.gauss_sigma_x = None
 
+            # rotated 45 degrees
+            self.gauss_sigma_y_r = None
+            self.gauss_sigma_x_r = None
+
+            self.pdf_A = None
+            self.pdf_yc = None
+            self.pdf_xc = None
+            self.pdf_sigma_y = None
+            self.pdf_sigma_x = None
+            self.pdf_rho = None
+            self.pdf_bkg = None
+            self.pdf_rmse = None
+            self.pdf_r_squared = None
+
             self._fit_2D_gaussian(normalize=True)
 
             # self._compute_center_subpixel(method='gaussian', save_plots=False)
@@ -149,7 +164,6 @@ class GdpytParticle(object):
         self._hull = hull
         self._hull_area = hull_area
         self._solidity = solidity
-
 
     def _compute_center(self):
         """
@@ -277,9 +291,19 @@ class GdpytParticle(object):
                 fig, ax = plt.subplots()
                 ax.imshow(self.template)
                 ax.scatter(self.location_on_template[0], self.location_on_template[1], marker='*', color='red')
-                ax.set_title('pid{}: CENTER ON TEMPLATE = ({}, {}) \n This is the {} TEMPLATE'.format(self.id, self.location[0] - x, self.location[1] - y, adj_temp), fontsize=8)
+                ax.set_title('pid{}: CENTER ON TEMPLATE = ({}, {}) \n This is the {} TEMPLATE'.format(self.id,
+                                                                                                      self.location[
+                                                                                                          0] - x,
+                                                                                                      self.location[
+                                                                                                          1] - y,
+                                                                                                      adj_temp),
+                             fontsize=8)
                 savedir = '/Users/mackenzie/Desktop/dumpfigures/particle_segmentation'
-                plt.savefig(fname=savedir + '/pid{}_cx{}_cy{}_{}_template_rand{}.png'.format(self.id, self.location[0] - x, self.location[1] - y, adj_temp.lower(), np.random.randint(0, 500)))
+                plt.savefig(
+                    fname=savedir + '/pid{}_cx{}_cy{}_{}_template_rand{}.png'.format(self.id, self.location[0] - x,
+                                                                                     self.location[1] - y,
+                                                                                     adj_temp.lower(),
+                                                                                     np.random.randint(0, 500)))
                 plt.close()
                 plt.show()
 
@@ -299,7 +323,7 @@ class GdpytParticle(object):
 
             # set mask on template
             self._mask_on_template = np.pad(self.mask_on_image[y: y + h, x: x + w].astype(np.float), (pad_y, pad_x),
-                              'constant', constant_values=0)  # changed from np.nan, 7/23/2022
+                                            'constant', constant_values=0)  # changed from np.nan, 7/23/2022
 
             # set particle center location on template
             self._location_on_template = (np.shape(template)[0] // 2, np.shape(template)[1] // 2)
@@ -407,10 +431,24 @@ class GdpytParticle(object):
 
         return sigma
 
-
     def _fit_2D_gaussian(self, normalize=True):
 
-        dia_x, dia_y, A, yc, xc, sigmay, sigmax = gaussian.fit_gaussian_calc_diameter(self._template, normalize=normalize)
+        dia_x, dia_y, A, yc, xc, sigmay, sigmax, rho_, bkg_ = gaussian.fit_gaussian_calc_diameter(self._template,
+                                                                                            normalize=normalize,
+                                                                                            )
+
+        dia_x_r, dia_y_r, A_r, yc_r, xc_r, sigmay_r, sigmax_r, rho_, bkg_ = gaussian.fit_gaussian_calc_diameter(
+            self._template,
+            normalize=normalize,
+            rotate_degrees=45,
+            )
+
+        dia_x_pdf, dia_y_pdf, A_pdf, yc_pdf, xc_pdf, sigmay_pdf, sigmax_pdf, rho, bkg = gaussian.fit_gaussian_calc_diameter(
+            self._template,
+            normalize=False,
+            rotate_degrees=45,
+            bivariate_pdf=True,
+        )
 
         if dia_x is not None:
             self.gauss_dia_x = dia_x
@@ -460,6 +498,31 @@ class GdpytParticle(object):
             plt.show()
             j = 1"""
 
+        if sigmay_r is not None:
+            self.gauss_sigma_y_r = sigmay_r
+            self.gauss_sigma_x_r = sigmax_r
+
+        if rho is not None:
+            self.pdf_A = A_pdf
+            self.pdf_yc = yc_pdf + self.bbox[1]
+            self.pdf_xc = xc_pdf + self.bbox[0]
+            self.pdf_sigma_y = sigmay_pdf
+            self.pdf_sigma_x = sigmax_pdf
+            self.pdf_rho = rho
+
+            # NOTE: the below is new (as of 10/22/2022)
+            XYZ, fZ, rmse, r_squared, residuals = evaluate_fit_2d_gaussian_on_image(img=self._template,
+                                                                                    fit_func='bivariate_pdf',
+                                                                                    popt=[A_pdf,
+                                                                                          xc_pdf, yc_pdf,
+                                                                                          sigmax_pdf, sigmay_pdf,
+                                                                                          rho,
+                                                                                          bkg],
+                                                                                    )
+            self.pdf_bkg = bkg
+            self.pdf_rmse = rmse
+            self.pdf_r_squared = r_squared
+
 
     def _compute_center_subpixel(self, method='centroid', save_plots=False, ax=25, ay=25, A=500, fx=1, fy=1):
 
@@ -486,13 +549,14 @@ class GdpytParticle(object):
             noise_size = validate_tuple(noise_size, ndim)
             threshold = 1  # clip bandpass result below this value. Thresholding is done on background subtracted image.
             percentile = 95  # features must have peak brighter than pixels in this percentile.
-            max_iterations = 10 # maximum iterations to find center
+            max_iterations = 10  # maximum iterations to find center
 
             # Convolve with a Gaussian to remove short-wavelength noise and subtract out long-wavelength variations by
             # subtracting a running average. This retains features of intermediate scale.
             image = bandpass(image=raw_image, lshort=noise_size, llong=smoothing_size, threshold=threshold, truncate=4)
 
-            margin = tuple([max(rad, sep // 2 - 1, sm // 2) for (rad, sep, sm) in zip(radius, separation, smoothing_size)])
+            margin = tuple(
+                [max(rad, sep // 2 - 1, sm // 2) for (rad, sep, sm) in zip(radius, separation, smoothing_size)])
 
             # Find local maxima whose brightness is above a given percentile.
             coords = grey_dilation(image, separation, percentile, margin, precise=True)
@@ -520,7 +584,8 @@ class GdpytParticle(object):
             fit_image = self.template
 
             # perform fitting
-            fit_image, popt, pcov, X, Y, rms, padding = fit_gaussian_subpixel(image=fit_image, guess_params=guess_prms, fx=fx, fy=fy)
+            fit_image, popt, pcov, X, Y, rms, padding = fit_gaussian_subpixel(image=fit_image, guess_params=guess_prms,
+                                                                              fx=fx, fy=fy)
 
             x_refined = popt[0]
             y_refined = popt[1]
@@ -530,7 +595,8 @@ class GdpytParticle(object):
 
             # instantiate fitted gaussian parameters
             # NOTE: saving the fitted coordinates in the plotting coordinate system.
-            self._fitted_gaussian_on_template = {'x0': x_refined, 'y0': y_refined, 'ax': alphax, 'ay': alphay, 'A': amplitude}
+            self._fitted_gaussian_on_template = {'x0': x_refined, 'y0': y_refined, 'ax': alphax, 'ay': alphay,
+                                                 'A': amplitude}
             self._fitted_gaussian_rms = rms
 
         else:
@@ -550,7 +616,6 @@ class GdpytParticle(object):
         yc_new_float = y_refined
         xdist = np.abs(xc_new_float - xc_old)
         ydist = np.abs(yc_new_float - yc_old)
-
 
         # if difference is small, take Gaussian fitting, else take original centroid center.
         lb = 0.75  # lower bound for resizing the bbox
@@ -595,15 +660,16 @@ class GdpytParticle(object):
                 fig, ax = plt.subplots()
                 ax.imshow(self.template)
                 ax.scatter(xc_old, yc_old, s=50, color='black', marker='+', alpha=0.75, label='original center')
-                ax.scatter(self.location_on_template[0], self.location_on_template[1], s=50, color='red', marker='*', label='subpixel center')
+                ax.scatter(self.location_on_template[0], self.location_on_template[1], s=50, color='red', marker='*',
+                           label='subpixel center')
                 ax.set_title('Adjusted Template and Center on Template')
                 ax.legend()
                 savedir = '/Users/mackenzie/Desktop/dumpfigures'
                 savename = 'Template_Adjusted_pid{}_{}col_x{}_y{}_rand{}.png'.format(self.id,
-                                                                                         self.particle_collection_type,
-                                                                                         np.round(self.location[0], 2),
-                                                                                         np.round(self.location[1], 2),
-                                                                                         np.random.randint(0, 500))
+                                                                                     self.particle_collection_type,
+                                                                                     np.round(self.location[0], 2),
+                                                                                     np.round(self.location[1], 2),
+                                                                                     np.random.randint(0, 500))
                 plt.tight_layout()
                 plt.savefig(fname=savedir + '/' + savename)
                 plt.close()
@@ -612,11 +678,11 @@ class GdpytParticle(object):
             self._compute_convex_hull()
 
             good_fit = 'magenta'
-            #print('Good: RMS = {}'.format(rms))
+            # print('Good: RMS = {}'.format(rms))
 
         else:
             good_fit = 'red'
-            #print('Bad: RMS = {}'.format(rms))
+            # print('Bad: RMS = {}'.format(rms))
 
         # plot Gaussian contours
         if save_plots is True:
@@ -626,13 +692,19 @@ class GdpytParticle(object):
                 # plot the original image
                 fig, ax = plt.subplots()
                 ax.imshow(self._image_raw)
-                ax.scatter(self._location_subpixel[0], self._location_subpixel[1], s=20, marker='.', color=good_fit, alpha=0.95,
+                ax.scatter(self._location_subpixel[0], self._location_subpixel[1], s=20, marker='.', color=good_fit,
+                           alpha=0.95,
                            label='pxcyc')
                 ax.legend(fontsize=10, bbox_to_anchor=(1, 1), loc='upper left')
-                plt.suptitle('pid{}(xc, yc) = ({}, {}) in {} collection'.format(self.id, self.location[0], self.location[1], self.particle_collection_type))
+                plt.suptitle(
+                    'pid{}(xc, yc) = ({}, {}) in {} collection'.format(self.id, self.location[0], self.location[1],
+                                                                       self.particle_collection_type))
                 savedir = '/Users/mackenzie/Desktop/dumpfigures'
-                savename = 'Centroid_fit_full_img_pid{}_{}col_x{}_y{}_rand{}.png'.format(self.id, self.particle_collection_type,
-                                                                           np.round(self.location[0], 2), np.round(self.location[1], 2), np.random.randint(0, 200))
+                savename = 'Centroid_fit_full_img_pid{}_{}col_x{}_y{}_rand{}.png'.format(self.id,
+                                                                                         self.particle_collection_type,
+                                                                                         np.round(self.location[0], 2),
+                                                                                         np.round(self.location[1], 2),
+                                                                                         np.random.randint(0, 200))
                 plt.tight_layout()
                 plt.savefig(fname=savedir + '/' + savename)
                 plt.close()
@@ -644,8 +716,11 @@ class GdpytParticle(object):
                 plt.suptitle(r'$p_{ID}$' + '= {} in {} collection'.format(self.id, self.particle_collection_type))
                 savedir = '/Users/mackenzie/Desktop/dumpfigures'  # TODO: update plotting function so it's in Gdpyt.plotting and not here
                 savename = 'Centroid_fit_{}_col_x{}_y{}_mass{}.png'.format(self.particle_collection_type,
-                                                                           np.round(x_refined, 2), np.round(y_refined, 2),
-                                                                           int(np.round(self._fitted_centroid_on_template['mass'], 0)))
+                                                                           np.round(x_refined, 2),
+                                                                           np.round(y_refined, 2),
+                                                                           int(np.round(
+                                                                               self._fitted_centroid_on_template[
+                                                                                   'mass'], 0)))
                 ax.legend(fontsize=10, bbox_to_anchor=(1, 1), loc='upper left')
                 plt.tight_layout()
                 plt.savefig(fname=savedir + '/' + savename)
@@ -660,10 +735,13 @@ class GdpytParticle(object):
                 ax.scatter(self.location[0], self.location[1], s=100, marker='*', color=good_fit, alpha=0.5,
                            label='pxcyc')
                 ax.legend(fontsize=10, bbox_to_anchor=(1, 1), loc='upper left')
-                plt.suptitle(r'$p_{ID}(xc, yc)$' + '= ({}, {}) in {} collection'.format(self.location[0], self.location[1], self.particle_collection_type))
+                plt.suptitle(
+                    r'$p_{ID}(xc, yc)$' + '= ({}, {}) in {} collection'.format(self.location[0], self.location[1],
+                                                                               self.particle_collection_type))
                 savedir = '/Users/mackenzie/Desktop/dumpfigures'
                 savename = 'Gauss_fit_on_full_image_{}_col_x{}_y{}.png'.format(self.particle_collection_type,
-                                                                           np.round(popt[0], 2), np.round(popt[1], 2))
+                                                                               np.round(popt[0], 2),
+                                                                               np.round(popt[1], 2))
                 plt.tight_layout()
                 plt.savefig(fname=savedir + '/' + savename)
                 plt.close()
@@ -673,8 +751,10 @@ class GdpytParticle(object):
                 fig = plot_2D_image_contours(self, X, Y, good_fit=good_fit, pad=padding)
                 plt.scatter(xc_old, yc_old, color='black', marker='o')
                 plt.suptitle(r'$p_{ID}$' + '= {} in {} collection'.format(self.id, self.particle_collection_type))
-                savedir = '/Users/mackenzie/Desktop/dumpfigures' # TODO: update plotting function so it's in Gdpyt.plotting and not here
-                savename = 'Gauss_fit_{}_col_x{}_y{}_ax{}_ay{}.png'.format(self.particle_collection_type, np.round(popt[0], 2), np.round(popt[1], 2), np.round(popt[2], 1), np.round(popt[3], 1))
+                savedir = '/Users/mackenzie/Desktop/dumpfigures'  # TODO: update plotting function so it's in Gdpyt.plotting and not here
+                savename = 'Gauss_fit_{}_col_x{}_y{}_ax{}_ay{}.png'.format(self.particle_collection_type,
+                                                                           np.round(popt[0], 2), np.round(popt[1], 2),
+                                                                           np.round(popt[2], 1), np.round(popt[3], 1))
                 plt.tight_layout()
                 plt.savefig(fname=savedir + '/' + savename)
                 plt.close()
@@ -683,8 +763,8 @@ class GdpytParticle(object):
                 # plot particle contour after Gaussian blurring
                 fig, ax = plt.subplots()
                 ax.imshow(fit_image)
-                xgc = x_refined+padding
-                ygc = y_refined+padding
+                xgc = x_refined + padding
+                ygc = y_refined + padding
                 ax.scatter(xgc, ygc, s=25, marker='.', color='black', alpha=0.95, label='pxcyc')
                 ax.axvline(x=xgc, color='black', alpha=0.35, linestyle='--')
                 ax.axhline(y=ygc, color='black', alpha=0.35, linestyle='--')
@@ -700,8 +780,12 @@ class GdpytParticle(object):
                                 np.round(sigma * alphax, 1), np.round(sigma * alphay, 1)))
                         ax.add_patch(ellipse)
                 ax.legend(fontsize=10, bbox_to_anchor=(1, 1), loc='upper left')
-                plt.suptitle(r'$p_{ID}$(xc, yc)' + '= {}, {}'.format(xgc, y_refined+padding))
-                savename = 'Contours_Gaussian_{}_col_x{}_y{}_ax{}_ay{}.png'.format(self.particle_collection_type, np.round(popt[0], 2), np.round(popt[1], 2), np.round(popt[2], 1), np.round(popt[3], 1))
+                plt.suptitle(r'$p_{ID}$(xc, yc)' + '= {}, {}'.format(xgc, y_refined + padding))
+                savename = 'Contours_Gaussian_{}_col_x{}_y{}_ax{}_ay{}.png'.format(self.particle_collection_type,
+                                                                                   np.round(popt[0], 2),
+                                                                                   np.round(popt[1], 2),
+                                                                                   np.round(popt[2], 1),
+                                                                                   np.round(popt[3], 1))
                 plt.tight_layout()
                 plt.savefig(fname=savedir + '/' + savename)
                 plt.close()
@@ -720,8 +804,8 @@ class GdpytParticle(object):
 
         # get variance
         variance = np.var(img_f)
-        variance_squared = variance**2
-        variance_squared_norm = (variance / np.mean(img_f))**2
+        variance_squared = variance ** 2
+        variance_squared_norm = (variance / np.mean(img_f)) ** 2
 
         # apply background mask to get background
         img_f_mask_inv = ma.masked_array(img_f, mask=self.mask_on_template)
@@ -732,7 +816,7 @@ class GdpytParticle(object):
 
         # calculate SNR for filtered image
         mean_signal_f = img_f_mask.mean()
-        variance_squared_norm_signal = (img_f_mask.var() / img_f_mask.mean())**2
+        variance_squared_norm_signal = (img_f_mask.var() / img_f_mask.mean()) ** 2
         mean_background_f = img_f_mask_inv.mean()
         std_background_f = img_f_mask_inv.std()
 
@@ -823,7 +907,7 @@ class GdpytParticle(object):
 
     def reset_id(self, new_id):
         assert isinstance(new_id, int)
-        #logger.warning("Particle ID {}: Reset ID to {}".format(self.id, new_id))
+        # logger.warning("Particle ID {}: Reset ID to {}".format(self.id, new_id))
         self._id = new_id
 
     def set_interpolation_curve(self, z, sim, label_suffix=None):

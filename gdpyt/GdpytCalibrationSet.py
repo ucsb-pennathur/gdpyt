@@ -285,7 +285,7 @@ class GdpytCalibrationSet(object):
 
         # filter by number of layers
         df = df.sort_values('layers', ascending=False)
-        df = df.iloc[0:10]
+        df = df.iloc[0:20]
 
         # filter by min max area
         df = df.sort_values('min_particle_area')
@@ -321,17 +321,25 @@ class GdpytCalibrationSet(object):
 
         return df_stacks
 
-    def calculate_all_stacks_self_similarity(self):
+    def calculate_all_stacks_self_similarity(self, dzc=None, center_on_zf=False):
         mdf = pd.DataFrame()
         fdf = pd.DataFrame()
 
         for stack in self.calibration_stacks.values():
 
-            if stack._self_similarity is None:
-                stack.infer_self_similarity(function='sknccorr')
-
             if len(stack.layers) < self._min_num_layers:
+                print("Stack {}: layers {} < {} minimum number of layers".format(stack.id, len(stack.layers), self._min_num_layers))
                 continue
+
+            elif dzc is not None:
+                avg_dzc = stack.average_dz_step
+                if avg_dzc != 1:
+                    print("Stack {}: avg dzc = {}".format(stack.id, avg_dzc))
+                    continue
+                stack.infer_self_similarity_specify_dzc(dzc=dzc, center_on_zf=center_on_zf)
+
+            elif stack._self_similarity is None:
+                stack.infer_self_similarity(function='sknccorr')
 
             mdata = np.vstack((stack._self_similarity[:, 0], stack._self_similarity[:, 1])).T
             dfm = pd.DataFrame(mdata, columns=['z', 'cm'])
@@ -464,7 +472,7 @@ class GdpytCalibrationSet(object):
 
     @property
     def stack_locations(self):
-        return self._all_stacks_stats[['id', 'x', 'y']].to_numpy()
+        return self._all_stacks_stats[['particle_id', 'x', 'y']].to_numpy()
 
     @property
     def best_stack_id(self):

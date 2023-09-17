@@ -90,6 +90,12 @@ class GdpytImageCollection(object):
         self._file_basestring = file_basestring
         self._folder_ground_truth = folder_ground_truth
 
+        # baseline image contours
+        self.baseline_particle_mask = None
+        self.baseline_regions = None
+        self.baseline_all_contour_coords = None
+        self.baseline_regionprops_data = None
+
         # image collection data
         exclude = []
         self.in_focus_z = None
@@ -282,6 +288,8 @@ class GdpytImageCollection(object):
                 # sort the zipped list of files and indices (floats for the file's z-coordinate)
                 sorted_subset = sorted(list(zip(subset_files, subset_index)), key=lambda x: x[1])
 
+                print(sorted_subset)
+
                 # sample the list according to the third element in subset
                 sorted_files, sorted_indices = map(list, zip(*sorted_subset))
                 n_sampling = subset[2]
@@ -459,10 +467,10 @@ class GdpytImageCollection(object):
 
         background_mean = np.rint(background_mean_float).astype(np.uint16)
 
-        fig, ax = plt.subplots()
+        """fig, ax = plt.subplots()
         ax.imshow(background_mean)
         ax.set_title('Max, Mean = {}, {}'.format(np.max(background_mean), np.mean(background_mean)))
-        plt.show()
+        plt.show()"""
 
         self.mean_image = background_mean
 
@@ -540,19 +548,20 @@ class GdpytImageCollection(object):
             # normalize arr_z to convert units to 'frames' instead of 'z'
             # or, would otherwise: arr_z = np.round(arr_z, 0).astype(int)
 
-            fig, (ax1, ax2) = plt.subplots(ncols=2, sharey=True, figsize=(8, 4))
+            """fig, (ax1, ax2) = plt.subplots(ncols=2, sharey=True, figsize=(8, 4))
             ax1.plot(arr_f, arr_int, '-o')
             ax1.set_xlabel('Frame')
             ax1.set_ylabel('Threshold Value')
             ax2.plot(arr_z, arr_int, '-o')
             ax2.set_xlabel('z')
-            plt.show()
+            plt.show()"""
 
             dict_thresh_by_z = dict(zip(arr_f, arr_int))
             self._thresholding_specs.update(dict_thresh_by_z)
 
         for image in self.images.values():
-            image.identify_particles_sk(self._thresholding_specs,
+            image.identify_particles_sk(self,
+                                        self._thresholding_specs,
                                         min_size=self._min_particle_size,
                                         max_size=self._max_particle_size,
                                         shape_tol=self._shape_tol,
@@ -566,7 +575,26 @@ class GdpytImageCollection(object):
                                         template_use_raw=self._stacks_use_raw,
                                         )
 
+            """ Can confirm that the below function works here (which I had never thought of) - SM, 7/12/23
+            mean_sim, inspect_sims = image.infer_particles_similarity_in_image()
+            print(mean_sim)
+            print(inspect_sims)
+            raise ValueError()
+            """
+
             logger.info("Identified {} particles on image {}".format(len(image.particles), image.filename))
+
+    def set_baseline_particle_mask(self, particle_mask):
+        self.baseline_particle_mask = particle_mask
+
+    def set_baseline_regions(self, regions):
+        self.baseline_regions = regions
+
+    def set_baseline_all_contour_coords(self, all_contour_coords):
+        self.baseline_all_contour_coords = all_contour_coords
+
+    def set_baseline_regionprops_data(self, regionprops_data):
+        self.baseline_regionprops_data = regionprops_data
 
     def _set_measurement_depth(self, measurement_depth):
         """
@@ -1471,9 +1499,29 @@ class GdpytImageCollection(object):
                     gauss_sigma_x = p.gauss_sigma_x
                     gauss_sigma_y = p.gauss_sigma_y
 
+                    # image rotated by 45 degrees
+                    gauss_sigma_x_r = p.gauss_sigma_x
+                    gauss_sigma_y_r = p.gauss_sigma_y
+
+                    pdf_A = p.pdf_A
+                    pdf_yc = p.pdf_yc
+                    pdf_xc = p.pdf_xc
+                    pdf_sigma_y = p.pdf_sigma_y
+                    pdf_sigma_x = p.pdf_sigma_x
+                    pdf_rho = p.pdf_rho
+                    pdf_bkg = p.pdf_bkg
+                    pdf_rmse = p.pdf_rmse
+                    pdf_r_squared = p.pdf_r_squared
+
                     # astigmatism
                     diax_diay = gauss_dia_x / gauss_dia_y
                     ax_ay = gauss_sigma_x / gauss_sigma_y
+                    ax_ay_r = gauss_sigma_x_r / gauss_sigma_y_r
+
+                    if pdf_sigma_x is not None and pdf_sigma_y is not None:
+                        ax_ay_pdf = pdf_sigma_x / pdf_sigma_y
+                    else:
+                        ax_ay_pdf = None
 
                     datum = [
                         frame, id,
@@ -1483,6 +1531,9 @@ class GdpytImageCollection(object):
                         gauss_A, gauss_xc, gauss_yc,
                         gauss_dia_x, gauss_dia_y, diameter, diax_diay,
                         gauss_sigma_x, gauss_sigma_y, ax_ay,
+                        gauss_sigma_x_r, gauss_sigma_y_r, ax_ay_r,
+                        pdf_A, pdf_yc, pdf_xc, pdf_sigma_y, pdf_sigma_x, pdf_rho, ax_ay_pdf,
+                        pdf_bkg, pdf_rmse, pdf_r_squared,
                         mean_dx, min_dx, num_dx,
                         mean_dxo, num_dxo, percent_dx_diameter,
                     ]
@@ -1502,7 +1553,11 @@ class GdpytImageCollection(object):
                        'nsv', 'nsv_signal', 'contour_area', 'contour_diameter', 'solidity', 'thinness_ratio',
                        'gauss_A', 'gauss_xc', 'gauss_yc', 'gauss_dia_x', 'gauss_dia_y', 'gauss_diameter',
                        'gauss_dia_x_y',
-                       'gauss_sigma_x', 'gauss_sigma_y', 'gauss_sigma_x_y', 'mean_dx', 'min_dx', 'num_dx',
+                       'gauss_sigma_x', 'gauss_sigma_y', 'gauss_sigma_x_y',
+                       'gauss_sigma_x_r', 'gauss_sigma_y_r', 'gauss_sigma_x_y_r',
+                       'pdf_A', 'pdf_yc', 'pdf_xc', 'pdf_sigma_y', 'pdf_sigma_x', 'pdf_rho', 'pdf_x_y',
+                       'pdf_bkg', 'pdf_rmse', 'pdf_r_squared',
+                       'mean_dx', 'min_dx', 'num_dx',
                        'mean_dxo', 'num_dxo', 'percent_dx_diameter']
 
         df = pd.DataFrame(data, columns=columns)
@@ -1577,6 +1632,7 @@ class GdpytImageCollection(object):
             nsv = dfpid.nsv.to_numpy()
             nsv_signal = dfpid.nsv_signal.to_numpy()
             ylabels = ['intensity', 'nsv', 'nsv signal']
+
             z_maxs = gaussian.calculate_maximum_of_fitted_gaussian_1d(x=z,
                                                                       y=[intensity, nsv, nsv_signal],
                                                                       normalize=True,
@@ -1585,20 +1641,43 @@ class GdpytImageCollection(object):
             zf_peak_int, zf_nsv, zf_nsv_signal = z_maxs[0], z_maxs[1], z_maxs[2]
 
             # in-focus z (diameter)
-            dia_x = dfpid.gauss_dia_x
-            dia_y = dfpid.gauss_dia_y
+            col_x, col_y = 'gauss_dia_x', 'gauss_dia_y'
+            dia_x = dfpid[col_x]
+            dia_y = dfpid[col_y]
 
             zf_c1_c2s, dia_zfs, dia_zmins, dia_zmaxs = \
                 gaussian.calculate_minimum_of_fitted_gaussian_diameter(x=z,
                                                                        y=[dia_x, dia_y],
                                                                        fit_function=particle_diameter_function,
-                                                                       guess_x0=zf_nsv_signal,
-                                                                       show_plot=False)
+                                                                       guess_x0=zf_peak_int,
+                                                                       show_plot=False,
+                                                                       )
 
-            zf_from_dia_x, zf_from_dia_y = zf_c1_c2s[0, 0], zf_c1_c2s[1, 0]
-            zf_from_dia_mean = np.mean([zf_from_dia_x, zf_from_dia_y])
-            c1 = np.mean(zf_c1_c2s[:, 1])
-            c2 = np.mean(zf_c1_c2s[:, 2])
+            if len(zf_c1_c2s) < 2:
+                print("SKIPPED pID {} because zf_c1_c2s length < 2!".format(pid))
+                continue
+
+            # Dealt with these NaNs using a dictionary and numpy logic (not smart)
+            zf_from_dia_x = zf_c1_c2s[0][0]
+            c1_from_dia_x = zf_c1_c2s[0][1]
+            c2_from_dia_x = zf_c1_c2s[0][2]
+
+            zf_from_dia_y = zf_c1_c2s[1][0]
+            c1_from_dia_y = zf_c1_c2s[1][1]
+            c2_from_dia_y = zf_c1_c2s[1][2]
+
+            zfs = np.array([zf_from_dia_x, zf_from_dia_y])
+            c1s = np.array([c1_from_dia_x, c1_from_dia_y])
+            c2s = np.array([c2_from_dia_x, c2_from_dia_y])
+
+            # drop NaNs
+            zfs = zfs[~np.isnan(zfs)]
+            c1s = c1s[~np.isnan(c1s)]
+            c2s = c2s[~np.isnan(c2s)]
+
+            zf_from_dia_mean = np.mean(zfs)
+            c1 = np.mean(c1s)
+            c2 = np.mean(c2s)
 
             zf_dia_x, zf_dia_y = dia_zfs[0], dia_zfs[1]
             zmin_dia_x, zmin_dia_y = dia_zmins[0], dia_zmins[1]
@@ -1687,7 +1766,7 @@ class GdpytImageCollection(object):
             # 0.0 DATAFRAME OF PARTICLE ID
             dfpid = df[df['id'] == pid]
 
-            dfpid = dfpid.dropna()
+            dfpid = dfpid.dropna(subset=['gauss_A'])
 
             dfpid = dfpid.sort_values('z_true').reset_index()
             num_frames = len(dfpid.z_true)
@@ -1714,7 +1793,7 @@ class GdpytImageCollection(object):
                                                                       normalize=True,
                                                                       show_plot=False,
                                                                       ylabels=ylabels)
-            print("pid {}: {}".format(pid, z_maxs))
+
             zf_peak_int, zf_gauss_A, zf_nsv, zf_nsv_signal = z_maxs[0], z_maxs[1], z_maxs[2], z_maxs[3]
 
             if zf_peak_int == np.nan:
@@ -2154,6 +2233,10 @@ class GdpytImageCollection(object):
         similarity_dataframes = []
         for img in self.images.values():
             for p in img.particles:
+
+                if p is None:
+                    continue
+
                 # frame, id, inference_stack_id, location(x, y), z, z_true,
                 dfs = p.similarity_curve
                 dfs = dfs.rename(columns={'z': 'z_cm', 'S_SKNCCORR_SUBIMAGEOFF': 'cm'})
@@ -2186,21 +2269,78 @@ class GdpytImageCollection(object):
         }
         return stats
 
-    def package_test_particle_image_stats(self):
+    def package_test_particle_image_stats(self, true_xy=False):
         coords = []
-        for img in self.images.values():
-            [coords.append([p.frame, p.id, p.z_true, p.z, p.location[0], p.location[1], p.cm,
-                            p.match_location[0], p.match_location[1],
-                            p.match_localization[0], p.match_localization[1],
-                            p.gauss_A, p.area, p.diameter, p.aspect_ratio, p.thinness_ratio, p.solidity,
-                            p.gauss_xc, p.gauss_yc,
-                            p.gauss_sigma_x, p.gauss_sigma_y]) for p in img.particles]
 
-        # read coords into dataframe
-        dft = pd.DataFrame(data=coords, columns=['frame', 'id', 'z_true', 'z', 'x', 'y', 'cm', 'xm', 'ym', 'xg', 'yg',
-                                                 'gauss_A', 'contour_area', 'contour_diameter', 'aspect_ratio',
-                                                 'thinness_ratio', 'solidity',
-                                                 'gauss_xc', 'gauss_yc', 'gauss_sigma_x', 'gauss_sigma_y'])
+        if true_xy:
+            for img in self.images.values():
+                [coords.append([p.frame, p.id,
+                                p.z_true, p.z,
+                                p.location[0], p.location[1],
+                                p.x_true, p.y_true,
+                                p.cm,
+                                p.match_location[0], p.match_location[1],
+                                p.match_localization[0], p.match_localization[1],
+                                p.gauss_xc, p.gauss_yc,
+                                p.area, p.diameter,
+                                p.gauss_dia_x, p.gauss_dia_y,
+                                p.gauss_A,
+                                p.gauss_sigma_x, p.gauss_sigma_y,
+                                ]) for p in img.particles]
+
+            # read coords into dataframe
+            coords_columns = ['frame', 'id',
+                              'z_true', 'z',
+                              'x', 'y',
+                              'x_true', 'y_true',
+                              'cm',
+                              'xm', 'ym',
+                              'xg', 'yg',
+                              'gauss_xc', 'gauss_yc',
+                              'contour_area', 'contour_diameter',
+                              'gauss_dia_x', 'gauss_dia_y',
+                              'gauss_A',
+                              'gauss_sigma_x', 'gauss_sigma_y',
+                              ]
+
+            dft = pd.DataFrame(data=coords, columns=coords_columns)
+        else:
+            for img in self.images.values():
+                [coords.append([p.frame, p.id,
+                                p.z_true, p.z,
+                                p.location[0], p.location[1],
+                                p.cm,
+                                p.match_location[0], p.match_location[1],
+                                p.match_localization[0], p.match_localization[1],
+                                p.gauss_xc, p.gauss_yc,
+                                p.pdf_xc, p.pdf_yc,
+                                p.area, p.diameter,
+                                p.gauss_dia_x, p.gauss_dia_y,
+                                p.gauss_A, p.pdf_A,
+                                p.gauss_sigma_x, p.gauss_sigma_y,
+                                p.pdf_sigma_x, p.pdf_sigma_y,
+                                p.pdf_rho,
+                                ]) for p in img.particles]
+
+            # read coords into dataframe
+            coords_columns = ['frame', 'id',
+                              'z_true', 'z',
+                              'x', 'y',
+                              'cm',
+                              'xm', 'ym',
+                              'xg', 'yg',
+                              'gauss_xc', 'gauss_yc',
+                              'pdf_xc', 'pdf_yc',
+                              'contour_area', 'contour_diameter',
+                              'gauss_dia_x', 'gauss_dia_y',
+                              'gauss_A', 'pdf_A',
+                              'gauss_sigma_x', 'gauss_sigma_y',
+                              'pdf_sigma_x', 'pdf_sigma_y',
+                              'pdf_rho',
+                              ]
+
+            dft = pd.DataFrame(data=coords, columns=coords_columns)
+
         return dft
 
     # ----------------------------------------- ASSESS MEASUREMENT QUALITY (OLD) ---------------------------------------
@@ -2233,212 +2373,6 @@ class GdpytImageCollection(object):
         collection_measurement_quality_local = binning.bin_local_rmse_z(dfz, column_to_bin='true_z', bins=num_bins,
                                                                         min_cm=min_cm, z_range=None, round_to_decimal=0,
                                                                         true_num_particles=true_num_particles)
-
-        """# round the true_z value (which is not important for this particular analysis so we do it early)
-        # we have to correct to the correct decimal place to get at least 10-20 data points depending on our measurement
-        # range (which can be 0-1 for normalized analyses or 0-NUM_TEST_IMAGES * Z_STEP_PER for meta analyses)
-        dfz = self.bin_local_quantities(dfz)
-
-        # sort the dataframe by true_z (now it's necessary to maintain this sorting throughout the analysis)
-        dfz = dfz.sort_values(by='true_z', inplace=False)
-
-        # FIRST, get the number of invalid measurements per rounded true_z:
-        # Note, we do this in two ways and assert they equal each other to ensure we are correct.
-        # Note, we store the original dataframe "dfz" to allow us to check our results after analysis.
-
-        # make a copy of dfz, create a new column where a "1" indicates z is NaN and "0" that z is valid.
-        dfz_nans = dfz.copy()
-        dfz_nans.loc[pd.isna(dfz_nans['z']), 'invalid'] = 1
-        dfz_nans.loc[pd.notna(dfz_nans['z']), 'invalid'] = 0
-
-        # replace NaN with 1 b/c otherwise the groupby function will drop them
-        dfz_nans = dfz_nans.fillna(value=1)
-
-        # groupby.sum() to count NaN's per true_z grouping
-        dfz_count_nans = dfz_nans.invalid.groupby(dfz_nans['true_z'], sort=False).sum().astype(int)
-
-        # groupby.count() to count rows (particles) per true_z grouping (both valid or NaN z-values)
-        dfz_count_idd = dfz_nans.groupby(dfz_nans['true_z'], sort=False).count().astype(int)
-
-        # SECOND, we drop all rows with NaN and count the number of particles per true_z
-        dfz_valid = dfz.dropna().copy()
-
-        # count the number of rows (particles) per true_z with a valid z-measurement
-        dfz_count_valid = dfz_valid.groupby(dfz_valid['true_z'], sort=False).count().astype(int)
-
-        # THIRD, we must be very careful to maintain the order of the Panda Series and when stacking into an array
-        # get: true_z (from index)
-        identified_particles_true_z = dfz_count_idd.index.to_numpy(copy=True)  # [:, 0]
-
-        # get: number of particles per true_z
-        identified_particles = dfz_count_idd.to_numpy(copy=True)[:, 1]
-
-        # get: number of particles w/ invalid z-value per true_z
-        non_measured_particles = dfz_count_nans.to_numpy(copy=True)
-
-        # get: number of particles w/ valid z-value per true_z
-        measured_particles = identified_particles - non_measured_particles
-
-        # calculate the percent of particles w/ valid z-value
-        percent_measured = (identified_particles - non_measured_particles) / identified_particles * 100
-        percent_measured = np.around(percent_measured, decimals=1)
-
-        # FOURTH, we would like to know the mean_cm and mean_max_sim (max sim = interpolated cm)
-        dfz_cm = dfz.copy()
-        dfz_cm = dfz_cm.fillna(value=0)
-        dfz_cm = dfz_cm.groupby(dfz_cm['true_z'], sort=False).mean()
-        z_cm = dfz_cm.cm.to_numpy(copy=True)
-        z_max_sim = dfz_cm.max_sim.to_numpy(copy=True)
-
-        # stack 1D arrays to 2D
-        particle_measure_quality = np.column_stack((identified_particles_true_z, identified_particles,
-                                                    measured_particles, percent_measured, z_cm, z_max_sim))
-
-        # create a dataframe from 2D array
-        df_particle_measure_quality = pd.DataFrame(data=particle_measure_quality,
-                                                   columns=['true_z', 'num_idd', 'num_valid_z_measure',
-                                                            'percent_measure', 'cm', 'max_sim'])
-        df_particle_measure_quality.set_index(keys='true_z', inplace=True)"""
-
-        # NOW, we can move on and calculate the root mean squared error
-        # get the local rmse uncertainty for each true_z
-        # coords = []
-
-        # if true_xy:
-        """
-        Case: X, Y, AND Z GROUND TRUTH IS KNOWN
-
-        Outputs:
-            * z: the mean z-value per true_z grouping.
-
-            This can be useful in understanding if there is an inherent bias between calibration stack "labeling" 
-            and the truth z-value.
-
-            IMPORTANT NOTE:
-                There can often be a discrepancy between the calibration stack labeling (or assigned z-value) and
-                the true z-value of an identical particle at an identical height. This can arise from "inaccurately"
-                assigning the z-value to calibration layers. The z-value is assigned based on the label from the
-                filename (i.e. 'calib_1.tif' where the "1" indicates it's the bottom of the calibration stack) and 
-                the known z-step size. Often the division of "1" * step size / # of steps can lead to slightly
-                incorrect values. This can be even worse when analyzing synthetic datasets where the z=0 and
-                z=measurement depth are not identified.
-
-            * true_z: this is the ROUNDED true_z.
-            * error_z: the mean of the difference between the RAW true_z and measured_z value by rounded true_z.
-            * rmse_x,y,z: the mean root mean squared error by rounded true_z.
-            * std_x,y,z: the mean of the standard deviation of the x, y, and z values by rounded true_z.
-        
-
-        # get particle locations from all images
-        for img in self.images.values():
-            [coords.append([p.id, p.location[0], p.location[1], p.z, p.x_true, p.y_true, p.z_true]) for p in
-             img.particles]
-
-        # read coords into dataframe
-        df_rmse = pd.DataFrame(data=coords, columns=['id', 'x', 'y', 'z', 'true_x', 'true_y', 'true_z'])
-
-        # prepare for analysis (drop NaN's and sort by z)
-        df_rmse = df_rmse.dropna(axis=0, how='any')
-        df_rmse = df_rmse.sort_values(by='true_z', inplace=False)
-
-        # calculate the errors wrt the "raw" true values
-        df_rmse['error_x'] = df_rmse['true_x'] - df_rmse['x']
-        df_rmse['error_y'] = df_rmse['true_y'] - df_rmse['y']
-        df_rmse['error_z'] = df_rmse['true_z'] - df_rmse['z']
-        df_rmse['square_error_x'] = df_rmse['error_x'] ** 2
-        df_rmse['square_error_y'] = df_rmse['error_y'] ** 2
-        df_rmse['square_error_z'] = df_rmse['error_z'] ** 2
-
-        # after we calculate the raw error, we can round the true_z value for the purposes of aggregate analysis
-        df_rmse = self.bin_local_quantities(df_rmse)
-
-        # RMSE uncertainty = sqrt ( sum ( error ** 2 ) / number of measurements )
-        # Note: the root mean square x-, y-, and z-error is now a panda series so maintaining order is important.
-        dfsum = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).sum()
-        dfcount = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).count()
-        rmse_x = (dfsum.square_error_x / dfcount.square_error_x) ** 0.5
-        rmse_y = (dfsum.square_error_y / dfcount.square_error_y) ** 0.5
-        rmse_xy = (rmse_x ** 2 + rmse_y ** 2) ** 0.5
-        rmse_z = (dfsum.square_error_z / dfcount.square_error_z) ** 0.5
-
-        # the standard deviation of the grouped by true_z columns (do not sort to maintain order)
-        dfstd = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).std()
-
-        # the mean of the grouped by true_z columns (do not sort to maintain order)
-        dfmean = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).mean()
-
-        # drop columns which are no longer necessary (do not sort to maintain order)
-        dfmean.drop(
-            columns=['id', 'x', 'y', 'true_x', 'true_y', 'square_error_x', 'square_error_y', 'square_error_z'],
-            inplace=True)
-
-        # assign new columns to the dataframe
-        df_mean_rmse = dfmean.assign(rmse_x=rmse_x.values, rmse_y=rmse_y.values, rmse_xy=rmse_xy.values,
-                                     rmse_z=rmse_z.values,
-                                     std_x=dfstd.x.values, std_y=dfstd.y.values, std_z=dfstd.z.values)"""
-        # else:
-        """
-        Case: ONLY Z GROUND TRUTH IS KNOWN
-        
-        Outputs:
-            * z: the mean z-value per true_z grouping.
-            
-            This can be useful in understanding if there is an inherent bias between calibration stack "labeling" 
-            and the truth z-value.
-            
-            IMPORTANT NOTE:
-                There can often be a discrepancy between the calibration stack labeling (or assigned z-value) and
-                the true z-value of an identical particle at an identical height. This can arise from "inaccurately"
-                assigning the z-value to calibration layers. The z-value is assigned based on the label from the
-                filename (i.e. 'calib_1.tif' where the "1" indicates it's the bottom of the calibration stack) and 
-                the known z-step size. Often the division of "1" * step size / # of steps can lead to slightly
-                incorrect values. This can be even worse when analyzing synthetic datasets where the z=0 and
-                z=measurement depth are not identified.
-                
-            * true_z: this is the ROUNDED true_z.
-            * error_z: the mean of the difference between the RAW true_z and measured_z value by rounded true_z.
-            * rmse_z: the mean root mean squared error by rounded true_z.
-            * std_x,y,z: the mean of the standard deviation of the x, y, and z values by rounded true_z.
-
-        # get x, y, z, and z_true for all particles in image collection
-        for img in self.images.values():
-            [coords.append([p.id, p.location[0], p.location[1], p.z, p.z_true]) for p in img.particles]
-
-        # read coords into dataframe
-        df_rmse = pd.DataFrame(data=coords, columns=['id', 'x', 'y', 'z', 'true_z'])
-
-        # prepare dataframe for analysis (drop NaN's and sort by z)
-        df_rmse = df_rmse.dropna(axis=0, how='any')
-        df_rmse = df_rmse.sort_values(by='true_z', inplace=False)
-
-        # calculate error wrt "raw" true z
-        df_rmse['error_z'] = df_rmse['true_z'] - df_rmse['z']
-        df_rmse['square_error_z'] = df_rmse['error_z'] ** 2
-
-        # we can now round the z-value in order to perform an aggregate analysis
-        df_rmse = self.bin_local_quantities(df_rmse)
-
-        # RMSE uncertainty = sqrt ( sum ( error ** 2 ) / number of measurements )
-        # Note: the root mean square z-error is now a panda series so maintaining order is super important.
-        dfsum = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).sum()
-        dfcount = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).count()
-        rmse_z = (dfsum.square_error_z / dfcount.square_error_z) ** 0.5
-
-        # b/c no ground truth, get standard deviation and mean of x, y, z
-        dfstd = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).std()
-
-        # take the mean after grouping by true_z (which has already been rounded to 2 decimals). Note, it is
-        # important to not sort on the groupby because we need to maintain the order to re-stitch dataframes.
-        dfmean = df_rmse.copy().groupby(df_rmse['true_z'], sort=False).mean()
-
-        # drop columns that aren't necessary (inplace to be careful about order)
-        dfmean.drop(columns=['id', 'x', 'y', 'square_error_z'], inplace=True)
-
-        # assign new columns for: root mean square error and the standard deviation of the raw x, y,
-        df_mean_rmse = dfmean.assign(rmse_z=rmse_z.values, std_x=dfstd.x.values, std_y=dfstd.y.values,
-                                     std_z=dfstd.z.values)
-
-        collection_measurement_quality_local = pd.concat([df_mean_rmse, df_particle_measure_quality], axis=1)"""
 
         return collection_measurement_quality_local
 

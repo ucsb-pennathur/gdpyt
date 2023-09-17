@@ -240,17 +240,53 @@ def apply_threshold(img, parameter, overlapping_particles=True, min_particle_siz
     if invert:
         thresh_img = ~thresh_img
 
+    """
+    Plot for publication
+    
     if show_threshold:
-        fig, ax = plt.subplots(ncols=2)
+        fig = plt.figure(frameon=False)
+        fig.set_size_inches(1.5, 1.5)
+        ax = plt.Axes(fig, [0., 0., 1., 1.])
+        ax.set_axis_off()
+        fig.add_axes(ax)
+        ax.imshow(thresh_img, cmap='binary')
+        save_path = '/Users/mackenzie/Desktop/gdpyt-characterization/experiments/' \
+                    '11.06.21_z-micrometer-v2/results/calibration-spct_c1um-gen-cal/binarized'
+        plt.savefig(save_path + '/frame-{}_gray.png'.format(frame), dpi=300)
+        # plt.show()
+        plt.close()
+    """
+
+    if show_threshold:
+        num_signal_pixels = np.count_nonzero(thresh_img)
+        num_pixels = thresh_img.size
+        image_density = num_signal_pixels / num_pixels
+
+        fig, ax = plt.subplots(ncols=2, sharey=True)
         ax[0].imshow(img)
-        ax[0].set_title('max:{}, std: {}, mean:{}'.format(np.max(img),
-                                                          np.round(np.std(img), 2),
-                                                          np.round(np.mean(img))))
+        ax[0].set_title(r'$I_{o}(\overline{I} \pm \sigma_{I}=$' +
+                        '({}, {} +/- {}, {})'.format(np.min(img),
+                                                     np.round(np.mean(img), 1),
+                                                     np.round(np.std(img), 2),
+                                                     np.max(img),
+                                                     ),
+                        fontsize=8,
+                        )
+        ax[0].set_yticks([0, img.shape[1]])
+        ax[0].set_xticks([0, img.shape[1]])
+
         ax[1].imshow(thresh_img)
-        ax[1].set_title('max:{}, std: {}, mean:{}'.format(np.max(thresh_img),
-                                                          np.round(np.std(thresh_img), 2),
-                                                          np.round(np.mean(thresh_img))))
+        ax[1].set_title(r'$N_{s} = $' + '{}'.format(np.round(image_density, 4)),
+                        fontsize=8,
+                        )
+        ax[1].set_xticks([0, thresh_img.shape[1]])
+
+        plt.tight_layout()
+        save_path = '/Users/mackenzie/Desktop/gdpyt-characterization/experiments/' \
+                    '11.06.21_z-micrometer-v2/results/calibration-spct_c1um-gen-cal/binarized'
+        # plt.savefig(save_path + '/frame-{}_binary.png'.format(frame), dpi=200)
         plt.show()
+        plt.close()
 
     return thresh_img
 

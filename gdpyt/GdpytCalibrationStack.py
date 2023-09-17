@@ -235,7 +235,7 @@ class GdpytCalibrationStack(object):
             temp_calib.append(np.pad(t, pad_width=1, mode='constant', constant_values=np.min(t)))
         temp_calib = np.array(temp_calib)"""
 
-        temp_calib_3d = np.reshape(temp_calib, (temp_calib.shape[1], temp_calib.shape[2], temp_calib.shape[0]))
+        # temp_calib_3d = np.reshape(temp_calib, (temp_calib.shape[1], temp_calib.shape[2], temp_calib.shape[0]))
 
         """ End Note """
 
@@ -332,7 +332,7 @@ class GdpytCalibrationStack(object):
         pad_width = 0
         # result = np.pad(result, pad_width)
 
-        locate_subpix = False
+        locate_subpix = True
         if locate_subpix:
             if np.size(result) > 5:
                 xgt, ygt = fit_2d_gaussian_on_ccorr(result, xmt + pad_width, ymt + pad_width)
@@ -405,6 +405,72 @@ class GdpytCalibrationStack(object):
             raise ValueError("Unknown similarity function {}".format(function))
 
         z_calib, temp_calib = np.array(list(self.layers.keys())), np.array(list(self.layers.values()))
+        num_layers = len(temp_calib)
+
+        sim_self_backward = []
+        sim_self_forward = []
+        sim_self_adjacent = []
+        for index, c_temp in enumerate(temp_calib):
+            if index < num_layers - 1:
+
+                padded_image = np.pad(temp_calib[index], pad_width=3, mode='constant',
+                                      constant_values=np.min(temp_calib[index]))
+
+                result = sim_func(padded_image, temp_calib[index + 1])
+                forward = np.max(result)
+                sim_self_forward.append(forward)
+                if index > 0:
+                    result = sim_func(padded_image, temp_calib[index - 1])
+                    backward = np.max(result)
+                    sim_self_backward.append(backward)
+
+                    # mean similarity
+                    center = np.mean([forward, backward])
+                    sim_self_adjacent.append(center)
+
+        # forward similarity
+        forward_sim_self = np.array(sim_self_forward)
+        forward_z_self = np.squeeze(np.array([z_calib[:num_layers-1]]))
+        self._self_similarity_forward = np.vstack((forward_z_self, forward_sim_self)).T
+
+        # mean of similarity with both forward and backward images
+        sim_self = np.array(sim_self_adjacent)
+        z_self = np.squeeze(np.array([z_calib[1:num_layers-1]]))
+        self._self_similarity = np.vstack((z_self, sim_self)).T
+
+    def infer_self_similarity_specify_dzc(self, dzc, center_on_zf=False):
+        logger.info("Inferring self-similarity for calibration stack {}".format(self.id))
+
+        sim_func = sk_norm_cross_correlation
+
+        z_calib, temp_calib = np.array(list(self.layers.keys())), np.array(list(self.layers.values()))
+
+        # raise error if dz_calib is not equal to 1 b/c this function requires it to be correct
+        dz_calib = z_calib[1] - z_calib[0]
+        dz_calib_mean = np.mean(np.diff(z_calib))
+        if dz_calib_mean != 1:
+            print("z_calib = {}".format(z_calib))
+            print("np.diff(z_calib) = {}".format(np.diff(z_calib)))
+            print("np.mean(np.diff(z_calib)) = {}".format(dz_calib_mean))
+            # raise ValueError("dz_calib_mean != 1 indicates the stack has non-uniform z-spacing")
+
+        # center dz-steps on zf and use numpy slicing to get every nth element corresponding to dzc
+        if center_on_zf:
+            idx_min = np.argmin(np.abs(z_calib - center_on_zf))
+            z_calib_lower = z_calib[idx_min::-dzc]
+            z_calib_upper = z_calib[idx_min + dzc::dzc]
+            z_calib = np.concatenate((np.flip(z_calib_lower, axis=0), z_calib_upper), axis=None)
+            # z_calib = np.sort(z_calib, axis=None)
+
+            temp_calib_lower = temp_calib[idx_min::-dzc]
+            temp_calib_upper = temp_calib[idx_min + dzc::dzc]
+            temp_calib = np.concatenate((np.flip(temp_calib_lower, axis=0), temp_calib_upper), axis=0)
+            # temp_calib = np.sort(temp_calib, axis=None)
+        else:
+            # use numpy slicing to get every nth element corresponding to dzc
+            z_calib = z_calib[0::dzc]
+            temp_calib = temp_calib[0::dzc]
+
         num_layers = len(temp_calib)
 
         sim_self_backward = []
@@ -614,3 +680,9 @@ class GdpytCalibrationStack(object):
     @property
     def template_padding(self):
         return self._template_padding
+
+    @property
+    def average_dz_step(self):
+        z_calib = np.array(list(self.layers.keys()))
+        dz_calib_mean = np.mean(np.diff(z_calib))
+        return dz_calib_mean

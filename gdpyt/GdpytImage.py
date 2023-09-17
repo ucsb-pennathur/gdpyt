@@ -122,7 +122,7 @@ class GdpytImage(object):
         else:
             self._processing_stats = new_stats.combine_first(self._processing_stats)
 
-    def draw_particles(self, raw=True, thickness=2, draw_id=True, draw_bbox=True):
+    def draw_particles(self, raw=True, thickness=2, draw_id=True, draw_bbox=True, draw_contour=True):
         if raw:
             canvas = self.raw.copy()
         else:
@@ -133,7 +133,8 @@ class GdpytImage(object):
         max_val = int(canvas.max())
         color = (max_val, max_val, max_val)
         for particle in self.particles:
-            cv2.drawContours(canvas, [particle.contour], -1, color, thickness)
+            if draw_contour:
+                cv2.drawContours(canvas, [particle.contour], -1, color, thickness)
             if draw_id:
                 bbox = particle.bbox
                 coords = (int(bbox[0] - 0.2 * bbox[2]), int(bbox[1] - 0.2 * bbox[3]))
@@ -293,7 +294,7 @@ class GdpytImage(object):
 
         return ret_particle
 
-    def identify_particles_sk(self, thresh_specs, min_size=None, max_size=None, shape_tol=0.1,
+    def identify_particles_sk(self, collection, thresh_specs, min_size=None, max_size=None, shape_tol=0.1,
                               overlap_threshold=0.3, same_id_threshold=10,
                               padding=2, inspect_contours_for_every_image=False, image_collection_type=None,
                               particle_id_image=None, overlapping_particles=True, template_use_raw=False):
@@ -309,61 +310,75 @@ class GdpytImage(object):
 
         """
 
-        if shape_tol is not None:
-            assert 0 < shape_tol < 1
-
-        if self.frame in [0, 5, 40, 50, 100]:  # [1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 30, 40, 48, 50, 52, 60, 70, 80]:  #
-            show_threshold = True
+        if collection.baseline_regions is not None and particle_id_image is not None:
+            particle_mask = collection.baseline_particle_mask
+            regions = collection.baseline_regions
+            all_contour_coords = collection.baseline_all_contour_coords
+            regionprops_data = collection.baseline_regionprops_data
         else:
-            show_threshold = False
+            # perform image segmentation
+            if shape_tol is not None:
+                assert 0 < shape_tol < 1
 
-        if particle_id_image is not None:
-            """ Using static templates in this case """
-            particle_mask = apply_threshold(particle_id_image,
-                                            parameter=thresh_specs,
-                                            min_particle_size=min_size,
-                                            overlapping_particles=overlapping_particles,
-                                            show_threshold=show_threshold,
-                                            frame=self.frame,
-                                            ).astype(np.uint16)
-        else:
-            """ Using dynamic templates in this case """
-            particle_mask = apply_threshold(self.filtered,
-                                            parameter=thresh_specs,
-                                            min_particle_size=min_size,
-                                            overlapping_particles=overlapping_particles,
-                                            show_threshold=show_threshold,
-                                            frame=self.frame,
-                                            ).astype(np.uint16)
+            if self.frame in [0, 5, 10]:   # [0, 5, 10, 25, 49, 50, 51, 104]
+                show_threshold = True
+            else:
+                show_threshold = False
 
-        """if self.filename in ['calib_1.tif', 'calib_33.tif', 'calib_77.tif']:
-            fig, ax = plt.subplots(ncols=2)
-            ax[0].imshow(self.filtered)
-            ax[1].imshow(particle_mask)
-            plt.show()"""
+            # show_threshold = False
 
-        # identify particles
-        label_image, regions, all_contour_coords = identify_contours_sk(particle_mask, self.filtered, same_id_threshold,
-                                                                        overlapping_particles, self.filename)
+            if particle_id_image is not None:
+                """ Using static templates in this case """
+                particle_mask = apply_threshold(particle_id_image,
+                                                parameter=thresh_specs,
+                                                min_particle_size=min_size,
+                                                overlapping_particles=overlapping_particles,
+                                                show_threshold=show_threshold,
+                                                frame=self.frame,
+                                                ).astype(np.uint16)
+            else:
+                """ Using dynamic templates in this case """
+                particle_mask = apply_threshold(self.filtered,
+                                                parameter=thresh_specs,
+                                                min_particle_size=min_size,
+                                                overlapping_particles=overlapping_particles,
+                                                show_threshold=show_threshold,
+                                                frame=self.frame,
+                                                ).astype(np.uint16)
 
-        """logger.debug("{} contours in thresholded image".format(len(all_contour_coords)))
-        contours, bboxes = self.merge_overlapping_particles(all_contour_coords, bboxes, overlap_thresh=overlap_threshold)
-        logger.debug("{} contours in thresholded image after merging of overlapping".format(len(contours)))"""
+            # identify particles
+            label_image, regions, all_contour_coords = identify_contours_sk(particle_mask, self.filtered, same_id_threshold,
+                                                                            overlapping_particles, self.filename)
 
-        # store the regionprops table
-        regionprops_data = regionprops_table(label_image, self.filtered,
-                                             properties=['label', 'area', 'bbox', 'centroid', 'weighted_centroid',
-                                                         'local_centroid',
-                                                         'weighted_local_centroid', 'max_intensity', 'mean_intensity',
-                                                         'minor_axis_length', 'major_axis_length'])
-        regionprops_data = pd.DataFrame(regionprops_data)
-        self.regionprops_table = regionprops_data
+            """logger.debug("{} contours in thresholded image".format(len(all_contour_coords)))
+            contours, bboxes = self.merge_overlapping_particles(all_contour_coords, bboxes, overlap_thresh=overlap_threshold)
+            logger.debug("{} contours in thresholded image after merging of overlapping".format(len(contours)))"""
+
+            # store the regionprops table
+            regionprops_data = regionprops_table(label_image, self.filtered,
+                                                 properties=['label', 'area', 'bbox', 'centroid', 'weighted_centroid',
+                                                             'local_centroid',
+                                                             'weighted_local_centroid', 'max_intensity', 'mean_intensity',
+                                                             'minor_axis_length', 'major_axis_length'])
+            regionprops_data = pd.DataFrame(regionprops_data)
+            self.regionprops_table = regionprops_data
+
+            # set collection baseline regions
+            if particle_id_image is not None:
+                collection.set_baseline_particle_mask(particle_mask)
+                collection.set_baseline_regions(regions)
+                collection.set_baseline_all_contour_coords(all_contour_coords)
+                collection.set_baseline_regionprops_data(regionprops_data)
+
+            # ---
 
         # filters regions (contours)
         skipped_contours = []
         passing_ids = []
         contour_areas = []
         id_ = 0
+
+        # ---
 
         # Sort contours and bboxes by x-coordinate:
         for region, contour_coords in sorted(zip(regions, all_contour_coords), key=lambda x: x[0].centroid[1]):
@@ -373,10 +388,23 @@ class GdpytImage(object):
             if area < min_size or area > max_size:
                 logger.warning("Region skipped b/c area {} < {} | area {} > {}".format(area, min_size, area, max_size))
                 skipped_contours.append(region.label)
+
+                """
+                if area > max_size and region.major_axis_length / region.minor_axis_length < aspect_ratio_threshold_:
+                    ar_ = region.major_axis_length / region.minor_axis_length
+                    fig, (axl, axr) = plt.subplots(ncols=2, figsize=(6, 4))
+                    axl.imshow(region.filled_image)
+                    axl.set_title('filled image: Area {}'.format(area))
+                    axr.imshow(region.intensity_image)
+                    axr.set_title('Aspect ratio: {}'.format(np.round(ar_, 3)))
+                    plt.show()
+                    plt.close()
+                """
+
                 continue
 
             # filter on length of minor axis
-            minor_axis_length_threshold = 1.5
+            minor_axis_length_threshold = 1.3
             if region.minor_axis_length < minor_axis_length_threshold:
                 logger.warning("Region skipped b/c minor axis length {} < {}".format(region.minor_axis_length,
                                                                                      minor_axis_length_threshold))
@@ -384,16 +412,66 @@ class GdpytImage(object):
                 continue
 
             # filter on aspect ratio
-            aspect_ratio = region.major_axis_length / region.minor_axis_length
-            if image_collection_type == 'calibration':
-                aspect_ratio_threshold = 4  # IDPT: 3
+            if area < 30:
+                aspect_ratio_threshold_ = 1.45  # IDPT: 4 or 3
+            elif area < 60:
+                aspect_ratio_threshold_ = 1.45  # IDPT: 4 or 3
+            elif area < 90:
+                aspect_ratio_threshold_ = 1.3  # IDPT: 4 or 3
+            elif area < 100:
+                aspect_ratio_threshold_ = 1.24  # IDPT: 4 or 3
             else:
-                aspect_ratio_threshold = 4  # IDPT: 3
+                aspect_ratio_threshold_ = 1.19  # IDPT: 4 or 3
+
+            aspect_ratio_threshold_ = 2.5  # IDPT
+
+            if image_collection_type == 'calibration':
+                aspect_ratio_threshold = aspect_ratio_threshold_  # IDPT: 3
+            else:
+                aspect_ratio_threshold = aspect_ratio_threshold_  # IDPT: 3
+            # print("Aspect ratio threshold: {}... (if IDPT: use 4)".format(aspect_ratio_threshold_))
+
+            aspect_ratio = region.major_axis_length / region.minor_axis_length
             if aspect_ratio > aspect_ratio_threshold:
                 logger.warning(
-                    "Region skipped b/c aspect ratio = {} > {}.".format(aspect_ratio, aspect_ratio_threshold))
+                    "Region skipped b/c aspect ratio = {} > {}... (Area={})".format(aspect_ratio, aspect_ratio_threshold, area))
                 skipped_contours.append(region.label)
+
+                """
+                if aspect_ratio < aspect_ratio_threshold_ * 1.2:
+                    fig, axr = plt.subplots()  # [axl, axr] = plt.subplots(ncols=2, figsize=(6, 4))
+                    # axl.imshow(particle_image_template)
+                    # axl.set_title('image')
+                    axr.imshow(region.intensity_image)
+                    axr.set_title('Aspect ratio: {}'.format(np.round(aspect_ratio, 3)))
+                    plt.suptitle('AR threshold: {}, Area={}, Fr={}'.format(aspect_ratio_threshold_, area, self.frame))
+                    plt.show()
+                    plt.close()
+                """
+
                 continue
+
+            # filter on solidity
+            filter_on_solidity_p2p_sim = False
+            if filter_on_solidity_p2p_sim:
+                solidity_threshold = 0.825
+                solidity = region.solidity
+                if solidity < solidity_threshold:
+                    """
+                    if solidity > 0.7:
+                        fig, [axl, axr] = plt.subplots(ncols=2, figsize=(6, 4))
+                        axl.imshow(region.intensity_image)
+                        axl.set_title('image')
+                        axr.imshow(region.filled_image)
+                        axr.set_title('contour')
+                        plt.suptitle("solidity {} < {} threshold".format(np.round(solidity, 3), solidity_threshold))
+                        plt.show()
+                        plt.close()
+                    """
+
+                    logger.warning("Region skipped b/c solidity = {} < {}.".format(solidity, solidity_threshold))
+                    skipped_contours.append(region.label)
+                    continue
 
             # adjust the bounding box (bbox) to work with GdpytParticle (note: x0, y0, w0, h0 = self.bbox)
             min_row, min_col, max_row, max_col = region.bbox
@@ -404,6 +482,13 @@ class GdpytImage(object):
             cY = int(
                 np.round(regionprops_data[regionprops_data['label'] == region.label]['weighted_centroid-0'].item(), 0))
 
+            # artificial in-plane displacement
+            """if image_collection_type == 'calibration':
+                dx = 4
+                cY = int(np.round(cY + np.random.uniform(-dx, dx)))
+                cX = int(np.round(cX + np.random.uniform(-dx, dx)))"""
+
+            # pad and center template
             bbox, bbox_center = self.pad_and_center_region(cX, cY, bbox, padding=padding)
 
             # discard contours that are too close to the image borders to include the desired padding
@@ -836,7 +921,7 @@ class GdpytImage(object):
                 stack_axis = 2
 
             if if_img_stack_take == 'mean':
-                img = np.rint(np.mean(img, axis=stack_axis, dtype=float)).astype(np.int16)
+                img = np.rint(np.mean(img, axis=stack_axis, dtype=float)).astype(img.dtype)
             elif if_img_stack_take == 'first':
                 if stack_axis == 0:
                     img = img[0, :, :]
@@ -1043,6 +1128,7 @@ class GdpytImage(object):
             cy = float(bbox[3] - bbox[1])
 
     def infer_particles_similarity_in_image(self, function='sknccorr', inspect_particle_ids=None):
+        """ mean_sim, inspect_sims = GdpytImage.infer_particles_similarity_in_image() """
 
         if len(self.particles) < 2:
             return None, None
@@ -1052,8 +1138,12 @@ class GdpytImage(object):
         sims = []
         inspect_sims = []
 
+        shown_pimg_ids = []
+        shown_ptemp_ids = []
+
         for p_image in self.particles:
             img = p_image.template
+
             for p_template in self.particles:
                 if p_template.id == p_image.id:
                     continue
@@ -1066,14 +1156,48 @@ class GdpytImage(object):
 
                 if tempx > imgx:
                     padx = tempx - imgx + 1
+                    continue
                 if tempy > imgy:
                     pady = tempy - imgy + 1
+                    continue
 
+                padx, pady = 2, 2
                 padded_img = np.pad(img, pad_width=[padx, pady], mode='constant', constant_values=np.min(img))
+                padded_img_mask = np.pad(p_image.mask_on_template, pad_width=[padx, pady], mode='constant',
+                                         constant_values=np.min(p_image.mask_on_template))
 
                 # compute cross-correlation
                 result = sim_func(padded_img, temp)
                 sim = np.max(result)
+
+                if sim < 0.7 or self.frame == 50:
+
+                    if p_image.id in shown_pimg_ids or p_template.id in shown_ptemp_ids:
+                        pass
+                    else:
+                        shown_pimg_ids.append(p_image.id)
+                        shown_ptemp_ids.append(p_template.id)
+
+                        fig, axs = plt.subplots(2, 3, figsize=(10, 6.5))
+                        ax1, ax2, ax3, ax4, ax5, ax6 = axs.ravel()
+
+                        ax1.imshow(padded_img)
+                        ax1.set_title('Padded Image (pid={})'.format(p_image.id))
+                        ax2.imshow(temp)
+                        ax2.set_title('Template (pid={})'.format(p_template.id))
+                        ax3.imshow(result)
+                        ax3.set_title('Cross-Corr={}'.format(np.round(sim, 3)))
+
+                        ax4.imshow(padded_img_mask)
+                        ax4.set_title('Image: Mask on Template')
+                        ax5.imshow(p_template.mask_on_template)
+                        ax5.set_title('Template: Mask on Template')
+
+                        plt.tight_layout()
+                        psave = '/Users/mackenzie/Desktop/gdpyt-characterization/experiments/11.06.21_z-micrometer-v2/' \
+                                'results/calibration-spct_dzc-1/cross-corrs'
+                        plt.savefig(join(psave, 'pimg{}_ptemp{}_frame{}.png'.format(p_image.id, p_template.id, self.frame)))
+                        plt.close()
 
                 # append to inspection-correlation list
                 if inspect_particle_ids is None:

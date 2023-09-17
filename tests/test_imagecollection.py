@@ -8,10 +8,45 @@ from scipy import ndimage as ndi
 from skimage import (
     color, feature, filters, io, measure, morphology, segmentation, util
 )
-import cv2
+
 import numpy as np
 
-folder = r"/Users/mackenzie/Desktop/BPE-ICEO/06.08.21 - BPE-ICEO actuator/calibration/1um_step_1imageperstep_50X/"
+# test only "test collection"
+
+test_col = GdpytImageCollection(folder='/Users/mackenzie/Downloads/spt/',
+                                filetype='.tif',
+                                image_collection_type='test',
+                                file_basestring='test_',
+                                calibration_stack_z_step=1.0,
+                                subset=[0, 3, 1],
+                                true_num_particles=1,
+                                folder_ground_truth=None,
+                                stacks_use_raw=False,
+                                crop_specs=None,
+                                background_subtraction=None,
+                                processing_specs=None,
+                                thresholding_specs={'manual': [3000]},
+                                min_particle_size=3,
+                                max_particle_size=12,
+                                shape_tol=0.5,
+                                overlap_threshold=0.5,
+                                same_id_threshold=8,
+                                measurement_depth=10,
+                                template_padding=5,
+                                if_img_stack_take='mean',
+                                take_subset_mean=[0, 3],
+                                inspect_contours_for_every_image=False,
+                                baseline='test_000.tif',
+                                hard_baseline=False,
+                                static_templates=False,
+                                particle_id_image='test_000.tif',
+                                overlapping_particles=False,
+                                xydisplacement=[[0, 0]],
+                                )
+
+
+# old test script
+"""folder = r"/Users/mackenzie/Desktop/BPE-ICEO/06.08.21 - BPE-ICEO actuator/calibration/1um_step_1imageperstep_50X/"
 filetype = '.tif'
 base_string = 'calib_'
 
@@ -95,4 +130,4 @@ color_labels = color.label2rgb(segmented_particles, img.raw*50, alpha=0.2, bg_la
 fig, ax = plt.subplots(figsize=(8,6))
 ax.imshow(color_labels)
 ax.set_title('Segmentation result over raw image')
-plt.show()
+plt.show()"""

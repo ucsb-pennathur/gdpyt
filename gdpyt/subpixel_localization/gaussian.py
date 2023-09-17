@@ -10,79 +10,66 @@ A good reference for PSF-based z-determination: https://link.springer.com/conten
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy.optimize import curve_fit
+from scipy.ndimage import rotate
 from skimage.transform import resize, downscale_local_mean, rescale
 from skimage.filters import gaussian
 from matplotlib.patches import Ellipse
 
 from skimage.draw import ellipse_perimeter
 from gdpyt.utils.plotting import filter_ellipse_points_on_image
+from gdpyt.utils.gdpyt_analysis import evaluate_fit_gaussian_and_plot_3d
 
 """
 Note: the following scripts are new (2022 and later)
 """
 
+# ---
+
+# ---------------------------------------- GAUSSIAN MODELS -------------------------------------------------------------
+
 
 def gauss_1d_function(x, a, x0, sigma):
-    return a*np.exp(-(x-x0)**2/(2*sigma**2))
+    return a * np.exp(-(x - x0) ** 2 / (2 * sigma ** 2))
 
 
 def gauss_2d_function(xy, a, x0, y0, sigmax, sigmay):
-    return a * np.exp(-((xy[:, 0] - x0)**2 / (2 * sigmax**2) + (xy[:, 1] - y0)**2 / (2 * sigmay**2)))
+    return a * np.exp(-((xy[:, 0] - x0) ** 2 / (2 * sigmax ** 2) + (xy[:, 1] - y0) ** 2 / (2 * sigmay ** 2)))
 
 
-def get_amplitude_center_sigma_improved(x_space=None, y_profile=None, img=None):
-    """ raw_amplitude, raw_c, raw_sigma = get_amplitude_center_sigma_improved(x_space=None, y_profile=None, img=None) """
-    if y_profile is None:
-        y_slice = np.unravel_index(np.argmax(img, axis=None), img.shape)[0]
-        y_profile = img[y_slice, :]
-
-    if x_space is None:
-        x_space = np.arange(len(y_profile))
-
-    # get amplitude
-    raw_amplitude = y_profile.max() - y_profile.min()
-
-    # get center
-    raw_c = x_space[np.argmax(y_profile)]
-
-    # get sigma
-    y_pl_zero = len(np.where(y_profile[:np.argmax(y_profile)] - np.mean(y_profile) < 0)[0])
-    y_pr_zero = len(np.where(y_profile[np.argmax(y_profile):] - np.mean(y_profile) < 0)[0])
-
-    """y_pl_zero = np.where(y_profile[:np.argmax(y_profile)] - np.mean(y_profile) < 0)[0][0]
-    y_pr_zero = np.where(y_profile[np.argmax(y_profile):] - np.mean(y_profile) < 0)[0][0]"""
-    raw_sigma = np.mean([y_pl_zero, y_pr_zero])
-
-    return raw_amplitude, raw_c, raw_sigma
+def bivariate_gaussian_pdf(xy, a, x0, y0, sigmax, sigmay, rho):
+    return a * np.exp(
+        -((1 / (2 * (1 - rho ** 2))) * ((xy[:, 0] - x0) ** 2 / sigmax ** 2 - 2 * rho * (xy[:, 0] - x0) * (
+                    xy[:, 1] - y0) / (sigmax * sigmay) +
+          (xy[:, 1] - y0) ** 2 / sigmay ** 2)
+          )
+    )
 
 
-def get_amplitude_center_sigma(x_space=None, y_profile=None, img=None, y_slice=None):
+def bivariate_gaussian_pdf_bkg(xy, a, x0, y0, sigmax, sigmay, rho, bkg):
+    return a * np.exp(
+        -((1 / (2 * (1 - rho ** 2))) * ((xy[:, 0] - x0) ** 2 / sigmax ** 2 - 2 * rho * (xy[:, 0] - x0) * (
+                    xy[:, 1] - y0) / (sigmax * sigmay) +
+          (xy[:, 1] - y0) ** 2 / sigmay ** 2)
+          )
+    ) + bkg
 
-    if y_profile is None:
-        # get sub-image slice
-        y_profile = img[y_slice, :]
-
-    if x_space is None:
-        x_space = np.arange(len(y_profile))
-
-    # get amplitude
-    raw_amplitude = y_profile.max() - y_profile.min()
-
-    # get center
-    raw_c = x_space[np.argmax(y_profile)]
-
-    # get sigma
-    raw_profile_diff = np.diff(y_profile)
-    diff_peaks = np.argpartition(np.abs(raw_profile_diff), -2)[-2:]
-    diff_width = np.abs(x_space[diff_peaks[1]] - x_space[diff_peaks[0]])
-    raw_sigma = diff_width / 2
-
-    return raw_amplitude, raw_c, raw_sigma
+def bivariate_gaussian_pdf_bkgg(xy, a, x0, y0, sigmax, sigmay, rho, bkg):
+    return a * np.exp(
+        -((1 / (2 * (1 - rho ** 2))) * ((xy[:, 0] - x0) ** 2 / sigmax ** 2 - 2 * rho * (xy[:, 0] - x0) * (
+                    xy[:, 1] - y0) / (sigmax * sigmay) +
+          (xy[:, 1] - y0) ** 2 / sigmay ** 2)
+          )
+    ) + bkg
 
 
-def fit_2d_gaussian_on_image(img, normalize=True, guess='center'):
+# ---
 
-    img_original = img
+# -------------------------------------------- FITTING FUNCTIONS -------------------------------------------------------
+
+
+def fit_2d_gaussian_on_image(img, normalize=True, guess='sigma_improved', rotate_degrees=0, bivariate_pdf=False):
+    if rotate_degrees != 0:
+        img = rotate(img, angle=rotate_degrees, reshape=False, mode='grid-constant', cval=np.percentile(img, 5))
 
     if normalize:
         img = img - img.min() + 1
@@ -100,7 +87,6 @@ def fit_2d_gaussian_on_image(img, normalize=True, guess='center'):
     elif guess == 'sigma_improved':
         guess_A, guess_c, guess_sigma = get_amplitude_center_sigma_improved(x_space=None, y_profile=None, img=img)
 
-
     # make grid
     X = np.arange(np.shape(img)[1])
     Y = np.arange(np.shape(img)[0])
@@ -116,8 +102,27 @@ def fit_2d_gaussian_on_image(img, normalize=True, guess='center'):
 
     # fit 2D gaussian
     guess = [guess_A, xc, yc, guess_sigma, guess_sigma]
+
     try:
-        if bounds is not None:
+        if bivariate_pdf is True and normalize is False:
+            guess = [guess_A, xc, yc, guess_sigma, guess_sigma, 0, 100]
+            try:
+                popt, pcov = curve_fit(bivariate_gaussian_pdf_bkg, XYZ[:, :2], XYZ[:, 2],
+                                       guess,
+                                       bounds=([0, 0, 0, 0, 0, -0.99, 0],
+                                               [2**16, 512, 512, 100, 100, 0.99, 2**16])
+                                       )
+            except ValueError:
+                j = 1
+            # NOTE: the below function is used to drop the background intensity 'bkg' from the results
+            # popt = popt[:-1]
+
+            # NOTE: on 11/21/22, I am changing the script to include the 'bkg' in order to calculate the rmse per fit.
+
+        elif bivariate_pdf:
+            guess = [guess_A, xc, yc, guess_sigma, guess_sigma, 0]
+            popt, pcov = curve_fit(bivariate_gaussian_pdf, XYZ[:, :2], XYZ[:, 2], guess)
+        elif bounds is not None:
             popt, pcov = curve_fit(gauss_2d_function, XYZ[:, :2], XYZ[:, 2], p0=guess, bounds=bounds)
         else:
             popt, pcov = curve_fit(gauss_2d_function, XYZ[:, :2], XYZ[:, 2], guess)
@@ -164,6 +169,12 @@ def fit_2d_gaussian_on_image(img, normalize=True, guess='center'):
 
 
 def fit_2d_gaussian_on_ccorr(res, xc, yc):
+    # xc_original = xc
+    # yc_original = yc
+
+    scaling_factor = 1
+    # res = rescale(res, scaling_factor)
+
     # make grid
     X = np.arange(np.shape(res)[1])
     Y = np.arange(np.shape(res)[0])
@@ -178,30 +189,179 @@ def fit_2d_gaussian_on_ccorr(res, xc, yc):
     XYZ = np.stack([Xf.flatten(), Yf.flatten(), Zf.flatten()]).T
 
     # fit 2D gaussian
-    guess = [1, xc, yc, 1.5, 1.5]
+    guess = [1, xc * scaling_factor, yc * scaling_factor, 1.5 * scaling_factor, 1.5 * scaling_factor]
 
     try:
         popt, pcov = curve_fit(gauss_2d_function, XYZ[:, :2], XYZ[:, 2], p0=guess)
         A, xc, yc, sigmax, sigmay = popt
+
+
+        """
+        popt, img_norm = processing.fit_2d_gaussian_on_image(img, normalize=True, bkg_mean=bkg_mean)
+        A, xc, yc, sigmax, sigmay = popt
+
+        # calculate the fit error
+        XYZ, fZ, rmse, r_squared, residuals = processing.evaluate_fit_2d_gaussian_on_image(img_norm, popt)
+        """
+
+        # xc = xc / scaling_factor
+        # yc = yc / scaling_factor
+
+        # 3D plot similarity map and 2D Gaussian fit
+        # evaluate_fit_gaussian_and_plot_3d(res, popt, scaling_factor)
+        # print("Original ({}, {}); Fitted ({}, {})".format(xc_original, yc_original, np.round(xc, 3), np.round(yc, 3)))
+
     except RuntimeError:
         xc, yc = None, None
 
     return xc, yc
 
 
-def fit_gaussian_calc_diameter(img, normalize=True):
-
-    popt = fit_2d_gaussian_on_image(img, normalize=normalize, guess='sigma_improved')
+def fit_gaussian_calc_diameter(img, normalize=True, rotate_degrees=0, bivariate_pdf=False):
+    popt = fit_2d_gaussian_on_image(img, normalize=normalize, guess='sigma_improved',
+                                    rotate_degrees=rotate_degrees, bivariate_pdf=bivariate_pdf)
 
     if popt is None:
-        return None, None, None, None, None, None, None
+        return None, None, None, None, None, None, None, None, None
+    elif len(popt) == 5:
+        popt = np.append(popt, None)
+        popt = np.append(popt, None)
 
-    A, xc, yc, sigmax, sigmay = popt
+    A, xc, yc, sigmax, sigmay, rho, bkg = popt
 
     dia_x, dia_y = calc_diameter_from_theory(img, A, xc, yc, sigmax, sigmay)
     # dia_x, dia_y = calc_diameter_from_pixel_intensities(img, A, xc, yc, sigmax, sigmay)
 
-    return dia_x, dia_y, A, yc, xc, sigmay, sigmax
+    return dia_x, dia_y, A, yc, xc, sigmay, sigmax, rho, bkg
+
+
+# ---
+
+# --------------------------------------------- EVALUATION FUNCTIONS ---------------------------------------------------
+
+def evaluate_fit_2d_gaussian_on_image(img, fit_func, popt):
+    """ XYZ, fZ, rmse, r_squared, residuals = evaluate_fit_2d_gaussian_on_image(img, fit_func, popt) """
+
+    XYZ = flatten_image(img)
+
+    # 2D Gaussian from fit
+    if fit_func == 'bivariate_pdf':
+        fZ = bivariate_gaussian_pdf_bkg(XYZ[:, :2], *popt)
+    else:
+        raise ValueError("Currently only 'bivariate_pdf' is implemented.")
+
+    # data used for fitting
+    img_arr = XYZ[:, 2]
+
+    # get residuals
+    residuals = calculate_residuals(fit_results=fZ, data_fit_to=img_arr)
+
+    # get goodness of fit
+    rmse, r_squared = calculate_fit_error(fit_results=fZ, data_fit_to=img_arr)
+
+    return XYZ, fZ, rmse, r_squared, residuals
+
+
+# ---
+
+# ----------------------------------------- HELPER EVALUATION FUNCTIONS ------------------------------------------------
+
+
+def calculate_residuals(fit_results, data_fit_to):
+    residuals = fit_results - data_fit_to
+    return residuals
+
+
+def calculate_fit_error(fit_results, data_fit_to, fit_func=None, fit_params=None, data_fit_on=None):
+    """
+    See 'gdpyt-analysis' for more details.
+    """
+
+    # --- calculate prediction errors
+    if fit_results is None:
+        fit_results = fit_func(data_fit_on, *fit_params)
+
+    residuals = calculate_residuals(fit_results, data_fit_to)
+
+    se = np.square(residuals)  # squared errors
+    mse = np.mean(se)  # mean squared errors
+    rmse = np.sqrt(mse)  # Root Mean Squared Error, RMSE
+    r_squared = 1.0 - (np.var(np.abs(residuals)) / np.var(data_fit_to))
+
+    return rmse, r_squared
+
+
+def flatten_image(img):
+    """ XYZ = flatten_image(img) """
+
+    # make grid
+    X = np.arange(np.shape(img)[1])
+    Y = np.arange(np.shape(img)[0])
+    X, Y = np.meshgrid(X, Y)
+
+    # flatten arrays
+    Xf = X.flatten()
+    Yf = Y.flatten()
+    Zf = img.flatten()
+
+    # stack for gaussian curve fitting
+    XYZ = np.stack([Xf.flatten(), Yf.flatten(), Zf.flatten()]).T
+
+    return XYZ
+
+
+# ---
+
+# --------------------------------------------- HELPER FUNCTIONS -------------------------------------------------------
+
+
+def get_amplitude_center_sigma_improved(x_space=None, y_profile=None, img=None):
+    """ raw_amplitude, raw_c, raw_sigma = get_amplitude_center_sigma_improved(x_space=None, y_profile=None, img=None) """
+    if y_profile is None:
+        y_slice = np.unravel_index(np.argmax(img, axis=None), img.shape)[0]
+        y_profile = img[y_slice, :]
+
+    if x_space is None:
+        x_space = np.arange(len(y_profile))
+
+    # get amplitude
+    raw_amplitude = y_profile.max() - y_profile.min()
+
+    # get center
+    raw_c = x_space[np.argmax(y_profile)]
+
+    # get sigma
+    y_pl_zero = len(np.where(y_profile[:np.argmax(y_profile)] - np.mean(y_profile) < 0)[0])
+    y_pr_zero = len(np.where(y_profile[np.argmax(y_profile):] - np.mean(y_profile) < 0)[0])
+
+    """y_pl_zero = np.where(y_profile[:np.argmax(y_profile)] - np.mean(y_profile) < 0)[0][0]
+    y_pr_zero = np.where(y_profile[np.argmax(y_profile):] - np.mean(y_profile) < 0)[0][0]"""
+    raw_sigma = np.mean([y_pl_zero, y_pr_zero])
+
+    return raw_amplitude, raw_c, raw_sigma
+
+
+def get_amplitude_center_sigma(x_space=None, y_profile=None, img=None, y_slice=None):
+    if y_profile is None:
+        # get sub-image slice
+        y_profile = img[y_slice, :]
+
+    if x_space is None:
+        x_space = np.arange(len(y_profile))
+
+    # get amplitude
+    raw_amplitude = y_profile.max() - y_profile.min()
+
+    # get center
+    raw_c = x_space[np.argmax(y_profile)]
+
+    # get sigma
+    raw_profile_diff = np.diff(y_profile)
+    diff_peaks = np.argpartition(np.abs(raw_profile_diff), -2)[-2:]
+    diff_width = np.abs(x_space[diff_peaks[1]] - x_space[diff_peaks[0]])
+    raw_sigma = diff_width / 2
+
+    return raw_amplitude, raw_c, raw_sigma
 
 
 def calc_diameter_from_theory(img, A, xc, yc, sigmax, sigmay):
@@ -229,8 +389,15 @@ def calc_diameter_from_theory(img, A, xc, yc, sigmax, sigmay):
     radius_x = x_arr[np.argmin(x_intensity_rel)]
     radius_y = y_arr[np.argmin(y_intensity_rel)]
 
-    dia_x = radius_x * 2
-    dia_y = radius_y * 2
+    """
+    Important Note:
+    You --DO NOT-- multiply the radius by two.
+        > This is because this particular location on a Gaussian distribution corresponds to the location on an 
+        Airy distribution that would be the radius. The location on the Airy distribution would be multiplied by 2
+        because it is the radius. However, for a Gaussian distribution, this point defines the diameter of the Airy disk
+    """
+    dia_x = radius_x
+    dia_y = radius_y
 
     # experimental slice
     """
@@ -288,7 +455,7 @@ def calc_diameter_from_pixel_intensities(img, A, xc, yc, sigmax, sigmay):
     y_profile_exp = img[y_slice_exp, :]
     x_space_exp = np.arange(len(y_profile_exp))
 
-    fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(12, 6))
+    """fig, (ax1, ax2) = plt.subplots(ncols=2, figsize=(12, 6))
     ax1.plot(x_space_exp, y_profile_exp)
     ax1.set_xlabel('image pixels')
     ax1.set_ylabel('image intensity')
@@ -297,15 +464,12 @@ def calc_diameter_from_pixel_intensities(img, A, xc, yc, sigmax, sigmay):
     ax2.set_xlabel('resampled pixels')
     ax2.set_ylabel('Gaussian intensity')
     ax2.legend()
-    plt.show()
-    j = 1
-
+    plt.show()"""
 
     return dia_x, dia_y
 
 
 def calculate_maximum_of_fitted_gaussian_1d(x, y, normalize=True, show_plot=False, ylabels=None):
-
     if isinstance(y, list):
         y_list = y
     else:
@@ -346,7 +510,7 @@ def calculate_maximum_of_fitted_gaussian_1d(x, y, normalize=True, show_plot=Fals
         x_maxs.append(xc)
 
         # resample
-        x_fit = np.linspace(x.min(), x.max(), len(x)*10)
+        x_fit = np.linspace(x.min(), x.max(), len(x) * 10)
         y_fit = gauss_1d_function(x_fit, *popt)
 
         # find x-value at maximum of fitted 1D Gaussian
@@ -370,7 +534,6 @@ def calculate_maximum_of_fitted_gaussian_1d(x, y, normalize=True, show_plot=Fals
 
 
 def calculate_minimum_of_fitted_gaussian_diameter(x, y, fit_function, guess_x0, show_plot=False):
-
     guess_c1, guess_c2 = 0.15, 0.65
 
     if isinstance(y, list):
@@ -398,9 +561,6 @@ def calculate_minimum_of_fitted_gaussian_diameter(x, y, fit_function, guess_x0, 
                                    bounds=([x.min(), 0, 0], [x.max(), 1, 1])
                                    )
         except RuntimeError:
-            popt = None
-
-        if popt is None:
             continue
 
         x0, c1, c2 = popt[0], popt[1], popt[2]
@@ -416,7 +576,7 @@ def calculate_minimum_of_fitted_gaussian_diameter(x, y, fit_function, guess_x0, 
         dia_zmaxs.append(y_fit[-1])
 
         if show_plot:
-            ax.scatter(x, y, color=data_colors[i], label=i+1)
+            ax.scatter(x, y, color=data_colors[i], label=y.name)
             ax.plot(x_fit, y_fit, color=fit_colors[i])
             ax.scatter(x_fit[np.argmin(y_fit)], np.min(y_fit), marker='*', color='red')
 
@@ -427,7 +587,6 @@ def calculate_minimum_of_fitted_gaussian_diameter(x, y, fit_function, guess_x0, 
         plt.tight_layout()
         plt.show()
 
-    x0_c1_c2s = np.array(x0_c1_c2s)
     dia_zfs = np.array(dia_zfs)
     dia_zmins = np.array(dia_zmins)
     dia_zmaxs = np.array(dia_zmaxs)
@@ -439,9 +598,11 @@ def calculate_minimum_of_fitted_gaussian_diameter(x, y, fit_function, guess_x0, 
 NOTE: the below script are all old (2021 and earlier)
 """
 
+
 # define 1D Gaussian
 def gaussian1D(x, a, x0, sigma):
-    return a*np.exp(-(x - x0) ** 2 / (2 * sigma ** 2))
+    return a * np.exp(-(x - x0) ** 2 / (2 * sigma ** 2))
+
 
 # define 2D Gaussian
 def gaussian2D(x, y, x0, y0, xalpha, yalpha, A):
@@ -454,7 +615,8 @@ def gaussian2D(x, y, x0, y0, xalpha, yalpha, A):
     yalpha: y-size of principal axis
     A: amplitude
     """
-    return A * np.exp(-((x-x0)/xalpha)**2 -((y-y0)/yalpha)**2)
+    return A * np.exp(-((x - x0) / xalpha) ** 2 - ((y - y0) / yalpha) ** 2)
+
 
 # define the callable that is passed to curve_fit
 def _gaussian2D(M, *args):
@@ -468,9 +630,10 @@ def _gaussian2D(M, *args):
     """
     x, y = M
     arr = np.zeros(x.shape)
-    for i in range(len(args)//5):
-       arr += gaussian2D(x, y, *args[i*5:i*5+5])
+    for i in range(len(args) // 5):
+        arr += gaussian2D(x, y, *args[i * 5:i * 5 + 5])
     return arr
+
 
 def fit(image, guess_params, fx=1, fy=1, pad=4):
     """
@@ -536,6 +699,7 @@ def fit(image, guess_params, fx=1, fy=1, pad=4):
 
     return image, popt, pcov, X, Y, rms, pad
 
+
 def fit_results(image, X, Y, popt):
     """
     image: image to fit
@@ -546,16 +710,18 @@ def fit_results(image, X, Y, popt):
     """
     fitted = np.zeros(image.shape)
     for i in range(len(popt) // 5):
-        fitted += gaussian2D(X, Y, *popt[i*5:i*5+5])
+        fitted += gaussian2D(X, Y, *popt[i * 5:i * 5 + 5])
     rms = np.sqrt(np.mean((image - fitted) ** 2))
 
     return fitted, rms
+
 
 def plot_2D_image(image):
     fig, ax = plt.subplots()
     ax.imshow(image, cmap='viridis', origin='lower')
     ax.scatter(7, 14, marker='X', color='blue')
     return fig
+
 
 def plot_3D_image(X, Y, image):
     fig = plt.figure()
@@ -564,6 +730,7 @@ def plot_3D_image(X, Y, image):
     ax.set_zlim(0, np.max(image) + 2)
     return fig
 
+
 def plot_3D_fit(X, Y, image, fit):
     fig = plt.figure()
     ax = plt.figure().add_subplot(projection='3d')
@@ -571,6 +738,7 @@ def plot_3D_fit(X, Y, image, fit):
     cset = ax.contourf(X, Y, image - fit, zdir='z', offset=-4, cmap='viridis')
     ax.set_zlim(-4, np.max(fit))
     return fig
+
 
 def plot_2D_image_contours(particle, X, Y, guess_params=None, good_fit='black', pad=2):
     """
@@ -615,7 +783,8 @@ def plot_2D_image_contours(particle, X, Y, guess_params=None, good_fit='black', 
 
         # plot location of center
         ax.scatter(xc, yc, s=100, marker='*', color=good_fit, alpha=0.5, label=r'$p_{xc,yc}$' +
-                                                                                      '(Ampl.={})'.format(int(np.round(A, -1))))
+                                                                               '(Ampl.={})'.format(
+                                                                                   int(np.round(A, -1))))
         ax.axvline(x=xc, color=good_fit, alpha=0.35, linestyle='--')
         ax.axhline(y=yc, color=good_fit, alpha=0.35, linestyle='--')
 
@@ -623,24 +792,28 @@ def plot_2D_image_contours(particle, X, Y, guess_params=None, good_fit='black', 
         sigmas = [1, 2]
         for sigma in sigmas:
             if sigma * 0.7 * alphax < float(np.shape(image)[0]) and sigma * 0.7 * ay < float(np.shape(image)[1]):
-                ellipse = Ellipse(xy=(xc, yc), width=alphax*sigma, height=ay*sigma, fill=False,
-                                  color='black', alpha=0.75/sigma, label=r'$\sigma_{x,y}$' +
-                                  str(sigma)+'=({}, {})'.format(np.round(sigma * alphax, 1), np.round(sigma * ay, 1)))
+                ellipse = Ellipse(xy=(xc, yc), width=alphax * sigma, height=ay * sigma, fill=False,
+                                  color='black', alpha=0.75 / sigma, label=r'$\sigma_{x,y}$' +
+                                                                           str(sigma) + '=({}, {})'.format(
+                        np.round(sigma * alphax, 1), np.round(sigma * ay, 1)))
                 ax.add_patch(ellipse)
 
-        ax.set_title(r'$p_{xc, yc}$' + '(sub-pix) = ({}, {}) \n center = {}, {}'.format(particle.location[0], particle.location[1], np.round(xc, 2), np.round(yc, 2)))
+        ax.set_title(r'$p_{xc, yc}$' + '(sub-pix) = ({}, {}) \n center = {}, {}'.format(particle.location[0],
+                                                                                        particle.location[1],
+                                                                                        np.round(xc, 2),
+                                                                                        np.round(yc, 2)))
 
     ax.set_xlim([0, image.shape[0] - 0.5])
     ax.set_ylim([0, image.shape[1] - 0.5])
-    ax.legend(fontsize=10, bbox_to_anchor=(1, 1), loc='upper left',)
+    ax.legend(fontsize=10, bbox_to_anchor=(1, 1), loc='upper left', )
 
     # Major ticks
-    ax.set_xticks(np.arange(0, image.shape[0]+1, 2))
-    ax.set_yticks(np.arange(0, image.shape[1]+1, 2))
+    ax.set_xticks(np.arange(0, image.shape[0] + 1, 2))
+    ax.set_yticks(np.arange(0, image.shape[1] + 1, 2))
 
     # Labels for major ticks
-    ax.set_xticklabels(np.arange(0, image.shape[0]+1, 2))
-    ax.set_yticklabels(np.arange(0, image.shape[0]+1, 2))
+    ax.set_xticklabels(np.arange(0, image.shape[0] + 1, 2))
+    ax.set_yticklabels(np.arange(0, image.shape[0] + 1, 2))
 
     # Minor ticks
     ax.set_xticks(np.arange(-0.5, image.shape[0], 1), minor=True)
